@@ -1,4 +1,14 @@
-# NIST Open-Source Software Repository Template
+A python module for analysis and visualization of complex-valued waveforms.
+
+## Setup and install
+#### Python environment
+This code is being developed in an anaconda python 3.9 environment, of vintage late 2021. The code is in progress and has not been evaluated for version compatibility.
+
+Install the (possibly incomplete) list of dependencies by cloning the repository, navigating in, and entering the following:
+
+```sh
+    pip install -r REQUIREMENTS.txt
+```
 
 This is the recommended template for NIST employees to use for new
 open-source software repositories. To use it, please click on the
