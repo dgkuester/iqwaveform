@@ -34,7 +34,7 @@ if __name__ == "__main__":
     import sys
     from glob import glob
 
-    sys.path.insert(0, "./src")
+    sys.path.insert(0, "./iqwaveform")
     from _version import __version__
 
     PLATFORM_REQUIRES_EXTRAS = []
