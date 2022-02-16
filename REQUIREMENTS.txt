@@ -1,6 +1,0 @@
-pandas>=1.1
-scipy
-numpy
-seaborn
-labbench
-# mkl_fft

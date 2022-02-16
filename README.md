@@ -4,17 +4,20 @@ A python module for analysis and visualization of complex-valued waveforms.
 #### Python environment
 This code is being developed in an anaconda python 3.9 environment, of vintage late 2021. The code is in progress and has not been evaluated for version compatibility.
 
-Install the (possibly incomplete) list of dependencies by cloning the repository, navigating in, and entering the following:
+Install the (possibly incomplete) list of dependencies by cloning the repository, navigating in, and entering one of the following:
 
 ```sh
-    pip install -r REQUIREMENTS.txt
+    pip install git+https://github.com/usnistgov/iqwaveform
 ```
 
-This is the recommended template for NIST employees to use for new
-open-source software repositories. To use it, please click on the
-green "Use this template" button at the top of the [page][gh-rep].
+OR
 
-## Requirements to post public repositories to [usnistgov][gh-nst]
+```sh
+    pip install <path to local copy of repository>
+```
+
+
+## Future work: Requirements to post public repositories to [usnistgov][gh-nst]
 
 Use of this resource by NIST employees is subject to the
 [Rules of Behavior for GitHub (PDF)][gh-rob]. For details, please
