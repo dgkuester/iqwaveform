@@ -367,37 +367,6 @@ def channelize_power(
         return freqs[0], times, channel_power
 
 
-def channel_power_leakage_dBc(spg, bandwidth, min_power=None):
-    """this will be removed soon"""
-    bins_per_channel = int(np.rint(bandwidth / (spg.columns[1] - spg.columns[0])))
-    x = spg.values
-    # if x.shape[1]%bins_per_channel == 1:
-    #     x = x[:,1:]
-
-    if spg.shape[0] == 1:
-        # truncate if this is a single
-        x = x[:, : (x.shape[1] // bins_per_channel) * bins_per_channel]
-    elif spg.shape[1] % bins_per_channel == 2:
-        x = x[:, 1:-1]
-
-    try:
-        Pch = x.reshape(
-            x.shape[0], x.shape[1] // bins_per_channel, bins_per_channel
-        ).sum(axis=2)
-    except ValueError:
-        print(x.shape)
-        raise
-
-    if min_power is not None:
-        Pch = Pch[Pch[:, Pch.shape[1] // 2] > min_power]
-    Pch_rel = Pch / Pch[:, Pch.shape[1] // 2, np.newaxis]
-
-    ret = pd.Series(power_analysis.powtodB(Pch_rel.mean(axis=0)),)
-    ret.index.name = "Channel # offset"
-    ret.index = ret.index - len(ret.index) // 2
-    return ret
-
-
 def iq_to_stft_spectrogram(iq, window, Ts, overlap=True, analysis_bandwidth=None):
     fft_size = len(window)
 
