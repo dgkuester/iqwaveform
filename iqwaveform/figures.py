@@ -2,6 +2,140 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy import stats
+from .power_analysis import powtodB, dBtopow
+
+class GammaMaxNLocator(mpl.ticker.MaxNLocator):
+    """ The ticker locator for linearized gamma-distributed survival functions """
+    def __init__(self, transform, nbins=None, minor=False):
+        self._transform = transform
+        self._minor = minor
+        super().__init__(nbins)
+
+    def __call__(self):
+        dmin, dmax = self.axis.get_data_interval()
+        vmin, vmax = self.axis.get_view_interval()
+        return self.tick_values(max(vmin, dmin), min(vmax, dmax))
+
+    def tick_values(self, vmin, vmax):
+        vmin, vmax = min((vmin,vmax)), max((vmin,vmax))
+        vmin, vmax = self.limit_range_for_scale(vmin, vmax, 1e-7)
+        vth_lo = 0.15
+        vth_hi = 0.75
+
+        # compute bounds in the transformed space so that they can be roughly evenly spaced
+        tmin = self._transform.transform(vmin)
+        tmax = self._transform.transform(vmax)
+        tth_lo = self._transform.transform(vth_lo)
+        tth_hi = self._transform.transform(vth_hi)
+
+        # the lo and hi regions will be logarithmically spaced; the middle linear
+        counts_lo = int(max(0,np.ceil(self._nbins * (tth_lo-tmin)/(tmax-tmin))))
+        counts_hi = int(max(0,np.ceil(self._nbins * (tmax-tth_hi)/(tmax-tmin))))
+        counts_mid = self._nbins - (counts_lo+counts_hi)
+
+        # now compute round tick locations in the original space (0 to 1)
+        ticks = []
+        if counts_lo > 0:
+            if self._minor:
+                lo_locator = mpl.ticker.LogLocator(base=10.0, subs=(1.0,3), numticks=counts_lo)
+                ticks.append(lo_locator.tick_values(vmin, 0.1))
+            else:
+                ticks.append(np.logspace(-(counts_lo),-1,counts_lo))
+
+        if counts_mid > 0 and not self._minor:
+            mid_locator = mpl.ticker.MaxNLocator(nbins=int(np.ceil(counts_mid/2)), steps=[1,2,2.5,5,10])
+            ticks.append(mid_locator.tick_values(vth_lo, 0.5))
+            ticks.append(mid_locator.tick_values(0.5, vth_hi))
+
+        if counts_hi > 0:
+            if self._minor:
+                hi_locator = mpl.ticker.LogLocator(base=10.0, subs=(1.0,2,3,5), numticks=counts_hi)
+                ticks.append(1-hi_locator.tick_values(1-0.9, 1-vmax))
+            else:
+                ticks.append([0.9])
+                if counts_hi > 1:
+                    ticks.append([0.95])
+                if counts_hi > 2:
+                    ticks.append(1-np.logspace(-1,-(counts_hi-2),counts_hi-2))
+
+        ticks = np.concatenate(ticks)
+        ticks = np.unique(ticks)
+
+        if self._minor:
+            ticks = ticks[(ticks < 0.2)|(ticks > 0.85)]
+        return ticks
+
+    def get_transform(self):
+        return self._transform
+
+    def limit_range_for_scale(self, vmin, vmax, minpos):
+        """Limit the domain to positive values."""
+        vmin, vmax = min((vmin,vmax)), max((vmin,vmax))
+
+        if not np.isfinite(minpos):
+            minpos = 1e-12  # Should rarely (if ever) have a visible effect.
+
+        ret = (minpos if vmin <= minpos else vmin,
+                1.-np.sqrt(minpos) if vmax >= 1-np.sqrt(minpos) else vmax)
+
+        self.axis.set_view_interval(ret[1], ret[0], True)
+        # self.axis.set_data_interval(ret[1], ret[0], True)
+
+        return ret
+
+    def view_limits(self, vmin, vmax):
+        vmin, vmax = self.nonsingular(vmin, vmax)
+        return vmin, vmax
+
+
+class GammaSFScale(mpl.scale.FuncScale):
+    """ A transformed scale that linearizes Gamma-distributed survival functions when the
+    independent axis is log-scaled (e.g., dB).
+    
+    Suggested usage:
+    
+    ```
+        from iqwaveform import figures
+        
+        plot(10*np.log10(bins), sf)
+        
+        ax.set_scale('gamma-sf', k=10, theta=1e-10)
+    ```
+    """
+    name = 'gamma-sf'
+
+    def __init__(self, axis, *, k, theta, major_ticks=10, minor_ticks=25, db_x=True):
+        def forward(q):
+            ret = stats.gamma.isf(q, a=k, scale=theta)
+            if db_x:
+                ret = powtodB(ret)
+            return ret
+
+        def inverse(x):
+            if db_x:
+                x = dBtopow(x)
+            ret = 1-stats.gamma.sf(x, a=k, scale=theta)
+            return ret
+
+        transform = mpl.scale.FuncTransform(forward=forward, inverse=inverse)
+        self._major_locator = GammaMaxNLocator(transform=transform, nbins=major_ticks)
+        
+        if minor_ticks is not None:
+            self._minor_locator = GammaMaxNLocator(transform=transform, nbins=minor_ticks, minor=True)
+        else:
+            self._minor_locator = None
+
+        super().__init__(axis, (forward,inverse))
+    
+    def set_default_locators_and_formatters(self, axis):
+        axis.set_major_locator(self._major_locator)
+
+        if self._minor_locator is not None:
+            axis.set_minor_locator(self._minor_locator)
+
+mpl.scale.register_scale(GammaSFScale)
+
 
 def contiguous_segments(df, index_level, threshold=7, relative=True):
     """Split `df` into a list of DataFrames for which the index values
