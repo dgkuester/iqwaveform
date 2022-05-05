@@ -156,6 +156,30 @@ def unstack_to_2d_blocks(pvt: pd.Series, Tblock: float) -> pd.DataFrame:
     return df
 
 
+def sample_ccdf(a: np.array, edges: np.array, density:bool=True) -> np.array:
+    """ compute the sample CCDF on the values of a using the specified ordinal (bin) edge values.
+
+    If `density` is True, values will be normalized so that ccdf
+
+    Arguments:
+        density (bool)
+
+    Returns:
+        an array of 
+    """
+
+    # 'left' makes the bin interval open-ended on the left side
+    # (the CCDF is "number of samples exceeding interval", and not equal to)
+    edge_inds = np.searchsorted(edges, a, side='left')
+    bin_counts = np.bincount(edge_inds, minlength=edges.size+1)
+    ccdf = (1-bin_counts.cumsum()/a.size)[:-1]
+
+    if density:
+        ccdf *= a.size
+
+    return ccdf
+
+
 def hist_laxis(x: np.ndarray, n_bins: int, range_limits: tuple) -> np.ndarray:
     """Computes a histogram along the last axis of an input array.
 
