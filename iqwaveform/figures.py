@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 from .power_analysis import powtodB, dBtopow
+from functools import lru_cache
 
 class GammaMaxNLocator(mpl.ticker.MaxNLocator):
     """ The ticker locator for linearized gamma-distributed survival functions """
@@ -17,6 +18,7 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
         vmin, vmax = self.axis.get_view_interval()
         return self.tick_values(max(vmin, dmin), min(vmax, dmax))
 
+    @lru_cache
     def tick_values(self, vmin, vmax):
         vmin, vmax = min((vmin,vmax)), max((vmin,vmax))
         vmin, vmax = self.limit_range_for_scale(vmin, vmax, 1e-7)
@@ -61,9 +63,12 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
 
         ticks = np.concatenate(ticks)
         ticks = np.unique(ticks)
+        if 0. in ticks:
+            ticks = ticks[1:]
 
         if self._minor:
             ticks = ticks[(ticks < 0.2)|(ticks > 0.85)]
+
         return ticks
 
     def get_transform(self):
@@ -89,7 +94,34 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
         return vmin, vmax
 
 
-class GammaSFScale(mpl.scale.FuncScale):
+class GammaLogitFormatter(mpl.ticker.LogitFormatter):
+    """ A text formatter for probability labels on the GammaCCDF scale """
+        
+    def __call__(self, x, pos=None):
+        if self._minor and x not in self._labelled:
+            return ""
+        if x <= 0 or x >= 1:
+            return ""
+        if mpl.ticker.is_close_to_int(2 * x) and round(2 * x) == 1:
+            s = self._one_half
+        elif x < 0.1 and mpl.ticker.is_decade(x, rtol=1e-7):
+            exponent = round(np.log10(x))
+            s = "10^{%d}" % exponent
+        elif x > 0.9 and mpl.ticker.is_decade(1 - x, rtol=1e-7):
+            exponent = round(np.log10(1 - x))
+            s = self._one_minus("10^{%d}" % exponent)
+        elif x < 0.05:
+            s = self._format_value(x, self.locs)
+        elif x > 0.98:
+            s = self._one_minus(self._format_value(1-x, 1-self.locs))
+        elif x in (0.1, 0.9):
+            s = str(x)
+        else:
+            s = self._format_value(x, self.locs, sci_notation=False)
+        return r"$\mathdefault{%s}$" % s
+
+
+class GammaCCDFScale(mpl.scale.FuncScale):
     """ A transformed scale that linearizes Gamma-distributed survival functions when the
     independent axis is log-scaled (e.g., dB).
     
@@ -100,27 +132,30 @@ class GammaSFScale(mpl.scale.FuncScale):
         
         plot(10*np.log10(bins), sf)
         
-        ax.set_scale('gamma-sf', k=10, theta=1e-10)
-    ```
-    """
-    name = 'gamma-sf'
+        ax.set_scale('gamma-ccdf', k=10)
 
-    def __init__(self, axis, *, k, theta, major_ticks=10, minor_ticks=25, db_x=True):
+    ```
+    In power measurements, the shape parameter `k` should be set equal to the number of averaged power samples.
+
+    """
+    name = 'gamma-ccdf'
+
+    def __init__(self, axis, *, k, major_ticks=10, minor_ticks=None, db_ordinal=True):
         def forward(q):
-            ret = stats.gamma.isf(q, a=k, scale=theta)
-            if db_x:
-                ret = powtodB(ret)
-            return ret
+            x = stats.gamma.isf(q, a=k, scale=1)
+            if db_ordinal:
+                x = powtodB(x)
+            return x
 
         def inverse(x):
-            if db_x:
+            if db_ordinal:
                 x = dBtopow(x)
-            ret = 1-stats.gamma.sf(x, a=k, scale=theta)
-            return ret
+            q = 1-stats.gamma.sf(x, a=k, scale=1)
+            return q
 
         transform = mpl.scale.FuncTransform(forward=forward, inverse=inverse)
         self._major_locator = GammaMaxNLocator(transform=transform, nbins=major_ticks)
-        
+
         if minor_ticks is not None:
             self._minor_locator = GammaMaxNLocator(transform=transform, nbins=minor_ticks, minor=True)
         else:
@@ -134,7 +169,9 @@ class GammaSFScale(mpl.scale.FuncScale):
         if self._minor_locator is not None:
             axis.set_minor_locator(self._minor_locator)
 
-mpl.scale.register_scale(GammaSFScale)
+        axis.set_major_formatter(GammaLogitFormatter(one_half='0.5'))
+
+mpl.scale.register_scale(GammaCCDFScale)
 
 
 def contiguous_segments(df, index_level, threshold=7, relative=True):
@@ -402,9 +439,6 @@ def plot_power_histogram_heatmap(
 
     else:
         c = pcolormesh_df(rolling_histogram.T, **pc_kws)
-
-        # print(rolling_histogram.index[0])
-        # raise ValueError(f"unrecognized Time index type {index_type}")
 
     if cbar and not log_counts:
         cb = fig.colorbar(

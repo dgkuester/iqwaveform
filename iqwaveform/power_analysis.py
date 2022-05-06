@@ -174,7 +174,7 @@ def sample_ccdf(a: np.array, edges: np.array, density:bool=True) -> np.array:
     bin_counts = np.bincount(edge_inds, minlength=edges.size+1)
     ccdf = (1-bin_counts.cumsum()/a.size)[:-1]
 
-    if density:
+    if not density:
         ccdf *= a.size
 
     return ccdf
