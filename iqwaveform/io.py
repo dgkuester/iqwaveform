@@ -6,6 +6,7 @@ import json
 from scipy import signal
 from pathlib import Path
 
+
 def read_sigmf_iq_metadata(metadata_fn) -> tuple((pd.DataFrame, float)):
     with open(metadata_fn, "r") as fd:
         metadata = json.load(fd)

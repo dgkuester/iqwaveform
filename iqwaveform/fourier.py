@@ -8,11 +8,6 @@ from functools import partial
 
 CPU_COUNT = cpu_count()
 
-## Uncomment to monkeypatch scipy.fft to use mkl_fft
-# import mkl_fft
-# scipy.fft.fft = mkl_fft.fft
-# scipy.fft.ifft = mkl_fft.ifft
-
 fft = partial(scipy.fft.fft, workers=CPU_COUNT // 2, overwrite_x=True)
 ifft = partial(scipy.fft.ifft, workers=CPU_COUNT // 2, overwrite_x=True)
 
@@ -418,7 +413,7 @@ def time_to_frequency(iq, Ts, window=None, axis=0):
 def _len_guards(M):
     """Handle small or incorrect window lengths"""
     if int(M) != M or M < 0:
-        raise ValueError('Window length M must be a non-negative integer')
+        raise ValueError("Window length M must be a non-negative integer")
     return M <= 1
 
 
@@ -513,24 +508,25 @@ def taylor(M, nbar=4, sll=30, norm=True, sym=True):
     # Original text uses a negative sidelobe level parameter and then negates
     # it in the calculation of B. To keep consistent with other methods we
     # assume the sidelobe level parameter to be positive.
-    B = 10**(sll / 20)
+    B = 10 ** (sll / 20)
     A = np.arccosh(B) / np.pi
-    s2 = nbar**2 / (A**2 + (nbar - 0.5)**2)
+    s2 = nbar ** 2 / (A ** 2 + (nbar - 0.5) ** 2)
     ma = np.arange(1, nbar)
 
-    Fm = np.empty(nbar-1)
+    Fm = np.empty(nbar - 1)
     signs = np.empty_like(ma)
     signs[::2] = 1
     signs[1::2] = -1
-    m2 = ma*ma
+    m2 = ma * ma
     for mi, m in enumerate(ma):
-        numer = signs[mi] * np.prod(1 - m2[mi]/s2/(A**2 + (ma - 0.5)**2))
-        denom = 2 * np.prod(1 - m2[mi]/m2[:mi]) * np.prod(1 - m2[mi]/m2[mi+1:])
+        numer = signs[mi] * np.prod(1 - m2[mi] / s2 / (A ** 2 + (ma - 0.5) ** 2))
+        denom = 2 * np.prod(1 - m2[mi] / m2[:mi]) * np.prod(1 - m2[mi] / m2[mi + 1 :])
         Fm[mi] = numer / denom
 
     def W(n):
-        return 1 + 2*np.dot(Fm, np.cos(
-            2*np.pi*ma[:, np.newaxis]*(n-M/2.+0.5)/M))
+        return 1 + 2 * np.dot(
+            Fm, np.cos(2 * np.pi * ma[:, np.newaxis] * (n - M / 2.0 + 0.5) / M)
+        )
 
     w = W(np.arange(M))
 
@@ -541,9 +537,11 @@ def taylor(M, nbar=4, sll=30, norm=True, sym=True):
 
     return _truncate(w, needs_trunc)
 
+
 import numpy as np
 
 from scipy import special
+
 
 def knab(M, alpha, sym=True):
     if _len_guards(M):
@@ -552,13 +550,14 @@ def knab(M, alpha, sym=True):
 
     t = np.linspace(-0.5, 0.5, M)
 
-    sqrt_term = np.sqrt(1-(2*t)**2)
-    w = np.sinh((np.pi*alpha)*sqrt_term)/(np.sinh(np.pi*alpha)*sqrt_term)
-    
-    w[0] = w[-1] = np.pi*alpha/np.sinh(np.pi*alpha)
-    w /= np.sqrt(np.sum(w**2))
+    sqrt_term = np.sqrt(1 - (2 * t) ** 2)
+    w = np.sinh((np.pi * alpha) * sqrt_term) / (np.sinh(np.pi * alpha) * sqrt_term)
+
+    w[0] = w[-1] = np.pi * alpha / np.sinh(np.pi * alpha)
+    w /= np.sqrt(np.sum(w ** 2))
 
     return _truncate(w, needs_trunc)
+
 
 def modified_bessel(M, alpha, sym=True):
     if _len_guards(M):
@@ -567,14 +566,17 @@ def modified_bessel(M, alpha, sym=True):
 
     t = np.linspace(-0.5, 0.5, M)
 
-    sqrt_term = np.sqrt(1-(2*t)**2)
-    w = special.i1((np.pi*alpha)*sqrt_term)/(special.i1(np.pi*alpha)*sqrt_term)
-    
-    w[0] = w[-1] = 0#np.pi*alpha/np.sinh(np.pi*alpha)
+    sqrt_term = np.sqrt(1 - (2 * t) ** 2)
+    w = special.i1((np.pi * alpha) * sqrt_term) / (
+        special.i1(np.pi * alpha) * sqrt_term
+    )
 
-    w /= np.sqrt(np.sum(w**2))
+    w[0] = w[-1] = 0  # np.pi*alpha/np.sinh(np.pi*alpha)
+
+    w /= np.sqrt(np.sum(w ** 2))
 
     return _truncate(w, needs_trunc)
+
 
 def cosh(M, alpha, sym=True):
     if _len_guards(M):
@@ -583,12 +585,12 @@ def cosh(M, alpha, sym=True):
 
     t = np.linspace(-0.5, 0.5, M)
 
-    sqrt_term = np.sqrt(1-(2*t)**2)
-    w = np.cosh((np.pi*alpha)*sqrt_term)/(np.cosh(np.pi*alpha)*sqrt_term)
-    
-    w[0] = w[-1] = 1/np.cosh(np.pi*alpha)
+    sqrt_term = np.sqrt(1 - (2 * t) ** 2)
+    w = np.cosh((np.pi * alpha) * sqrt_term) / (np.cosh(np.pi * alpha) * sqrt_term)
 
-    w /= np.sqrt(np.sum(w**2))
+    w[0] = w[-1] = 1 / np.cosh(np.pi * alpha)
+
+    w /= np.sqrt(np.sum(w ** 2))
 
     return _truncate(w, needs_trunc)
 
@@ -600,11 +602,13 @@ def modified_bessel(M, alpha, sym=True):
 
     t = np.linspace(-0.5, 0.5, M)
 
-    sqrt_term = np.sqrt(1-(2*t)**2)
-    w = special.i1((np.pi*alpha)*sqrt_term)/(special.i1(np.pi*alpha)*sqrt_term)
-    
-    w[0] = w[-1] = 0#np.pi*alpha/np.sinh(np.pi*alpha)
+    sqrt_term = np.sqrt(1 - (2 * t) ** 2)
+    w = special.i1((np.pi * alpha) * sqrt_term) / (
+        special.i1(np.pi * alpha) * sqrt_term
+    )
 
-    w /= np.sqrt(np.sum(w**2))
+    w[0] = w[-1] = 0  # np.pi*alpha/np.sinh(np.pi*alpha)
+
+    w /= np.sqrt(np.sum(w ** 2))
 
     return _truncate(w, needs_trunc)

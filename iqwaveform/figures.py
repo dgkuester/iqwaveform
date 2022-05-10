@@ -6,8 +6,10 @@ from scipy import stats
 from .power_analysis import powtodB, dBtopow
 from functools import lru_cache
 
+
 class GammaMaxNLocator(mpl.ticker.MaxNLocator):
-    """ The ticker locator for linearized gamma-distributed survival functions """
+    """The ticker locator for linearized gamma-distributed survival functions"""
+
     def __init__(self, transform, nbins=None, minor=False):
         self._transform = transform
         self._minor = minor
@@ -20,7 +22,7 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
 
     @lru_cache
     def tick_values(self, vmin, vmax):
-        vmin, vmax = min((vmin,vmax)), max((vmin,vmax))
+        vmin, vmax = min((vmin, vmax)), max((vmin, vmax))
         vmin, vmax = self.limit_range_for_scale(vmin, vmax, 1e-7)
         vth_lo = 0.15
         vth_hi = 0.75
@@ -32,42 +34,48 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
         tth_hi = self._transform.transform(vth_hi)
 
         # the lo and hi regions will be logarithmically spaced; the middle linear
-        counts_lo = int(max(0,np.ceil(self._nbins * (tth_lo-tmin)/(tmax-tmin))))
-        counts_hi = int(max(0,np.ceil(self._nbins * (tmax-tth_hi)/(tmax-tmin))))
-        counts_mid = self._nbins - (counts_lo+counts_hi)
+        counts_lo = int(max(0, np.ceil(self._nbins * (tth_lo - tmin) / (tmax - tmin))))
+        counts_hi = int(max(0, np.ceil(self._nbins * (tmax - tth_hi) / (tmax - tmin))))
+        counts_mid = self._nbins - (counts_lo + counts_hi)
 
         # now compute round tick locations in the original space (0 to 1)
         ticks = []
         if counts_lo > 0:
             if self._minor:
-                lo_locator = mpl.ticker.LogLocator(base=10.0, subs=(1.0,3), numticks=counts_lo)
+                lo_locator = mpl.ticker.LogLocator(
+                    base=10.0, subs=(1.0, 3), numticks=counts_lo
+                )
                 ticks.append(lo_locator.tick_values(vmin, 0.1))
             else:
-                ticks.append(np.logspace(-(counts_lo),-1,counts_lo))
+                ticks.append(np.logspace(-(counts_lo), -1, counts_lo))
 
         if counts_mid > 0 and not self._minor:
-            mid_locator = mpl.ticker.MaxNLocator(nbins=int(np.ceil(counts_mid/2)), steps=[1,2,2.5,5,10])
+            mid_locator = mpl.ticker.MaxNLocator(
+                nbins=int(np.ceil(counts_mid / 2)), steps=[1, 2, 2.5, 5, 10]
+            )
             ticks.append(mid_locator.tick_values(vth_lo, 0.5))
             ticks.append(mid_locator.tick_values(0.5, vth_hi))
 
         if counts_hi > 0:
             if self._minor:
-                hi_locator = mpl.ticker.LogLocator(base=10.0, subs=(1.0,2,3,5), numticks=counts_hi)
-                ticks.append(1-hi_locator.tick_values(1-0.9, 1-vmax))
+                hi_locator = mpl.ticker.LogLocator(
+                    base=10.0, subs=(1.0, 2, 3, 5), numticks=counts_hi
+                )
+                ticks.append(1 - hi_locator.tick_values(1 - 0.9, 1 - vmax))
             else:
                 ticks.append([0.9])
                 if counts_hi > 1:
                     ticks.append([0.95])
                 if counts_hi > 2:
-                    ticks.append(1-np.logspace(-1,-(counts_hi-2),counts_hi-2))
+                    ticks.append(1 - np.logspace(-1, -(counts_hi - 2), counts_hi - 2))
 
         ticks = np.concatenate(ticks)
         ticks = np.unique(ticks)
-        if 0. in ticks:
+        if 0.0 in ticks:
             ticks = ticks[1:]
 
         if self._minor:
-            ticks = ticks[(ticks < 0.2)|(ticks > 0.85)]
+            ticks = ticks[(ticks < 0.2) | (ticks > 0.85)]
 
         return ticks
 
@@ -76,13 +84,15 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
 
     def limit_range_for_scale(self, vmin, vmax, minpos):
         """Limit the domain to positive values."""
-        vmin, vmax = min((vmin,vmax)), max((vmin,vmax))
+        vmin, vmax = min((vmin, vmax)), max((vmin, vmax))
 
         if not np.isfinite(minpos):
             minpos = 1e-12  # Should rarely (if ever) have a visible effect.
 
-        ret = (minpos if vmin <= minpos else vmin,
-                1.-np.sqrt(minpos) if vmax >= 1-np.sqrt(minpos) else vmax)
+        ret = (
+            minpos if vmin <= minpos else vmin,
+            1.0 - np.sqrt(minpos) if vmax >= 1 - np.sqrt(minpos) else vmax,
+        )
 
         self.axis.set_view_interval(ret[1], ret[0], True)
         # self.axis.set_data_interval(ret[1], ret[0], True)
@@ -95,8 +105,8 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
 
 
 class GammaLogitFormatter(mpl.ticker.LogitFormatter):
-    """ A text formatter for probability labels on the GammaCCDF scale """
-        
+    """A text formatter for probability labels on the GammaCCDF scale"""
+
     def __call__(self, x, pos=None):
         if self._minor and x not in self._labelled:
             return ""
@@ -113,7 +123,7 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
         elif x < 0.05:
             s = self._format_value(x, self.locs)
         elif x > 0.98:
-            s = self._one_minus(self._format_value(1-x, 1-self.locs))
+            s = self._one_minus(self._format_value(1 - x, 1 - self.locs))
         elif x in (0.1, 0.9):
             s = str(x)
         else:
@@ -122,23 +132,24 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
 
 
 class GammaCCDFScale(mpl.scale.FuncScale):
-    """ A transformed scale that linearizes Gamma-distributed survival functions when the
+    """A transformed scale that linearizes Gamma-distributed survival functions when the
     independent axis is log-scaled (e.g., dB).
-    
+
     Suggested usage:
-    
+
     ```
         from iqwaveform import figures
-        
+
         plot(10*np.log10(bins), sf)
-        
+
         ax.set_scale('gamma-ccdf', k=10)
 
     ```
     In power measurements, the shape parameter `k` should be set equal to the number of averaged power samples.
 
     """
-    name = 'gamma-ccdf'
+
+    name = "gamma-ccdf"
 
     def __init__(self, axis, *, k, major_ticks=10, minor_ticks=None, db_ordinal=True):
         def forward(q):
@@ -150,26 +161,29 @@ class GammaCCDFScale(mpl.scale.FuncScale):
         def inverse(x):
             if db_ordinal:
                 x = dBtopow(x)
-            q = 1-stats.gamma.sf(x, a=k, scale=1)
+            q = 1 - stats.gamma.sf(x, a=k, scale=1)
             return q
 
         transform = mpl.scale.FuncTransform(forward=forward, inverse=inverse)
         self._major_locator = GammaMaxNLocator(transform=transform, nbins=major_ticks)
 
         if minor_ticks is not None:
-            self._minor_locator = GammaMaxNLocator(transform=transform, nbins=minor_ticks, minor=True)
+            self._minor_locator = GammaMaxNLocator(
+                transform=transform, nbins=minor_ticks, minor=True
+            )
         else:
             self._minor_locator = None
 
-        super().__init__(axis, (forward,inverse))
-    
+        super().__init__(axis, (forward, inverse))
+
     def set_default_locators_and_formatters(self, axis):
         axis.set_major_locator(self._major_locator)
 
         if self._minor_locator is not None:
             axis.set_minor_locator(self._minor_locator)
 
-        axis.set_major_formatter(GammaLogitFormatter(one_half='0.5'))
+        axis.set_major_formatter(GammaLogitFormatter(one_half="0.5"))
+
 
 mpl.scale.register_scale(GammaCCDFScale)
 
@@ -187,6 +201,7 @@ def contiguous_segments(df, index_level, threshold=7, relative=True):
 
     return [df.iloc[i0:i1] for i0, i1 in zip(*i_segments)]
 
+
 def _has_tick_label_collision(ax, which: str, spacing_threshold=10):
     """finds the minimum spacing between tick labels along an axis to check for collisions (overlaps).
 
@@ -200,43 +215,44 @@ def _has_tick_label_collision(ax, which: str, spacing_threshold=10):
     """
     fig = ax.get_figure()
 
-    if which == 'x':
+    if which == "x":
         the_ax = ax.xaxis
-    elif which == 'y':
+    elif which == "y":
         the_ax = ax.yaxis
     else:
         raise ValueError(f'"which" must be "x" or "y", but got "{repr(which)}"')
 
     boxen = [
-        l.get_tightbbox(fig.canvas.get_renderer())
-        for l in the_ax.get_ticklabels()
+        l.get_tightbbox(fig.canvas.get_renderer()) for l in the_ax.get_ticklabels()
     ]
-    
-    if which == 'x':
+
+    if which == "x":
         boxen = np.array([(b.x0, b.x1) for b in boxen])
     else:
-        boxen = np.array([(b.y0, b.y1) for b in boxen])    
+        boxen = np.array([(b.y0, b.y1) for b in boxen])
 
-    spacing = boxen[1:,0] - boxen[:-1,1]
-
+    spacing = boxen[1:, 0] - boxen[:-1, 1]
 
     return np.min(spacing) < spacing_threshold
+
 
 def rotate_ticklabels_on_collision(ax, which: str, angles: list, spacing_threshold=3):
     def set_rotation(the_ax, angle):
         for label in the_ax.get_ticklabels():
             label.set_rotation(angle)
-            if which == 'y' and angle == 90:
-                label.set_verticalalignment('center')
-            elif which == 'x' and angle == 90:
-                label.set_horizontalalignment('right')
+            if which == "y" and angle == 90:
+                label.set_verticalalignment("center")
+            elif which == "x" and angle == 90:
+                label.set_horizontalalignment("right")
 
-    if which == 'x':
+    if which == "x":
         the_ax = ax.xaxis
-    elif which == 'y':
+    elif which == "y":
         the_ax = ax.yaxis
     else:
-        raise ValueError(f'"which" argument must be "x" or "y", but got "{repr(which)}"')
+        raise ValueError(
+            f'"which" argument must be "x" or "y", but got "{repr(which)}"'
+        )
 
     set_rotation(the_ax, angles[0])
     if len(angles) == 1:
@@ -246,7 +262,7 @@ def rotate_ticklabels_on_collision(ax, which: str, angles: list, spacing_thresho
     for angle in angles[1:]:
         plt.draw()
 
-        if _has_tick_label_collision (ax, which, spacing_threshold):
+        if _has_tick_label_collision(ax, which, spacing_threshold):
             a = angle
             set_rotation(the_ax, angle)
         else:
@@ -293,20 +309,14 @@ def pcolormesh_df(
     x_unit=None,
     x_places=None,
     y_unit=None,
-    y_places=None
+    y_places=None,
 ):
 
     if ax is None:
         fig, ax = plt.subplots()
-    
+
     drawing = ax.pcolormesh(
-        df.columns,
-        df.index,        
-        df,
-        vmin=vmin,
-        rasterized=rasterized,
-        cmap=cmap,
-        norm=norm
+        df.columns, df.index, df, vmin=vmin, rasterized=rasterized, cmap=cmap, norm=norm
     )
 
     if xlabel is not False:
@@ -319,16 +329,18 @@ def pcolormesh_df(
         ax.set_title(title)
 
     if x_unit is not None:
-        ax.xaxis.set_major_formatter(mpl.ticker.EngFormatter(unit=x_unit, useMathText=True, places=x_places))
-        rotate_ticklabels_on_collision(ax, 'x', [0, 25])
+        ax.xaxis.set_major_formatter(
+            mpl.ticker.EngFormatter(unit=x_unit, useMathText=True, places=x_places)
+        )
+        rotate_ticklabels_on_collision(ax, "x", [0, 25])
 
     if y_unit is not None:
-        ax.yaxis.set_major_formatter(mpl.ticker.EngFormatter(unit=y_unit, useMathText=True, places=y_places))        
-        rotate_ticklabels_on_collision(ax, 'y', [90, 65, 0])
+        ax.yaxis.set_major_formatter(
+            mpl.ticker.EngFormatter(unit=y_unit, useMathText=True, places=y_places)
+        )
+        rotate_ticklabels_on_collision(ax, "y", [90, 65, 0])
 
     return drawing
-
-
 
 
 def plot_power_histogram_heatmap(
@@ -338,13 +350,13 @@ def plot_power_histogram_heatmap(
     title: str = None,
     ylabel: str = None,
     xlabel: str = None,
-    clabel: str = 'Count',
+    clabel: str = "Count",
     xlim: tuple = None,
     ax=None,
     cbar=True,
     rasterized=True,
     x_unit=None,
-    x_places=None
+    x_places=None,
 ):
 
     """plot a heat map of power histograms along the time axis, with color map intensity set by the counts.
@@ -379,10 +391,12 @@ def plot_power_histogram_heatmap(
     #     )
 
     # quantize the color map levels to the number of bins
-    bad_color = '0.95'
+    bad_color = "0.95"
     cmap = mpl.cm.get_cmap("magma")
     if rolling_histogram.shape[1] < cmap.N:
-        subset = np.linspace(0, len(cmap.colors) - 1, rolling_histogram.shape[1], dtype=int)
+        subset = np.linspace(
+            0, len(cmap.colors) - 1, rolling_histogram.shape[1], dtype=int
+        )
         newcolors = np.array(cmap.colors)[subset].tolist()
         cmap = mpl.colors.ListedColormap(newcolors)
         cmap.set_bad(bad_color)
@@ -407,7 +421,7 @@ def plot_power_histogram_heatmap(
         title=title,
         ax=ax,
         x_unit=x_unit,
-        x_places=x_places
+        x_places=x_places,
     )
 
     if issubclass(index_type, pd.Timestamp):
@@ -430,10 +444,7 @@ def plot_power_histogram_heatmap(
         else:
             t = rolling_histogram.index.total_seconds()
 
-        hist_sub = pd.DataFrame(
-            rolling_histogram,
-            index=t
-        )
+        hist_sub = pd.DataFrame(rolling_histogram, index=t)
 
         c = pcolormesh_df(hist_sub.T, **pc_kws)
 
@@ -445,9 +456,9 @@ def plot_power_histogram_heatmap(
             c,
             cmap=cmap,
             ax=ax,
-            extend='min',
+            extend="min",
             extendrect=True
-            # extendfrac='auto',            
+            # extendfrac='auto',
             # cax = fig.add_axes([1.02, 0.152, 0.03, 0.7])
         )
 
@@ -477,32 +488,51 @@ def plot_power_histogram_heatmap(
             c,
             cmap=cbar_cmap,
             ax=ax,
-            extend='min',
+            extend="min",
             extendrect=True,
-            extendfrac=.05,
+            extendfrac=0.05,
             # cax = fig.add_axes([1.02, 0.152, 0.03, 0.75])
         )
 
         # add in the extension
         extension_length = cb._get_extension_lengths(cb.extendfrac, True, True)[1]
-        cb._boundaries = np.array([np.nan]+list(np.linspace(cb._boundaries[0], cb._boundaries[1], cb._boundaries.size-1)))
-        cb._values = np.array([np.nan]+list(np.linspace(cb._values[0], cb._values[1], cb._values.size-1)))
+        cb._boundaries = np.array(
+            [np.nan]
+            + list(
+                np.linspace(
+                    cb._boundaries[0], cb._boundaries[1], cb._boundaries.size - 1
+                )
+            )
+        )
+        cb._values = np.array(
+            [np.nan]
+            + list(np.linspace(cb._values[0], cb._values[1], cb._values.size - 1))
+        )
         cb._do_extends(cb._get_extension_lengths(extension_length, True, True))
 
-        cb.ax.text(1, -extension_length/2, '- 0', ha='left', va='center', transform=cb.ax.transAxes)
+        cb.ax.text(
+            1,
+            -extension_length / 2,
+            "- 0",
+            ha="left",
+            va="center",
+            transform=cb.ax.transAxes,
+        )
 
-        formatter = mpl.ticker.LogFormatterSciNotation(minor_thresholds = (1, 2, 5), labelOnlyBase=False)
+        formatter = mpl.ticker.LogFormatterSciNotation(
+            minor_thresholds=(1, 2, 5), labelOnlyBase=False
+        )
 
         cb.ax.yaxis.set_major_formatter(formatter)
         cb.ax.yaxis.set_minor_formatter(formatter)
 
         # cb.ax.xaxis.set_major_locator(mpl.ticker.AutoLocator())
-        # cb.ax.xaxis.set_minor_formatter(mpl.ticker.StrMethodFormatter(f'')) 
-        
+        # cb.ax.xaxis.set_minor_formatter(mpl.ticker.StrMethodFormatter(f''))
+
         cb.set_label(
             clabel,
             labelpad=-16,
-            y=-.08,
+            y=-0.08,
             # x=-1,
             rotation=0,
             va="top",
@@ -520,7 +550,6 @@ def plot_power_histogram_heatmap(
     # def minor_formatter(x, pos):
     #     exp = int(np.trunc(np.log10(x)))
     #     return rf'${x/10**(exp-1):0.0f}$'
-
 
     if cb.vmax / cb.vmin < 1e3:
         cb.ax.yaxis.set_minor_formatter(formatter)

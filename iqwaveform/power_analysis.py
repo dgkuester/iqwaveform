@@ -1,17 +1,14 @@
-#!/usr/bin/env python3
-
-"""
-Postprocessing calculations for swept power data.
-"""
+""" Transformations and statistical tools for power data """
 
 import os
 
-os.environ["NUMEXPR_MAX_THREADS"] = "4"
+os.environ.setdefault("NUMEXPR_MAX_THREADS", "4")
 
 import numpy as np
 import pandas as pd
 import numexpr as ne
 import warnings
+
 warnings.filterwarnings("ignore", message="divide by zero")
 warnings.filterwarnings("ignore", message="invalid value encountered")
 
@@ -75,9 +72,7 @@ def envtodB(x, abs: bool = True, eps: float = 0):
             f"20*log10(abs(x){eps_str})", local_dict=dict(x=x, eps=eps)
         )
     else:
-        values = ne.evaluate(
-            f"20*log10(x+eps){eps_str}", local_dict=dict(x=x, eps=eps)
-        )
+        values = ne.evaluate(f"20*log10(x+eps){eps_str}", local_dict=dict(x=x, eps=eps))
 
     if np.iscomplexobj(values):
         values = np.real(values)
@@ -156,8 +151,8 @@ def unstack_to_2d_blocks(pvt: pd.Series, Tblock: float) -> pd.DataFrame:
     return df
 
 
-def sample_ccdf(a: np.array, edges: np.array, density:bool=True) -> np.array:
-    """ compute the sample CCDF on the values of a using the specified ordinal (bin) edge values.
+def sample_ccdf(a: np.array, edges: np.array, density: bool = True) -> np.array:
+    """compute the sample CCDF on the values of a using the specified ordinal (bin) edge values.
 
     If `density` is True, values will be normalized so that ccdf
 
@@ -165,14 +160,14 @@ def sample_ccdf(a: np.array, edges: np.array, density:bool=True) -> np.array:
         density (bool)
 
     Returns:
-        an array of 
+        an array of
     """
 
     # 'left' makes the bin interval open-ended on the left side
     # (the CCDF is "number of samples exceeding interval", and not equal to)
-    edge_inds = np.searchsorted(edges, a, side='left')
-    bin_counts = np.bincount(edge_inds, minlength=edges.size+1)
-    ccdf = (1-bin_counts.cumsum()/a.size)[:-1]
+    edge_inds = np.searchsorted(edges, a, side="left")
+    bin_counts = np.bincount(edge_inds, minlength=edges.size + 1)
+    ccdf = (1 - bin_counts.cumsum() / a.size)[:-1]
 
     if not density:
         ccdf *= a.size
@@ -227,7 +222,7 @@ def power_histogram_along_axis(
     resolution_axis: int = 1,
     truncate: bin = True,
     dtype="uint32",
-    axis=0
+    axis=0,
 ) -> pd.DataFrame:
 
     """Computes a histogram along the time index of a pd.Series time series of power readings.
@@ -256,7 +251,7 @@ def power_histogram_along_axis(
     if axis == 0:
         pvt = pvt.T
     elif axis != 1:
-        raise ValueError(f'axis argument must be 0 or 1')
+        raise ValueError(f"axis argument must be 0 or 1")
 
     # truncate to an integer number of sweep blocks
     pvt = powtodB(pvt, abs=False)

@@ -2,7 +2,15 @@ from ._version import __version__
 
 from . import fourier, figures, io, power_analysis
 
-from .power_analysis import dBtopow, powtodB, envtodB, envtopow, hist_laxis, power_histogram_along_axis, sample_ccdf
+from .power_analysis import (
+    dBtopow,
+    powtodB,
+    envtodB,
+    envtopow,
+    hist_laxis,
+    power_histogram_along_axis,
+    sample_ccdf,
+)
 
 from .fourier import to_blocks, stft
 
