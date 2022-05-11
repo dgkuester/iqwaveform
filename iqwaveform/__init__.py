@@ -1,6 +1,6 @@
 from ._version import __version__
 
-from . import fourier, figures, io, power_analysis
+from . import fourier, figures, io, power_analysis, cellular
 
 from .power_analysis import (
     dBtopow,
@@ -12,6 +12,11 @@ from .power_analysis import (
     sample_ccdf,
 )
 
-from .fourier import to_blocks, stft
+from .fourier import to_blocks, stft, iq_to_stft_spectrogram
 
-from .figures import pcolormesh_df, plot_power_histogram_heatmap
+from .figures import (
+    pcolormesh_df,
+    plot_power_histogram_heatmap,
+    plot_power_ccdf,
+    plot_spectrogram_heatmap_from_iq,
+)

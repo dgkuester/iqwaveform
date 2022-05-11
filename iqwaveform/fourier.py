@@ -75,6 +75,7 @@ def stft(
     noverlap: int = 0,
     axis: int = 0,
     truncate: bool = True,
+    norm: str = None,
 ):
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
     some overhead that comes with its generality.
@@ -124,6 +125,14 @@ def stft(
     if noverlap not in (0, FFT_SIZE // 2):
         raise NotImplementedError("noverlap must be noverlap//2 or 0")
 
+    if norm == "power":
+        window = window / np.sqrt(np.mean(np.abs(window) ** 2))
+    elif norm is None:
+        pass
+
+    else:
+        raise TypeError('norm must be "power" or None')
+
     if noverlap == 0:
         x = to_blocks(x, FFT_SIZE, truncate=truncate)
         X = np.fft.fftshift(
@@ -170,9 +179,7 @@ def low_pass_filter(
     fc_offset: float = 0,
     axis=0,
 ):
-    """Applies a low-pass filter to the input waveform.
-
-    Implementation is in the Fourier domain.
+    """Applies a low-pass filter to the input waveform by conversion into the frequency domain.
 
     Args:
         iq: the (optionally complex-valued) waveform to be filtered, with shape (N0, ..., N[K-1])
@@ -338,6 +345,7 @@ def channelize_power(
         window=window,
         nperseg=fft_size_per_channel * channel_count,
         noverlap=fft_overlap_per_channel * channel_count,
+        norm="power",
         axis=axis,
     )
 
@@ -371,6 +379,7 @@ def iq_to_stft_spectrogram(iq, window, Ts, overlap=True, analysis_bandwidth=None
         window=window,
         nperseg=fft_size,
         noverlap=fft_size // 2 if overlap else 0,
+        norm="power",
         axis=0,
     )
 

@@ -3,8 +3,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
-from .power_analysis import powtodB, dBtopow
+from .power_analysis import powtodB, dBtopow, envtodB, envtopow, sample_ccdf
 from functools import lru_cache
+from .fourier import to_blocks, iq_to_stft_spectrogram
 
 
 class GammaMaxNLocator(mpl.ticker.MaxNLocator):
@@ -114,6 +115,8 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
             return ""
         if mpl.ticker.is_close_to_int(2 * x) and round(2 * x) == 1:
             s = self._one_half
+        elif np.any(np.isclose(x, np.array([0.01, 0.1, 0.9, 0.99]), rtol=1e-7)):
+            s = str(x)
         elif x < 0.1 and mpl.ticker.is_decade(x, rtol=1e-7):
             exponent = round(np.log10(x))
             s = "10^{%d}" % exponent
@@ -124,8 +127,6 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
             s = self._format_value(x, self.locs)
         elif x > 0.98:
             s = self._one_minus(self._format_value(1 - x, 1 - self.locs))
-        elif x in (0.1, 0.9):
-            s = str(x)
         else:
             s = self._format_value(x, self.locs, sci_notation=False)
         return r"$\mathdefault{%s}$" % s
@@ -343,6 +344,60 @@ def pcolormesh_df(
     return drawing
 
 
+def plot_spectrogram_heatmap_from_iq(
+    iq: np.array,
+    window: np.array,
+    Ts: float,
+    ax=None,
+    vmin: float = None,
+    cmap=None,
+    time_span=(None, None),
+) -> tuple((plt.Axes, pd.DataFrame)):
+
+    index_span = (
+        None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
+        None if time_span[1] is None else int(np.rint(time_span[1] / Ts)),
+    )
+
+    iq = iq[index_span[0] : index_span[1]]
+
+    spg = iq_to_stft_spectrogram(iq=iq, window=window, Ts=Ts, overlap=True)
+
+    if cmap is None:
+        cmap = mpl.cm.get_cmap("magma")
+
+    c = pcolormesh_df(
+        powtodB(spg.T),
+        xlabel="Time elapsed (s)",
+        ylabel="Baseband Frequency",
+        y_unit="Hz",
+        ax=ax,
+        cmap=cmap,
+        vmin=vmin,
+    )
+
+    freq_res = 1 / Ts / window.size
+
+    if freq_res < 1e3:
+        freq_res_name = f"{freq_res:0.1f}"
+    elif freq_res < 1e6:
+        freq_res_name = f"{freq_res/1e3:0.1f} kHz"
+    elif freq_res < 1e9:
+        freq_res_name = f"{freq_res/1e6:0.1f} MHz"
+    else:
+        freq_res_name = f"{freq_res/1e9:0.1f} GHz"
+
+    cb = plt.colorbar(
+        c,
+        cmap=cmap,
+        ax=ax,
+        label=f"Bin power (dBm/{freq_res_name})"
+        # rasterized=True
+    )
+
+    return ax, spg
+
+
 def plot_power_histogram_heatmap(
     rolling_histogram: pd.DataFrame,
     contiguous_threshold=None,
@@ -558,3 +613,42 @@ def plot_power_histogram_heatmap(
         #     label.set_visible(False)
 
     return ax, cb
+
+
+def plot_power_ccdf(
+    iq,
+    Ts,
+    Tavg=None,
+    bins=None,
+    scale="gamma-ccdf",
+    major_ticks=12,
+    ax=None,
+    label=None,
+):
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    if Tavg is None:
+        Navg = 1
+        power_dB = envtodB(iq)
+    else:
+        Navg = int(np.rint(Tavg / Ts))
+        power_dB = powtodB(to_blocks(envtopow(iq), Navg, truncate=True).mean(axis=1))
+
+    if bins is None:
+        bins = np.arange(power_dB.min(), power_dB.max() + 0.01, 0.01)
+    if np.isscalar(bins):
+        bins = np.linspace(power_dB.min(), power_dB.max(), bins)
+    else:
+        bins = np.array(bins)
+
+    ccdf = sample_ccdf(power_dB, bins)
+    ax.plot(ccdf, bins, label=label)  # Path(DATA_FILE).parent.name)
+
+    if scale == "gamma-ccdf":
+        ax.set_xscale(scale, k=Navg, major_ticks=major_ticks, db_ordinal=True)
+    else:
+        ax.set_xscale(scale)
+    ax.legend()
+
+    return ax
