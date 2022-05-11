@@ -132,7 +132,7 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
         return r"$\mathdefault{%s}$" % s
 
 
-class GammaCCDFScale(mpl.scale.FuncScale):
+class GammaQQScale(mpl.scale.FuncScale):
     """A transformed scale that linearizes Gamma-distributed survival functions when the
     independent axis is log-scaled (e.g., dB).
 
@@ -150,7 +150,7 @@ class GammaCCDFScale(mpl.scale.FuncScale):
 
     """
 
-    name = "gamma-ccdf"
+    name = "gamma-qq"
 
     def __init__(self, axis, *, k, major_ticks=10, minor_ticks=None, db_ordinal=True):
         def forward(q):
@@ -186,7 +186,7 @@ class GammaCCDFScale(mpl.scale.FuncScale):
         axis.set_major_formatter(GammaLogitFormatter(one_half="0.5"))
 
 
-mpl.scale.register_scale(GammaCCDFScale)
+mpl.scale.register_scale(GammaQQScale)
 
 
 def contiguous_segments(df, index_level, threshold=7, relative=True):
