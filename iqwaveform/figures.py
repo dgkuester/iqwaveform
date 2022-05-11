@@ -620,7 +620,7 @@ def plot_power_ccdf(
     Ts,
     Tavg=None,
     bins=None,
-    scale="gamma-ccdf",
+    scale="gamma-qq",
     major_ticks=12,
     ax=None,
     label=None,
@@ -645,7 +645,7 @@ def plot_power_ccdf(
     ccdf = sample_ccdf(power_dB, bins)
     ax.plot(ccdf, bins, label=label)  # Path(DATA_FILE).parent.name)
 
-    if scale == "gamma-ccdf":
+    if scale == "gamma-qq":
         ax.set_xscale(scale, k=Navg, major_ticks=major_ticks, db_ordinal=True)
     else:
         ax.set_xscale(scale)
