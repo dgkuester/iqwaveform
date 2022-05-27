@@ -85,35 +85,43 @@ def envtodB(x, abs: bool = True, eps: float = 0):
         return values
 
 
-def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float):
-    """returns average power along the rows of `iq` (time axis) averaged by bins of duration Tbin"""
-    if not np.isclose(Tbin % Ts, 0, atol=1e-6):
-        print(Tbin % Ts)
+def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float, kind:str='mean', truncate=False):
+    """computes power along the rows of `iq` (time axis) on bins of duration Tbin.
+    
+    Args:
+        iq: complex-valued input waveform samples
+        Ts: sample period of the input waveform
+        Tbin: time duration of the bin size
+        kind: the detection operation in each bin, one of 'min', 'max', 'median', or 'mean'
+        truncate: if True, truncate the last samples of `iq` to an integer number of bins
+    """
+
+    VALID_DETECTORS = ('min', 'max', 'median', 'mean')
+
+    if not truncate and not np.isclose(Tbin % Ts, 0, atol=1e-6):
         raise ValueError(
             f"bin period ({Tbin} s) must be multiple of waveform sample period ({Ts})"
         )
 
+    if kind not in VALID_DETECTORS:
+        raise ValueError(f'kind argument must be one of {VALID_DETECTORS}')
+
     N = int(Tbin / Ts)
 
-    pow = envtopow(iq)
-
-    # truncate to integer number of bins
-    pow = pow[: (iq.shape[0] // N) * N]
-
-    pow = (
-        pow
-        # insert a new axis with bin size N
+    # instantaneous power, reshaped into bins
+    power_bins = (
+        envtopow(iq)[: (iq.shape[0] // N) * N]
         .reshape(pow.shape[0] // N, N, pow.shape[1])
-        # mean along the bin axis
-        .mean(axis=1)
     )
 
+    detector_ufunc = getattr(np, kind)
+    pow = detector_ufunc(power_bins, axis=1)
+    
     Nmax = min(pow.shape[0], iq.shape[0] // N)
-
     return pow[:Nmax]
 
 
-def unstack_to_2d_blocks(pvt: pd.Series, Tblock: float) -> pd.DataFrame:
+def unstack_series_to_bins(pvt: pd.Series, Tbin: float) -> pd.DataFrame:
     """unstack time series of power vs time (time axis) `pvt` into
     a pd.DataFrame in which row consists of time series of time duration `Twindow`.
 
@@ -125,15 +133,15 @@ def unstack_to_2d_blocks(pvt: pd.Series, Tblock: float) -> pd.DataFrame:
 
     """
 
-    Tbin = pvt.index[1] - pvt.index[0]
+    Ts = pvt.index[1] - pvt.index[0]
 
-    if np.isclose(Tblock % Tbin, 0, 1e-6):
-        print(Tblock, Tbin, Tblock % Tbin)
+    if np.isclose(Tbin % Ts, 0, 1e-6):
+        print(Tbin, Ts, Tbin % Ts)
         raise ValueError(
             "analysis window length must be multiple of the power INTEGRATION length"
         )
 
-    N = int(Tblock / Tbin)
+    N = int(Tbin / Ts)
 
     pvt = pvt.iloc[: N * (pvt.shape[0] // N)]
 
@@ -152,15 +160,16 @@ def unstack_to_2d_blocks(pvt: pd.Series, Tblock: float) -> pd.DataFrame:
 
 
 def sample_ccdf(a: np.array, edges: np.array, density: bool = True) -> np.array:
-    """compute the sample CCDF on the values of a using the specified ordinal (bin) edge values.
+    """computes the fraction (or total number) of samples in `a` that
+    exceed each edge value.
 
-    If `density` is True, values will be normalized so that ccdf
-
-    Arguments:
-        density (bool)
+    Args:
+        a: the vector of input samples
+        edges: sample threshold values at which to characterize the distribution
+        density: if True, the sample counts are normalized by `a.size`
 
     Returns:
-        an array of
+        the empirical complementary cumulative distribution
     """
 
     # 'left' makes the bin interval open-ended on the left side
@@ -176,7 +185,7 @@ def sample_ccdf(a: np.array, edges: np.array, density: bool = True) -> np.array:
 
 
 def hist_laxis(x: np.ndarray, n_bins: int, range_limits: tuple) -> np.ndarray:
-    """Computes a histogram along the last axis of an input array.
+    """computes a histogram along the last axis of an input array.
 
     For reference see https://stackoverflow.com/questions/44152436/calculate-histograms-along-axis
 
@@ -225,10 +234,10 @@ def power_histogram_along_axis(
     axis=0,
 ) -> pd.DataFrame:
 
-    """Computes a histogram along the time index of a pd.Series time series of power readings.
+    """Computes a histogram along the index of a pd.Series time series of power readings.
 
     Args:
-        pvt: a pd.Series or 1-column pd.DataFrame of power levels in linear units
+        pvt: a pd.Series or pd.DataFrame of power levels in linear units
 
         bounds: [lower, upper] bounds for the histogram power level bins (upper-bound inclusive)
 
@@ -240,6 +249,8 @@ def power_histogram_along_axis(
 
         dtype: the integer data type to return for histogram counts
 
+        axis: the axis along which to compute the histogram, if `pvt` is a DataFrame
+
     Returns:
         `pd.DataFrame` instance, indexed on time, columned by power transformed into dB, with values of type `dtype`
 
@@ -247,6 +258,9 @@ def power_histogram_along_axis(
         ValueError: if not truncate and len(pvt) % resolution_axis != 0
 
     """
+
+    if isinstance(pvt, pd.Series) and axis != 0:
+        raise ValueError('axis argument is invalid for pd.Series')
 
     if axis == 0:
         pvt = pvt.T

@@ -371,6 +371,7 @@ def plot_spectrogram_heatmap_from_iq(
         xlabel="Time elapsed (s)",
         ylabel="Baseband Frequency",
         y_unit="Hz",
+        # x_unit='s',
         ax=ax,
         cmap=cmap,
         vmin=vmin,

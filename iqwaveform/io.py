@@ -53,15 +53,46 @@ def read_iq(
 
 def read_iq_to_df(
     metadata_path: str, force_sample_rate: float = None, sigmf_data_ext=".npy"
-):
+) -> np.array:
     x_split, center_freqs, Ts = read_iq(**locals())
 
-    df = pd.DataFrame(dict(zip(center_freqs / 1e9, x_split)))
-    df.columns.name = "Frequency (GHz)"
-    df.index = df.index * Ts
-    df.index.name = "Time elapsed (s)"
+    return iq_to_frame(
+        x_split,
+        Ts,
+        columns=pd.Index(center_freqs/1e9), name='Frequency (Hz)'
+    )
 
-    return df
+
+def iq_to_frame(iq: np.array, Ts: float, columns:pd.Index=None) -> tuple((pd.Series, pd.DataFrame)):
+    """packs IQ data into a pandas Series or DataFrame object.
+
+    The input waveform `iq` may have shape (N,) or (N,M), representing a single
+    waveform or M different waveforms, respectively.
+
+    Args:
+        iq: Complex-valued time series representing an IQ waveform.
+        Ts: The sample period of the IQ waveform.
+        columns: The list of column names to use if `iq` has 2-dimensions
+
+    Returns:
+        If iq.ndim == 1, then pd.Series, otherwise pd.DataFrame, with a time index
+    """
+
+    if iq.ndim == 2:
+        if columns is None:
+            columns = np.arange(iq.shape[1])
+        obj = pd.DataFrame(dict(zip(columns, iq)))
+    elif iq.ndim == 1:
+        obj = pd.Series(iq)
+    else:
+        raise TypeError(f'iq must have 1 or 2 dimensions')
+
+    obj.index = pd.Index(
+        np.linspace(0, Ts*iq.shape[0], Ts, endpoint=False),
+        name = "Time elapsed (s)"
+    )        
+
+    return obj
 
 
 def resample_iq(iq: np.array, Ts, scale, axis=0):
