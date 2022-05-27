@@ -47,7 +47,7 @@ formatted using GitHub-flavored [Markdown][gh-mdn] and named
    additional license language if needed, *e.g.* [BSD][li-bsd],
    [GPL][li-gpl], or [MIT][li-mit]
 
-### References
+<!-- References -->
 
 [gh-cdo]: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 [gh-mdn]: https://github.github.com/gfm/
