@@ -109,19 +109,20 @@ def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float, kind:str='mean', trunc
     N = int(Tbin / Ts)
 
     # instantaneous power, reshaped into bins
+    iq = iq[: (iq.shape[0] // N) * N]
     power_bins = (
-        envtopow(iq)[: (iq.shape[0] // N) * N]
-        .reshape(pow.shape[0] // N, N, pow.shape[1])
+        envtopow(iq)
+        .reshape((iq.shape[0] // N, N) + tuple([iq.shape[1]] if iq.ndim == 2 else []))
     )
 
     detector_ufunc = getattr(np, kind)
-    pow = detector_ufunc(power_bins, axis=1)
+    return detector_ufunc(power_bins, axis=1)
     
     Nmax = min(pow.shape[0], iq.shape[0] // N)
     return pow[:Nmax]
 
 
-def unstack_series_to_bins(pvt: pd.Series, Tbin: float) -> pd.DataFrame:
+def unstack_series_to_bins(pvt: pd.Series, Tbin: float, truncate:bool =False) -> pd.DataFrame:
     """unstack time series of power vs time (time axis) `pvt` into
     a pd.DataFrame in which row consists of time series of time duration `Twindow`.
 
@@ -135,13 +136,13 @@ def unstack_series_to_bins(pvt: pd.Series, Tbin: float) -> pd.DataFrame:
 
     Ts = pvt.index[1] - pvt.index[0]
 
-    if np.isclose(Tbin % Ts, 0, 1e-6):
+    if not truncate and not np.isclose(Tbin % Ts, 0, 1e-6):
         print(Tbin, Ts, Tbin % Ts)
         raise ValueError(
             "analysis window length must be multiple of the power INTEGRATION length"
         )
 
-    N = int(Tbin / Ts)
+    N = int(np.rint(Tbin / Ts))
 
     pvt = pvt.iloc[: N * (pvt.shape[0] // N)]
 

@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 from .power_analysis import powtodB, dBtopow, envtodB, envtopow, sample_ccdf
-from functools import lru_cache
 from .fourier import to_blocks, iq_to_stft_spectrogram
 
 
@@ -21,14 +20,13 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
         vmin, vmax = self.axis.get_view_interval()
         return self.tick_values(max(vmin, dmin), min(vmax, dmax))
 
-    @lru_cache
     def tick_values(self, vmin, vmax):
         vmin, vmax = min((vmin, vmax)), max((vmin, vmax))
         vmin, vmax = self.limit_range_for_scale(vmin, vmax, 1e-7)
         vth_lo = 0.15
         vth_hi = 0.75
 
-        # compute bounds in the transformed space so that they can be roughly evenly spaced
+        # compute bounds in the transformed space, where step sizes will be roughly even
         tmin = self._transform.transform(vmin)
         tmax = self._transform.transform(vmax)
         tth_lo = self._transform.transform(vth_lo)
@@ -316,8 +314,12 @@ def pcolormesh_df(
     if ax is None:
         fig, ax = plt.subplots()
 
+
+    X = df.columns.values
+    Y = df.index.values
+
     drawing = ax.pcolormesh(
-        df.columns, df.index, df, vmin=vmin, rasterized=rasterized, cmap=cmap, norm=norm
+        X, Y, df.values, vmin=vmin, rasterized=rasterized, cmap=cmap, norm=norm, edgecolors='none', edgecolor='none'
     )
 
     if xlabel is not False:
@@ -398,6 +400,7 @@ def plot_spectrogram_heatmap_from_iq(
 
     return ax, spg
 
+debug = {}
 
 def plot_power_histogram_heatmap(
     rolling_histogram: pd.DataFrame,
@@ -500,9 +503,14 @@ def plot_power_histogram_heatmap(
         else:
             t = rolling_histogram.index.total_seconds()
 
-        hist_sub = pd.DataFrame(rolling_histogram, index=t)
+        hist_sub = pd.DataFrame(rolling_histogram.values, index=t, columns=rolling_histogram.columns)
+
+        # debug['rolling_histogram'] = rolling_histogram
+        debug['hist_sub'] = hist_sub
+        # debug['t'] = t
 
         c = pcolormesh_df(hist_sub.T, **pc_kws)
+        # c = pcolormesh_df(rolling_histogram.T, **pc_kws)
 
     else:
         c = pcolormesh_df(rolling_histogram.T, **pc_kws)
@@ -536,7 +544,7 @@ def plot_power_histogram_heatmap(
         )
 
     elif cbar:
-        cbar_cmap = cmap.copy()
+        cbar_cmap = mpl.colors.ListedColormap(cmap.colors.copy())
         cbar_cmap.set_under(bad_color)
         cbar_cmap.set_bad(bad_color)
 
@@ -564,6 +572,8 @@ def plot_power_histogram_heatmap(
             [np.nan]
             + list(np.linspace(cb._values[0], cb._values[1], cb._values.size - 1))
         )
+
+        debug['cb'] = cb
         cb._do_extends(cb._get_extension_lengths(extension_length, True, True))
 
         cb.ax.text(
@@ -594,9 +604,11 @@ def plot_power_histogram_heatmap(
             va="top",
             ha="right",
         )
+    else:
+        cb = None
 
     # X axis formatting
-    if issubclass(index_type, (pd.Timestamp, pd.Timedelta)):
+    if issubclass(index_type, (pd.Timestamp)):
         xaxis_concise_dates(plt.gcf(), ax)
     else:
         plt.draw()
@@ -607,7 +619,7 @@ def plot_power_histogram_heatmap(
     #     exp = int(np.trunc(np.log10(x)))
     #     return rf'${x/10**(exp-1):0.0f}$'
 
-    if cb.vmax / cb.vmin < 1e3:
+    if cb is not None and cb.vmax / cb.vmin < 1e3:
         cb.ax.yaxis.set_minor_formatter(formatter)
         pass
         # for label in cb.ax.yaxis.get_minorticklabels()[1::2]:

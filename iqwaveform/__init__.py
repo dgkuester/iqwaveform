@@ -23,5 +23,5 @@ from .figures import (
 )
 
 from .io import (
-    iq_to_frame
+    waveform_to_frame
 )

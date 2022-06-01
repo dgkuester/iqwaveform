@@ -6,8 +6,24 @@ import json
 from scipy import signal
 from pathlib import Path
 
+def extract_ntia_calibration_metadata(metadata: dict) -> dict:
+    # Look for calibration annotation
+    for a in metadata['annotations']:
+        if a['ntia-core:annotation_type'] == 'CalibrationAnnotation':
+            temp_K = a['ntia-sensor:temperature'] + 273.15 # C to K
+            noise_fig_dB = a['ntia-sensor:noise_figure_sensor']
+            gain_dB = a['ntia-sensor:gain_preselector']
+            break
+    else:
+        gain_dB = None
 
-def read_sigmf_iq_metadata(metadata_fn) -> tuple((pd.DataFrame, float)):
+    return {
+        'ambient temperature (K)': temp_K,
+        'noise figure (dB)': noise_fig_dB,
+        'gain (dB)': gain_dB
+    }
+
+def read_sigmf_metadata(metadata_fn, ntia=False) -> tuple((pd.DataFrame, float, )):
     with open(metadata_fn, "r") as fd:
         metadata = json.load(fd)
 
@@ -15,10 +31,16 @@ def read_sigmf_iq_metadata(metadata_fn) -> tuple((pd.DataFrame, float)):
 
     df.columns = [n.replace("core:", "") for n in df.columns]
 
+    if ntia:
+        cal = extract_ntia_calibration_metadata(metadata)
+    else:
+        cal = {}
+
     return (
         dict(df.set_index("sample_start").frequency),
         dict(df.set_index("sample_start").datetime),
         metadata["global"]["core:sample_rate"],
+        cal
     )
 
 
@@ -27,11 +49,14 @@ def read_iq(
     force_sample_rate: float = None,
     sigmf_data_ext=".npy",
     stack=False,
+    ntia_extensions=False,
+    z0=50
 ):
     metadata_path = Path(metadata_path)
 
     """pack a DataFrame with data read from a SigMF modified for npy file format"""
-    center_freqs, timestamps, sample_rate = read_sigmf_iq_metadata(metadata_path)
+
+    center_freqs, timestamps, sample_rate, cal = read_sigmf_metadata(metadata_path, ntia=ntia_extensions)
 
     if force_sample_rate is not None:
         sample_rate = force_sample_rate
@@ -48,6 +73,10 @@ def read_iq(
     if stack:
         x_split = np.vstack(x_split).T
 
+    if 'gain (dB)' in cal:
+        gain = 10**(cal['gain (dB)']/10.)
+        x_split = x_split * np.sqrt(gain/z0)
+
     return (x_split, np.array(list(center_freqs.values())), 1.0 / sample_rate)
 
 
@@ -56,14 +85,14 @@ def read_iq_to_df(
 ) -> np.array:
     x_split, center_freqs, Ts = read_iq(**locals())
 
-    return iq_to_frame(
+    return waveform_to_frame(
         x_split,
         Ts,
         columns=pd.Index(center_freqs/1e9), name='Frequency (Hz)'
     )
 
 
-def iq_to_frame(iq: np.array, Ts: float, columns:pd.Index=None) -> tuple((pd.Series, pd.DataFrame)):
+def waveform_to_frame(iq: np.array, Ts: float, columns:pd.Index=None) -> tuple((pd.Series, pd.DataFrame)):
     """packs IQ data into a pandas Series or DataFrame object.
 
     The input waveform `iq` may have shape (N,) or (N,M), representing a single
@@ -88,9 +117,9 @@ def iq_to_frame(iq: np.array, Ts: float, columns:pd.Index=None) -> tuple((pd.Ser
         raise TypeError(f'iq must have 1 or 2 dimensions')
 
     obj.index = pd.Index(
-        np.linspace(0, Ts*iq.shape[0], Ts, endpoint=False),
+        np.linspace(0, Ts*iq.shape[0], iq.shape[0], endpoint=False),
         name = "Time elapsed (s)"
-    )        
+    )
 
     return obj
 
