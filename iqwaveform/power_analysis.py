@@ -85,13 +85,14 @@ def envtodB(x, abs: bool = True, eps: float = 0):
         return values
 
 
-def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float, kind:str='mean', truncate=False):
+def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float, randomize:bool=False, kind:str='mean', truncate=False):
     """computes power along the rows of `iq` (time axis) on bins of duration Tbin.
     
     Args:
         iq: complex-valued input waveform samples
         Ts: sample period of the input waveform
         Tbin: time duration of the bin size
+        randomize: if True, randomize the start locations of the bins; otherwise, bins are contiguous
         kind: the detection operation in each bin, one of 'min', 'max', 'median', or 'mean'
         truncate: if True, truncate the last samples of `iq` to an integer number of bins
     """
@@ -109,11 +110,24 @@ def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float, kind:str='mean', trunc
     N = int(Tbin / Ts)
 
     # instantaneous power, reshaped into bins
-    iq = iq[: (iq.shape[0] // N) * N]
-    power_bins = (
-        envtopow(iq)
-        .reshape((iq.shape[0] // N, N) + tuple([iq.shape[1]] if iq.ndim == 2 else []))
-    )
+    if randomize:
+        starts = np.random.randint(
+            low=0,
+            high=iq.shape[0]-N,
+            size=int(np.rint(iq.shape[0]/N))
+        )
+        offsets = np.arange(N)
+
+        power_bins = (
+            envtopow(iq)[starts[:,np.newaxis] + offsets[np.newaxis,:]]
+        )
+
+    else:
+        iq = iq[: (iq.shape[0] // N) * N]
+        power_bins = (
+            envtopow(iq)
+            .reshape((iq.shape[0] // N, N) + tuple([iq.shape[1]] if iq.ndim == 2 else []))
+        )
 
     detector_ufunc = getattr(np, kind)
     return detector_ufunc(power_bins, axis=1)

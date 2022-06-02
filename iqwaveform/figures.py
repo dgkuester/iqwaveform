@@ -150,7 +150,7 @@ class GammaQQScale(mpl.scale.FuncScale):
 
     name = "gamma-qq"
 
-    def __init__(self, axis, *, k, major_ticks=10, minor_ticks=None, db_ordinal=True):
+    def __init__(self, axis, *, k, major_ticks=10, minor_ticks=None, vmin=None, vmax=None, db_ordinal=True):
         def forward(q):
             x = stats.gamma.isf(q, a=k, scale=1)
             if db_ordinal:
@@ -625,13 +625,15 @@ def plot_power_histogram_heatmap(
         # for label in cb.ax.yaxis.get_minorticklabels()[1::2]:
         #     label.set_visible(False)
 
-    return ax, cb
+    return ax, c
 
+from .power_analysis import iq_to_bin_power
 
 def plot_power_ccdf(
     iq,
     Ts,
     Tavg=None,
+    random_offsets=False,
     bins=None,
     scale="gamma-qq",
     major_ticks=12,
@@ -645,8 +647,9 @@ def plot_power_ccdf(
         Navg = 1
         power_dB = envtodB(iq)
     else:
-        Navg = int(np.rint(Tavg / Ts))
-        power_dB = powtodB(to_blocks(envtopow(iq), Navg, truncate=True).mean(axis=1))
+        Navg = int(Tavg/Ts)
+        power_dB = powtodB(iq_to_bin_power(iq, Ts=Ts, Tbin=Tavg, randomize=random_offsets, truncate=True))
+        #powtodB(to_blocks(envtopow(iq), Navg, truncate=True).mean(axis=1))
 
     if bins is None:
         bins = np.arange(power_dB.min(), power_dB.max() + 0.01, 0.01)
