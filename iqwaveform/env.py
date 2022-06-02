@@ -34,6 +34,38 @@ import functools
 
 _captions = {}
 
+from matplotlib.backends import backend_svg
+import functools
+
+@functools.wraps(backend_svg.FigureCanvasSVG.print_svg)
+def print_svg(self, *a, **k):
+    def guess_title(fig):
+        if self.figure._suptitle is not None:
+            return self.figure._suptitle.get_text()
+
+        for ax in self.figure.get_axes()[::-1]:
+            title_ = ax.get_title()
+            if title_:
+                return title_
+        else:
+            return "untitled"
+
+    def title_to_label(title_):
+        """replace 1 or more non-alphanumeric characters with '-'"""
+        import re, string
+
+        pattern = re.compile(r"[\W_]+")
+        return pattern.sub("-", title_).lower()
+
+    k = dict(k)
+    label = title_to_label(guess_title(self.figure))
+    caption_text = _captions.get(id(self.figure), "")
+    title_ = f"{label}##{caption_text}" if caption_text else label
+    k.setdefault("metadata", {})["Title"] = title_
+
+    return backend_svg.FigureCanvasSVG._print_svg(self, *a, **k)
+
+backend_svg.FigureCanvasSVG.print_svg, backend_svg.FigureCanvasSVG._print_svg = print_svg, backend_svg.FigureCanvasSVG.print_svg
 
 @functools.wraps(IPython.display.set_matplotlib_formats)
 def set_matplotlib_formats(formats, *args, **kws):
@@ -67,29 +99,19 @@ def set_matplotlib_formats(formats, *args, **kws):
         return pattern.sub("-", title_).lower()
 
     @functools.wraps(pylabtools.print_figure)
-    def wrapper(fig=None, *a, **k):
-        # a fresh mapping
-        if fig is None:
-            fig = pylab.gcf()
-
+    def wrapper(fig, fmt='png', *a, **k):
         k = dict(k)
         label = title_to_label(guess_title(fig))
         caption_text = _captions.get(id(fig), "")
-        title_ = f"{label}##{caption_text}" if caption_text else label
-        k.setdefault("metadata", {})["Title"] = title_
 
-        ret = pylabtools._print_figure(fig, *a, **k)
-        ext = formats if isinstance(formats, str) else formats[0]
+        ret = pylabtools._print_figure(fig, fmt=fmt, *a, **k)
 
-        markup = f'<tt>{label}.{ext}:</tt>{"<br>"+caption_text if caption_text else " (no caption data)"}'
+        markup = f'<tt>{label}.{fmt}:</tt>{"<br>"+caption_text if caption_text else " (no caption data)"}'
         display(HTML(markup))
 
         return ret
 
     pylabtools.print_figure, pylabtools._print_figure = wrapper, pylabtools.print_figure
-
-
-set_matplotlib_formats("svg")
 
 # automatically rasterize complicated artists
 # @functools.wraps(mpl.axes.Axes.__init__)
@@ -242,3 +264,5 @@ rc(
 rc("svg", fonttype="none")
 
 font = mpl.font_manager.findfont(mpl.font_manager.FontProperties(family=["serif"]))
+
+set_matplotlib_formats("svg")
