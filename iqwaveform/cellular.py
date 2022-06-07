@@ -296,7 +296,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         plot(t, offsets, ".")
         plot(t, t * self._regression_info["slope"] + self._regression_info["intercept"])
 
-    def __call__(self, x, subsample_offset_correction=True, max_passes=10):
+    def __call__(self, x, subsample_offset_correction=True, max_passes=10, on_fail='except'):
         """Resample to correct for baseband clock mismatch.
 
         :subsample_offset_correction:
@@ -334,9 +334,10 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
                 print("done resampling " + str(sample_slip) + " " + str(elapsed))
 
         else:
-            raise ValueError(
-                f"failed to converge on clock mismatch within {max_passes} passes"
-            )
+            if on_fail == 'except':
+                raise ValueError(
+                    f"failed to converge on clock mismatch within {max_passes} passes"
+                )
 
         print(
             f"corrected baseband clock slip by {total_sample_slip} samples"

@@ -649,7 +649,6 @@ def plot_power_ccdf(
     else:
         Navg = int(Tavg/Ts)
         power_dB = powtodB(iq_to_bin_power(iq, Ts=Ts, Tbin=Tavg, randomize=random_offsets, truncate=True))
-        #powtodB(to_blocks(envtopow(iq), Navg, truncate=True).mean(axis=1))
 
     if bins is None:
         bins = np.arange(power_dB.min(), power_dB.max() + 0.01, 0.01)
@@ -667,4 +666,4 @@ def plot_power_ccdf(
         ax.set_xscale(scale)
     ax.legend()
 
-    return ax
+    return ax, ccdf, bins

@@ -191,10 +191,11 @@ def sample_ccdf(a: np.array, edges: np.array, density: bool = True) -> np.array:
     # (the CCDF is "number of samples exceeding interval", and not equal to)
     edge_inds = np.searchsorted(edges, a, side="left")
     bin_counts = np.bincount(edge_inds, minlength=edges.size + 1)
-    ccdf = (1 - bin_counts.cumsum() / a.size)[:-1]
+    ccdf = (a.size - bin_counts.cumsum())[:-1]
 
-    if not density:
-        ccdf *= a.size
+    if density:
+        ccdf = ccdf.astype('float64')
+        ccdf /= a.size
 
     return ccdf
 
