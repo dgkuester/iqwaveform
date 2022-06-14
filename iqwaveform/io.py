@@ -7,6 +7,10 @@ from scipy import signal
 from pathlib import Path
 
 def extract_ntia_calibration_metadata(metadata: dict) -> dict:
+    temp_K = None
+    noise_fig_dB = None
+    gain_dB = None
+
     # Look for calibration annotation
     for a in metadata['annotations']:
         if a['ntia-core:annotation_type'] == 'CalibrationAnnotation':
@@ -44,7 +48,7 @@ def read_sigmf_metadata(metadata_fn, ntia=False) -> tuple((pd.DataFrame, float, 
     )
 
 
-def read_iq(
+def read_sigmf(
     metadata_path: str,
     force_sample_rate: float = None,
     sigmf_data_ext=".npy",
@@ -73,17 +77,20 @@ def read_iq(
     if stack:
         x_split = np.vstack(x_split).T
 
-    if 'gain (dB)' in cal:
+    if cal.get('gain (dB)', None) is not None:
+        print('gain dB: ', cal['gain (dB)'])
         gain = 10**(cal['gain (dB)']/10.)
-        x_split = x_split / np.sqrt(gain/z0)
+        x_split = x_split / np.sqrt(gain*2/z0)
+    elif ntia_extensions:
+        raise LookupError('no calibration data is available in NTIA extensions')
 
-    return (x_split, np.array(list(center_freqs.values())), 1.0 / sample_rate)
+    return (x_split, np.array(list(center_freqs.values())), 1.0 / sample_rate, cal)
 
 
-def read_iq_to_df(
+def read_sigmf_to_df(
     metadata_path: str, force_sample_rate: float = None, sigmf_data_ext=".npy"
 ) -> np.array:
-    x_split, center_freqs, Ts = read_iq(**locals())
+    x_split, center_freqs, Ts = read_sigmf(**locals())
 
     return waveform_to_frame(
         x_split,
