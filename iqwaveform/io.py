@@ -75,7 +75,7 @@ def read_iq(
 
     if 'gain (dB)' in cal:
         gain = 10**(cal['gain (dB)']/10.)
-        x_split = x_split * np.sqrt(gain/z0)
+        x_split = x_split / np.sqrt(gain/z0)
 
     return (x_split, np.array(list(center_freqs.values())), 1.0 / sample_rate)
 
