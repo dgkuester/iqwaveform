@@ -20,6 +20,7 @@ from .figures import (
     plot_power_histogram_heatmap,
     plot_power_ccdf,
     plot_spectrogram_heatmap_from_iq,
+    plot_spectrogram_heatmap,
 )
 
 from .io import (

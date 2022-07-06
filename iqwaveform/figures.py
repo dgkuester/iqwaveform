@@ -400,6 +400,55 @@ def plot_spectrogram_heatmap_from_iq(
 
     return ax, spg
 
+def plot_spectrogram_heatmap(
+    spg: np.array,
+    Ts: float,
+    ax=None,
+    vmin: float = None,
+    cmap=None,
+    time_span=(None, None),
+) -> tuple((plt.Axes, pd.DataFrame)):
+
+    index_span = (
+        None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
+        None if time_span[1] is None else int(np.rint(time_span[1] / Ts)),
+    )
+
+    if cmap is None:
+        cmap = mpl.cm.get_cmap("magma")
+
+    c = pcolormesh_df(
+        powtodB(spg.T),
+        xlabel="Time elapsed (s)",
+        ylabel="Baseband Frequency",
+        y_unit="Hz",
+        # x_unit='s',
+        ax=ax,
+        cmap=cmap,
+        vmin=vmin,
+    )
+
+    freq_res = 1 / Ts / spg.shape[1]
+
+    if freq_res < 1e3:
+        freq_res_name = f"{freq_res:0.1f}"
+    elif freq_res < 1e6:
+        freq_res_name = f"{freq_res/1e3:0.1f} kHz"
+    elif freq_res < 1e9:
+        freq_res_name = f"{freq_res/1e6:0.1f} MHz"
+    else:
+        freq_res_name = f"{freq_res/1e9:0.1f} GHz"
+
+    cb = plt.colorbar(
+        c,
+        cmap=cmap,
+        ax=ax,
+        label=f"Bin power (dBm/{freq_res_name})"
+        # rasterized=True
+    )
+
+    return ax, spg
+
 debug = {}
 
 def plot_power_histogram_heatmap(

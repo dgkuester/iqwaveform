@@ -99,7 +99,7 @@ def read_sigmf_to_df(
     )
 
 
-def waveform_to_frame(iq: np.array, Ts: float, columns:pd.Index=None) -> tuple((pd.Series, pd.DataFrame)):
+def waveform_to_frame(waveform: np.array, Ts: float, columns:pd.Index=None, column_name=None) -> tuple((pd.Series, pd.DataFrame)):
     """packs IQ data into a pandas Series or DataFrame object.
 
     The input waveform `iq` may have shape (N,) or (N,M), representing a single
@@ -114,19 +114,24 @@ def waveform_to_frame(iq: np.array, Ts: float, columns:pd.Index=None) -> tuple((
         If iq.ndim == 1, then pd.Series, otherwise pd.DataFrame, with a time index
     """
 
-    if iq.ndim == 2:
+    if waveform.ndim == 2:
         if columns is None:
-            columns = np.arange(iq.shape[1])
-        obj = pd.DataFrame(dict(zip(columns, iq)))
-    elif iq.ndim == 1:
-        obj = pd.Series(iq)
+            columns = np.arange(waveform.shape[1])
+        obj = pd.DataFrame(waveform, columns=columns)
+
+        if column_name is not None:
+            obj.columns.name = column_name
+
+    elif waveform.ndim == 1:
+        obj = pd.Series(waveform)
     else:
         raise TypeError(f'iq must have 1 or 2 dimensions')
 
     obj.index = pd.Index(
-        np.linspace(0, Ts*iq.shape[0], iq.shape[0], endpoint=False),
+        np.linspace(0, Ts*waveform.shape[0], waveform.shape[0], endpoint=False),
         name = "Time elapsed (s)"
     )
+
 
     return obj
 
