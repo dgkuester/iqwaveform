@@ -135,6 +135,60 @@ def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float, randomize:bool=False, 
     Nmax = min(pow.shape[0], iq.shape[0] // N)
     return pow[:Nmax]
 
+def iq_to_frame_power(iq: np.ndarray, Ts:float, detector_period:float, frame_period:float) -> dict:
+    """computes a time series of periodic frame power statistics.
+
+    The time axis on the frame time elapsed spans [0, frame_period) binned with step size
+    `detector_period`, for a total of `int(frame_period/detector_period)` samples.
+
+    RMS and peak power detector data are returned. For each type of detector, a time
+    series is returned for (min, mean, max) statistics, which are computed across the
+    number of frames (`frame_period/Ts`).  
+
+    Args:
+        iq: complex-valued input waveform samples
+        Ts: sample period of the iq waveform
+        detector_period: sampling period within the frame
+        frame_period: frame period to analyze
+
+    Raises:
+        ValueError: if detector_period%Ts != 0 or frame_period%detector_period != 0
+
+    Returns:
+        dict keyed on ('rms', 'peak') with values (min: np.array, mean: np.array, max: np.array)
+    """
+    if not np.isclose(frame_period % Ts, 0, 1e-6):
+        raise ValueError(
+            "frame period must be positive integer multiple of the sampling period"
+        )
+
+    if not np.isclose(detector_period % Ts, 0, 1e-6):
+        raise ValueError(
+            "detector_period period must be positive integer multiple of the sampling period"
+        )
+
+    Nframes = int(np.round(frame_period/Ts))
+    Npts = int(np.round(frame_period/detector_period))
+
+    # set up dimensions to make the statistics fast
+    chunked_shape = (
+        (iq.shape[0] // Nframes, Npts, Nframes // Npts)
+        + tuple([iq.shape[1]] if iq.ndim == 2 else [])
+    )
+    iq_bins = iq.reshape(chunked_shape)
+         
+    power_bins = envtopow(iq_bins)
+
+    # compute statistics first by cycle
+    rms_power = power_bins.mean(axis=0)
+    peak_power = power_bins.max(axis=0)
+
+    # then do the detector
+    return {
+        'rms': (rms_power.min(axis=1), rms_power.mean(axis=1), rms_power.max(axis=1)),
+        'peak': (peak_power.min(axis=1), peak_power.mean(axis=1), peak_power.max(axis=1)),
+    }
+
 
 def unstack_series_to_bins(pvt: pd.Series, Tbin: float, truncate:bool =False) -> pd.DataFrame:
     """unstack time series of power vs time (time axis) `pvt` into
