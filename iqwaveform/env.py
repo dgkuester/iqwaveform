@@ -123,6 +123,24 @@ def set_matplotlib_formats(formats, *args, **kws):
 # requires pandas >= 1.0.0
 convert_datetime = mpl.units.registry[np.datetime64]
 
+def set_font_size(size):
+    FONT_KEYS = [
+        'axes.labelsize',
+        'axes.titlesize',
+        'figure.titlesize',
+        'font.size',
+        'legend.fontsize',
+        'legend.title_fontsize',
+        'xtick.labelsize',
+        'xtick.major.size',
+        'xtick.minor.size',
+        'ytick.labelsize',
+        'ytick.major.size',
+        'ytick.minor.size'
+    ]
+
+
+    rcParams.update(rcParams.fromkeys(_FONT_KEYS, size))
 
 def set_caption(*args):
     """sets the caption in a jupyter notebook for the
@@ -201,7 +219,6 @@ rc(
     family=["serif"],
     serif=["Times New Roman"],
     weight="normal",
-    size=10,
     cursive="Freestyle Script",
 )
 
@@ -266,3 +283,4 @@ rc("svg", fonttype="none")
 font = mpl.font_manager.findfont(mpl.font_manager.FontProperties(family=["serif"]))
 
 set_matplotlib_formats("svg")
+set_font_size(10)
