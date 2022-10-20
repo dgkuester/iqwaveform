@@ -66,7 +66,8 @@ if __name__ == "__main__":
             "scipy",
             "numpy",
             "seaborn",
-            "labbench"
+            "labbench",
+            "sklearn"
         ]
         + PLATFORM_REQUIRES_EXTRAS,
         # entry_points=dict(
