@@ -140,7 +140,7 @@ def set_font_size(size):
     ]
 
 
-    rcParams.update(rcParams.fromkeys(_FONT_KEYS, size))
+    rcParams.update(rcParams.fromkeys(FONT_KEYS, size))
 
 def set_caption(*args):
     """sets the caption in a jupyter notebook for the
