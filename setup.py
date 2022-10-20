@@ -62,10 +62,10 @@ if __name__ == "__main__":
         install_requires=[
             # TODO: tighten these requirements a little - perhaps
             # specify ==major version instead of >=
-            "pandas>=1.1"
-            "scipy"
-            "numpy"
-            "seaborn"
+            "pandas>=1.1",
+            "scipy",
+            "numpy",
+            "seaborn",
             "labbench"
         ]
         + PLATFORM_REQUIRES_EXTRAS,
