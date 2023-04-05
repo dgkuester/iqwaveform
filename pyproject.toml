@@ -1,0 +1,42 @@
+[project]
+name = "iqwaveform"
+version = "0.1.0"
+description = "tools for IQ waveform analysis and visualization"
+authors = [
+    {name = "Dan Kuester", email = "daniel.kuester@nist.gov"},
+]
+dependencies = [
+    "pandas<2.0,>=1.1",
+    "scipy>=1.9.3",
+    "seaborn>=0.12.2",
+    "sklearn>=0.0.post1",
+    "numpy>=1.21",
+    "matplotlib<3.7,>=3.6",
+]
+requires-python = ">=3.8"
+readme = "README.md"
+license = {file = "LICENSE.md"}
+
+[build-system]
+requires = ["pdm-pep517>=1.0"]
+build-backend = "pdm.pep517.api"
+
+[tool]
+[tool.pdm.version]
+source = "scm"
+write_to = "iqwaveform/_version.py"
+write_template = "__version__ = '{}'"
+
+[tool.pdm.dev-dependencies]
+lint = [
+    "flake8",
+    "black",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py37", "py38", "py39", "py310", "py311"]
+include = '\.pyi?$'
+
+[tool.flake8]
+# one day

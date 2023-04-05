@@ -519,7 +519,7 @@ def taylor(M, nbar=4, sll=30, norm=True, sym=True):
     # assume the sidelobe level parameter to be positive.
     B = 10 ** (sll / 20)
     A = np.arccosh(B) / np.pi
-    s2 = nbar ** 2 / (A ** 2 + (nbar - 0.5) ** 2)
+    s2 = nbar**2 / (A**2 + (nbar - 0.5) ** 2)
     ma = np.arange(1, nbar)
 
     Fm = np.empty(nbar - 1)
@@ -528,7 +528,7 @@ def taylor(M, nbar=4, sll=30, norm=True, sym=True):
     signs[1::2] = -1
     m2 = ma * ma
     for mi, m in enumerate(ma):
-        numer = signs[mi] * np.prod(1 - m2[mi] / s2 / (A ** 2 + (ma - 0.5) ** 2))
+        numer = signs[mi] * np.prod(1 - m2[mi] / s2 / (A**2 + (ma - 0.5) ** 2))
         denom = 2 * np.prod(1 - m2[mi] / m2[:mi]) * np.prod(1 - m2[mi] / m2[mi + 1 :])
         Fm[mi] = numer / denom
 
@@ -563,7 +563,7 @@ def knab(M, alpha, sym=True):
     w = np.sinh((np.pi * alpha) * sqrt_term) / (np.sinh(np.pi * alpha) * sqrt_term)
 
     w[0] = w[-1] = np.pi * alpha / np.sinh(np.pi * alpha)
-    w /= np.sqrt(np.sum(w ** 2))
+    w /= np.sqrt(np.sum(w**2))
 
     return _truncate(w, needs_trunc)
 
@@ -582,7 +582,7 @@ def modified_bessel(M, alpha, sym=True):
 
     w[0] = w[-1] = 0  # np.pi*alpha/np.sinh(np.pi*alpha)
 
-    w /= np.sqrt(np.sum(w ** 2))
+    w /= np.sqrt(np.sum(w**2))
 
     return _truncate(w, needs_trunc)
 
@@ -599,7 +599,7 @@ def cosh(M, alpha, sym=True):
 
     w[0] = w[-1] = 1 / np.cosh(np.pi * alpha)
 
-    w /= np.sqrt(np.sum(w ** 2))
+    w /= np.sqrt(np.sum(w**2))
 
     return _truncate(w, needs_trunc)
 
@@ -618,6 +618,6 @@ def modified_bessel(M, alpha, sym=True):
 
     w[0] = w[-1] = 0  # np.pi*alpha/np.sinh(np.pi*alpha)
 
-    w /= np.sqrt(np.sum(w ** 2))
+    w /= np.sqrt(np.sum(w**2))
 
     return _truncate(w, needs_trunc)

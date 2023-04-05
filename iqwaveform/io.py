@@ -6,28 +6,32 @@ import json
 from scipy import signal
 from pathlib import Path
 
+
 def extract_ntia_calibration_metadata(metadata: dict) -> dict:
     temp_K = None
     noise_fig_dB = None
     gain_dB = None
 
     # Look for calibration annotation
-    for a in metadata['annotations']:
-        if a['ntia-core:annotation_type'] == 'CalibrationAnnotation':
-            temp_K = a['ntia-sensor:temperature'] + 273.15 # C to K
-            noise_fig_dB = a['ntia-sensor:noise_figure_sensor']
-            gain_dB = a['ntia-sensor:gain_preselector']
+    for a in metadata["annotations"]:
+        if a["ntia-core:annotation_type"] == "CalibrationAnnotation":
+            temp_K = a["ntia-sensor:temperature"] + 273.15  # C to K
+            noise_fig_dB = a["ntia-sensor:noise_figure_sensor"]
+            gain_dB = a["ntia-sensor:gain_preselector"]
             break
     else:
         gain_dB = None
 
     return {
-        'ambient temperature (K)': temp_K,
-        'noise figure (dB)': noise_fig_dB,
-        'gain (dB)': gain_dB
+        "ambient temperature (K)": temp_K,
+        "noise figure (dB)": noise_fig_dB,
+        "gain (dB)": gain_dB,
     }
 
-def read_sigmf_metadata(metadata_fn, ntia=False) -> tuple((pd.DataFrame, float, )):
+
+def read_sigmf_metadata(
+    metadata_fn, ntia=False
+) -> tuple((pd.DataFrame, float,)):
     with open(metadata_fn, "r") as fd:
         metadata = json.load(fd)
 
@@ -44,7 +48,7 @@ def read_sigmf_metadata(metadata_fn, ntia=False) -> tuple((pd.DataFrame, float, 
         dict(df.set_index("sample_start").frequency),
         dict(df.set_index("sample_start").datetime),
         metadata["global"]["core:sample_rate"],
-        cal
+        cal,
     )
 
 
@@ -54,13 +58,15 @@ def read_sigmf(
     sigmf_data_ext=".npy",
     stack=False,
     ntia_extensions=False,
-    z0=50
+    z0=50,
 ):
     metadata_path = Path(metadata_path)
 
     """pack a DataFrame with data read from a SigMF modified for npy file format"""
 
-    center_freqs, timestamps, sample_rate, cal = read_sigmf_metadata(metadata_path, ntia=ntia_extensions)
+    center_freqs, timestamps, sample_rate, cal = read_sigmf_metadata(
+        metadata_path, ntia=ntia_extensions
+    )
 
     if force_sample_rate is not None:
         sample_rate = force_sample_rate
@@ -77,12 +83,12 @@ def read_sigmf(
     if stack:
         x_split = np.vstack(x_split).T
 
-    if cal.get('gain (dB)', None) is not None:
-        print('gain dB: ', cal['gain (dB)'])
-        gain = 10**(cal['gain (dB)']/10.)
-        x_split = x_split / np.sqrt(gain*2/z0)
+    if cal.get("gain (dB)", None) is not None:
+        print("gain dB: ", cal["gain (dB)"])
+        gain = 10 ** (cal["gain (dB)"] / 10.0)
+        x_split = x_split / np.sqrt(gain * 2 / z0)
     elif ntia_extensions:
-        raise LookupError('no calibration data is available in NTIA extensions')
+        raise LookupError("no calibration data is available in NTIA extensions")
 
     return (x_split, np.array(list(center_freqs.values())), 1.0 / sample_rate, cal)
 
@@ -93,13 +99,13 @@ def read_sigmf_to_df(
     x_split, center_freqs, Ts = read_sigmf(**locals())
 
     return waveform_to_frame(
-        x_split,
-        Ts,
-        columns=pd.Index(center_freqs/1e9), name='Frequency (Hz)'
+        x_split, Ts, columns=pd.Index(center_freqs / 1e9), name="Frequency (Hz)"
     )
 
 
-def waveform_to_frame(waveform: np.array, Ts: float, columns:pd.Index=None, column_name=None) -> tuple((pd.Series, pd.DataFrame)):
+def waveform_to_frame(
+    waveform: np.array, Ts: float, columns: pd.Index = None, column_name=None
+) -> tuple((pd.Series, pd.DataFrame)):
     """packs IQ data into a pandas Series or DataFrame object.
 
     The input waveform `iq` may have shape (N,) or (N,M), representing a single
@@ -125,13 +131,12 @@ def waveform_to_frame(waveform: np.array, Ts: float, columns:pd.Index=None, colu
     elif waveform.ndim == 1:
         obj = pd.Series(waveform)
     else:
-        raise TypeError(f'iq must have 1 or 2 dimensions')
+        raise TypeError(f"iq must have 1 or 2 dimensions")
 
     obj.index = pd.Index(
-        np.linspace(0, Ts*waveform.shape[0], waveform.shape[0], endpoint=False),
-        name = "Time elapsed (s)"
+        np.linspace(0, Ts * waveform.shape[0], waveform.shape[0], endpoint=False),
+        name="Time elapsed (s)",
     )
-
 
     return obj
 

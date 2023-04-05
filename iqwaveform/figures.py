@@ -150,7 +150,17 @@ class GammaQQScale(mpl.scale.FuncScale):
 
     name = "gamma-qq"
 
-    def __init__(self, axis, *, k, major_ticks=10, minor_ticks=None, vmin=None, vmax=None, db_ordinal=True):
+    def __init__(
+        self,
+        axis,
+        *,
+        k,
+        major_ticks=10,
+        minor_ticks=None,
+        vmin=None,
+        vmax=None,
+        db_ordinal=True,
+    ):
         def forward(q):
             x = stats.gamma.isf(q, a=k, scale=1)
             if db_ordinal:
@@ -310,16 +320,22 @@ def pcolormesh_df(
     y_unit=None,
     y_places=None,
 ):
-
     if ax is None:
         fig, ax = plt.subplots()
-
 
     X = df.columns.values
     Y = df.index.values
 
     drawing = ax.pcolormesh(
-        X, Y, df.values, vmin=vmin, rasterized=rasterized, cmap=cmap, norm=norm, edgecolors='none', edgecolor='none'
+        X,
+        Y,
+        df.values,
+        vmin=vmin,
+        rasterized=rasterized,
+        cmap=cmap,
+        norm=norm,
+        edgecolors="none",
+        edgecolor="none",
     )
 
     if xlabel is not False:
@@ -355,7 +371,6 @@ def plot_spectrogram_heatmap_from_iq(
     cmap=None,
     time_span=(None, None),
 ) -> tuple((plt.Axes, pd.DataFrame)):
-
     index_span = (
         None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
         None if time_span[1] is None else int(np.rint(time_span[1] / Ts)),
@@ -400,6 +415,7 @@ def plot_spectrogram_heatmap_from_iq(
 
     return ax, spg
 
+
 def plot_spectrogram_heatmap(
     spg: np.array,
     Ts: float,
@@ -408,7 +424,6 @@ def plot_spectrogram_heatmap(
     cmap=None,
     time_span=(None, None),
 ) -> tuple((plt.Axes, pd.DataFrame)):
-
     index_span = (
         None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
         None if time_span[1] is None else int(np.rint(time_span[1] / Ts)),
@@ -449,7 +464,9 @@ def plot_spectrogram_heatmap(
 
     return ax, spg
 
+
 debug = {}
+
 
 def plot_power_histogram_heatmap(
     rolling_histogram: pd.DataFrame,
@@ -466,7 +483,6 @@ def plot_power_histogram_heatmap(
     x_unit=None,
     x_places=None,
 ):
-
     """plot a heat map of power histograms along the time axis, with color map intensity set by the counts.
 
     Args:
@@ -552,10 +568,12 @@ def plot_power_histogram_heatmap(
         else:
             t = rolling_histogram.index.total_seconds()
 
-        hist_sub = pd.DataFrame(rolling_histogram.values, index=t, columns=rolling_histogram.columns)
+        hist_sub = pd.DataFrame(
+            rolling_histogram.values, index=t, columns=rolling_histogram.columns
+        )
 
         # debug['rolling_histogram'] = rolling_histogram
-        debug['hist_sub'] = hist_sub
+        debug["hist_sub"] = hist_sub
         # debug['t'] = t
 
         c = pcolormesh_df(hist_sub.T, **pc_kws)
@@ -622,7 +640,7 @@ def plot_power_histogram_heatmap(
             + list(np.linspace(cb._values[0], cb._values[1], cb._values.size - 1))
         )
 
-        debug['cb'] = cb
+        debug["cb"] = cb
         cb._do_extends(cb._get_extension_lengths(extension_length, True, True))
 
         cb.ax.text(
@@ -676,7 +694,9 @@ def plot_power_histogram_heatmap(
 
     return ax, c
 
+
 from .power_analysis import iq_to_bin_power
+
 
 def plot_power_ccdf(
     iq,
@@ -696,8 +716,12 @@ def plot_power_ccdf(
         Navg = 1
         power_dB = envtodB(iq)
     else:
-        Navg = int(Tavg/Ts)
-        power_dB = powtodB(iq_to_bin_power(iq, Ts=Ts, Tbin=Tavg, randomize=random_offsets, truncate=True))
+        Navg = int(Tavg / Ts)
+        power_dB = powtodB(
+            iq_to_bin_power(
+                iq, Ts=Ts, Tbin=Tavg, randomize=random_offsets, truncate=True
+            )
+        )
 
     if bins is None:
         bins = np.arange(power_dB.min(), power_dB.max() + 0.01, 0.01)

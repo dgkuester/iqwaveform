@@ -85,9 +85,16 @@ def envtodB(x, abs: bool = True, eps: float = 0):
         return values
 
 
-def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float, randomize:bool=False, kind:str='mean', truncate=False):
+def iq_to_bin_power(
+    iq: np.array,
+    Ts: float,
+    Tbin: float,
+    randomize: bool = False,
+    kind: str = "mean",
+    truncate=False,
+):
     """computes power along the rows of `iq` (time axis) on bins of duration Tbin.
-    
+
     Args:
         iq: complex-valued input waveform samples
         Ts: sample period of the input waveform
@@ -97,7 +104,7 @@ def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float, randomize:bool=False, 
         truncate: if True, truncate the last samples of `iq` to an integer number of bins
     """
 
-    VALID_DETECTORS = ('min', 'max', 'median', 'mean')
+    VALID_DETECTORS = ("min", "max", "median", "mean")
 
     if not truncate and not np.isclose(Tbin % Ts, 0, atol=1e-6):
         raise ValueError(
@@ -105,37 +112,35 @@ def iq_to_bin_power(iq: np.array, Ts: float, Tbin: float, randomize:bool=False, 
         )
 
     if kind not in VALID_DETECTORS:
-        raise ValueError(f'kind argument must be one of {VALID_DETECTORS}')
+        raise ValueError(f"kind argument must be one of {VALID_DETECTORS}")
 
     N = int(Tbin / Ts)
 
     # instantaneous power, reshaped into bins
     if randomize:
         starts = np.random.randint(
-            low=0,
-            high=iq.shape[0]-N,
-            size=int(np.rint(iq.shape[0]/N))
+            low=0, high=iq.shape[0] - N, size=int(np.rint(iq.shape[0] / N))
         )
         offsets = np.arange(N)
 
-        power_bins = (
-            envtopow(iq)[starts[:,np.newaxis] + offsets[np.newaxis,:]]
-        )
+        power_bins = envtopow(iq)[starts[:, np.newaxis] + offsets[np.newaxis, :]]
 
     else:
         iq = iq[: (iq.shape[0] // N) * N]
-        power_bins = (
-            envtopow(iq)
-            .reshape((iq.shape[0] // N, N) + tuple([iq.shape[1]] if iq.ndim == 2 else []))
+        power_bins = envtopow(iq).reshape(
+            (iq.shape[0] // N, N) + tuple([iq.shape[1]] if iq.ndim == 2 else [])
         )
 
     detector_ufunc = getattr(np, kind)
     return detector_ufunc(power_bins, axis=1)
-    
+
     Nmax = min(pow.shape[0], iq.shape[0] // N)
     return pow[:Nmax]
 
-def iq_to_frame_power(iq: np.ndarray, Ts:float, detector_period:float, frame_period:float) -> dict:
+
+def iq_to_frame_power(
+    iq: np.ndarray, Ts: float, detector_period: float, frame_period: float
+) -> dict:
     """computes a time series of periodic frame power statistics.
 
     The time axis on the frame time elapsed spans [0, frame_period) binned with step size
@@ -143,7 +148,7 @@ def iq_to_frame_power(iq: np.ndarray, Ts:float, detector_period:float, frame_per
 
     RMS and peak power detector data are returned. For each type of detector, a time
     series is returned for (min, mean, max) statistics, which are computed across the
-    number of frames (`frame_period/Ts`).  
+    number of frames (`frame_period/Ts`).
 
     Args:
         iq: complex-valued input waveform samples
@@ -167,16 +172,15 @@ def iq_to_frame_power(iq: np.ndarray, Ts:float, detector_period:float, frame_per
             "detector_period period must be positive integer multiple of the sampling period"
         )
 
-    Nframes = int(np.round(frame_period/Ts))
-    Npts = int(np.round(frame_period/detector_period))
+    Nframes = int(np.round(frame_period / Ts))
+    Npts = int(np.round(frame_period / detector_period))
 
     # set up dimensions to make the statistics fast
-    chunked_shape = (
-        (iq.shape[0] // Nframes, Npts, Nframes // Npts)
-        + tuple([iq.shape[1]] if iq.ndim == 2 else [])
+    chunked_shape = (iq.shape[0] // Nframes, Npts, Nframes // Npts) + tuple(
+        [iq.shape[1]] if iq.ndim == 2 else []
     )
     iq_bins = iq.reshape(chunked_shape)
-         
+
     power_bins = envtopow(iq_bins)
 
     # compute statistics first by cycle
@@ -185,12 +189,18 @@ def iq_to_frame_power(iq: np.ndarray, Ts:float, detector_period:float, frame_per
 
     # then do the detector
     return {
-        'rms': (rms_power.min(axis=1), rms_power.mean(axis=1), rms_power.max(axis=1)),
-        'peak': (peak_power.min(axis=1), peak_power.mean(axis=1), peak_power.max(axis=1)),
+        "rms": (rms_power.min(axis=1), rms_power.mean(axis=1), rms_power.max(axis=1)),
+        "peak": (
+            peak_power.min(axis=1),
+            peak_power.mean(axis=1),
+            peak_power.max(axis=1),
+        ),
     }
 
 
-def unstack_series_to_bins(pvt: pd.Series, Tbin: float, truncate:bool =False) -> pd.DataFrame:
+def unstack_series_to_bins(
+    pvt: pd.Series, Tbin: float, truncate: bool = False
+) -> pd.DataFrame:
     """unstack time series of power vs time (time axis) `pvt` into
     a pd.DataFrame in which row consists of time series of time duration `Twindow`.
 
@@ -248,7 +258,7 @@ def sample_ccdf(a: np.array, edges: np.array, density: bool = True) -> np.array:
     ccdf = (a.size - bin_counts.cumsum())[:-1]
 
     if density:
-        ccdf = ccdf.astype('float64')
+        ccdf = ccdf.astype("float64")
         ccdf /= a.size
 
     return ccdf
@@ -303,7 +313,6 @@ def power_histogram_along_axis(
     dtype="uint32",
     axis=0,
 ) -> pd.DataFrame:
-
     """Computes a histogram along the index of a pd.Series time series of power readings.
 
     Args:
@@ -330,7 +339,7 @@ def power_histogram_along_axis(
     """
 
     if isinstance(pvt, pd.Series) and axis != 0:
-        raise ValueError('axis argument is invalid for pd.Series')
+        raise ValueError("axis argument is invalid for pd.Series")
 
     if axis == 0:
         pvt = pvt.T

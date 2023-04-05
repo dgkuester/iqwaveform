@@ -154,7 +154,6 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         sync_window_count: int = 2,  # how many correlation windows to synchronize at a time (suggest >= 2)
         which_cp: str = "all",  # 'all', 'special', or 'normal'
     ):
-
         self.phy = LTE_PHY(channel_bandwidth)
         self.correlation_subframes = correlation_subframes
         self.sync_size = sync_window_count * correlation_subframes * self.phy.slot_size
@@ -296,7 +295,9 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         plot(t, offsets, ".")
         plot(t, t * self._regression_info["slope"] + self._regression_info["intercept"])
 
-    def __call__(self, x, subsample_offset_correction=True, max_passes=10, on_fail='except'):
+    def __call__(
+        self, x, subsample_offset_correction=True, max_passes=10, on_fail="except"
+    ):
         """Resample to correct for baseband clock mismatch.
 
         :subsample_offset_correction:
@@ -334,7 +335,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
                 print("done resampling " + str(sample_slip) + " " + str(elapsed))
 
         else:
-            if on_fail == 'except':
+            if on_fail == "except":
                 raise ValueError(
                     f"failed to converge on clock mismatch within {max_passes} passes"
                 )
