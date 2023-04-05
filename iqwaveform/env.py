@@ -67,7 +67,8 @@ def set_matplotlib_formats(formats, *args, **kws):
     # monkeypatch IPython's internal print_figure to include title metadata
     from IPython.core import pylabtools
 
-    #pylabtools = reload(pylabtools)
+    from importlib import reload
+    pylabtools = reload(pylabtools)
 
     def guess_title(fig):
         if fig._suptitle is not None:
