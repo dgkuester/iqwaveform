@@ -2,63 +2,42 @@ A python module for analysis and visualization of complex-valued waveforms.
 
 This is early in development and APIs may change rapidly.
 
-## Setup and install
-This code is being developed in an anaconda python 3.9 environment, of vintage late 2021. The code has not yet been evaluated for version compatibility, though coding style is meant to support python 3.7 and newer.
+### Install as a module
+This makes the `iqwaveform` module available for import from your own python scripts.
 
-Installation of the current git version directly from the web:
+#### anaconda python
+The idea here is to [re-use pre-existing base libraries when possible](https://www.anaconda.com/blog/using-pip-in-a-conda-environment) to minimize interaction problems between pip and conda or mamba.
 
-```sh
-    pip install git+https://github.com/usnistgov/iqwaveform
+```python
+pip install --upgrade-strategy only-if-needed git+https://github.com/usnistgov/iqwaveform
 ```
 
-Installation from a local copy of the repository:
-
-```sh
-    pip install <path to local copy of repository>
+#### other python distributions
+```python
+pip install git+https://github.com/usnistgov/iqwaveform
 ```
 
-## Future work: Requirements to post public repositories to [usnistgov][gh-nst]
+### Setting up the development environment to run notebooks or develop iqwaveform
+The following apply if you'd like to clone the project to develop the module.
 
-Use of this resource by NIST employees is subject to the
-[Rules of Behavior for GitHub (PDF)][gh-rob]. For details, please
-consult the Office of Data & Informatics'
-[Quickstart Guide to GitHub at NIST][gh-odi].
+1. Clone this repository:
 
-### README
+   ```bash
+   git clone https://github.com/usnistgov/iqwaveform
+   ```
 
-Each repository will contain a [README][wk-rdm] file, preferably
-formatted using GitHub-flavored [Markdown][gh-mdn] and named
-`README.md`. This file must contain:
+2. Environment setup:
+   - Make sure you've installed python 3.8 or newer making sure to include `pip` for base package management (for example, with `conda` or `miniconda`)
+   - Make sure you've installed `pdm`, which is used for dependency management isolated from other projects. This only needs to be done once in your python environment (not once per project). To do so, run the following in a command line environment:
 
-1. Software or Data description
-   - Statements of purpose and maturity
-   - Technical installation instructions
-1. Contact information
-   - PI name, NIST OU, Division, and Group names
-   - Contact email address at NIST
-   - Details of mailing lists, chatrooms, and discussion forums,
-     where applicable
-1. Related Material
-   - URL for associated project on <nist.gov> or other Department of
-     Commerce site, if available
-   - References to user guides if stored outside of GitHub
-1. Directions on appropriate citation with example text
-1. References to any included non-public domain software modules, and
-   additional license language if needed, *e.g.* [BSD][li-bsd],
-   [GPL][li-gpl], or [MIT][li-mit]
+      ```bash
+      pip install pdm
+      ```
 
-<!-- References -->
+      _At this point, close and reopen open a new one to apply updated command line variables_
+   - Install the project environment with `pdm`:
 
-[gh-cdo]: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
-[gh-mdn]: https://github.github.com/gfm/
-[gh-nst]: https://github.com/usnistgov
-[gh-odi]: https://odiwiki.nist.gov/ODI/GitHub.html
-[gh-ost]: https://github.com/orgs/usnistgov/teams/opensource-team
-[gh-rob]: https://odiwiki.nist.gov/pub/ODI/GitHub/GHROB.pdf
-[gh-rep]: https://github.com/usnistgov/opensource-repo/
-[gh-tpl]: https://github.com/usnistgov/carpentries-development/discussions/3
-[li-bsd]: https://opensource.org/licenses/bsd-license
-[li-gpl]: https://opensource.org/licenses/gpl-license
-[li-mit]: https://opensource.org/licenses/mit-license
-[nist-open]: https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications
-[wk-rdm]: https://en.wikipedia.org/wiki/README
+      ```bash
+      pdm use      
+      pdm install
+      ```
