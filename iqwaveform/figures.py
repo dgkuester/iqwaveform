@@ -417,12 +417,13 @@ def plot_spectrogram_heatmap_from_iq(
 
 
 def plot_spectrogram_heatmap(
-    spg: np.array,
+    spg: pd.DataFrame,
     Ts: float,
     ax=None,
     vmin: float = None,
     cmap=None,
     time_span=(None, None),
+    transpose = False
 ) -> tuple((plt.Axes, pd.DataFrame)):
     index_span = (
         None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
@@ -432,16 +433,28 @@ def plot_spectrogram_heatmap(
     if cmap is None:
         cmap = mpl.cm.get_cmap("magma")
 
-    c = pcolormesh_df(
-        powtodB(spg.T),
-        xlabel="Time elapsed (s)",
-        ylabel="Baseband Frequency",
-        y_unit="Hz",
-        # x_unit='s',
-        ax=ax,
-        cmap=cmap,
-        vmin=vmin,
-    )
+    if transpose:
+        c = pcolormesh_df(
+            powtodB(spg),
+            ylabel="Time elapsed (s)",
+            xlabel="Baseband Frequency",
+            x_unit="Hz",
+            # x_unit='s',
+            ax=ax,
+            cmap=cmap,
+            vmin=vmin,
+        )
+    else:
+        c = pcolormesh_df(
+            powtodB(spg.T),
+            xlabel="Time elapsed (s)",
+            ylabel="Baseband Frequency",
+            y_unit="Hz",
+            # x_unit='s',
+            ax=ax,
+            cmap=cmap,
+            vmin=vmin,
+        )
 
     freq_res = 1 / Ts / spg.shape[1]
 
