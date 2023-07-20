@@ -1,6 +1,6 @@
 [project]
 name = "iqwaveform"
-version = "0.4.0"
+version = "0.5.0"
 description = "tools for IQ waveform analysis and visualization"
 authors = [
     {name = "Dan Kuester", email = "daniel.kuester@nist.gov"},
@@ -13,6 +13,12 @@ dependencies = [
     "matplotlib>=3.6",
     "numexpr>=2.7",
     "scikit-learn>=1.1,<2.0",
+    "numba>=0.57.1",
+    "intel-cmplr-lib-rt>=2023.1.0",
+    "tbb-devel>=2021.9.0",
+    "tbb>=2021.9.0",
+    "intel-openmp>=2023.1.0",
+    "omb>=0.1.dev0",
 ]
 requires-python = ">=3.8"
 readme = "README.md"
@@ -39,5 +45,3 @@ line-length = 88
 target-version = ["py38", "py39", "py310", "py311"]
 include = '\.pyi?$'
 
-[tool.flake8]
-# one day

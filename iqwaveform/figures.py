@@ -421,9 +421,11 @@ def plot_spectrogram_heatmap(
     Ts: float,
     ax=None,
     vmin: float = None,
+    vmax: float = None,
     cmap=None,
     time_span=(None, None),
-    transpose = False
+    transpose = False,
+    colorbar = True
 ) -> tuple((plt.Axes, pd.DataFrame)):
     index_span = (
         None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
@@ -443,6 +445,7 @@ def plot_spectrogram_heatmap(
             ax=ax,
             cmap=cmap,
             vmin=vmin,
+            vmax=vmax
         )
     else:
         c = pcolormesh_df(
@@ -454,6 +457,7 @@ def plot_spectrogram_heatmap(
             ax=ax,
             cmap=cmap,
             vmin=vmin,
+            vmax=vmax
         )
 
     freq_res = 1 / Ts / spg.shape[1]
@@ -467,13 +471,14 @@ def plot_spectrogram_heatmap(
     else:
         freq_res_name = f"{freq_res/1e9:0.1f} GHz"
 
-    cb = plt.colorbar(
-        c,
-        cmap=cmap,
-        ax=ax,
-        label=f"Bin power (dBm/{freq_res_name})"
-        # rasterized=True
-    )
+    if colorbar:
+        cb = plt.colorbar(
+            c,
+            cmap=cmap,
+            ax=ax,
+            label=f"Bin power (dBm/{freq_res_name})"
+            # rasterized=True
+        )
 
     return ax, spg
 
