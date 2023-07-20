@@ -427,7 +427,8 @@ def plot_spectrogram_heatmap(
     cmap=None,
     time_span=(None, None),
     transpose = False,
-    colorbar = True
+    colorbar = True,
+    rasterized = True
 ) -> tuple((plt.Axes, pd.DataFrame)):
     index_span = (
         None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
@@ -447,7 +448,8 @@ def plot_spectrogram_heatmap(
             ax=ax,
             cmap=cmap,
             vmin=vmin,
-            vmax=vmax
+            vmax=vmax,
+            rasterized=rasterized
         )
     else:
         c = pcolormesh_df(
@@ -459,7 +461,8 @@ def plot_spectrogram_heatmap(
             ax=ax,
             cmap=cmap,
             vmin=vmin,
-            vmax=vmax
+            vmax=vmax,
+            rasterized=rasterized
         )
 
     freq_res = 1 / Ts / spg.shape[1]
