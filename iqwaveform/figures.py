@@ -308,6 +308,7 @@ def xaxis_concise_dates(fig, ax, adjacent_offset: bool = True):
 def pcolormesh_df(
     df,
     vmin=None,
+    vmax=None,
     rasterized=True,
     cmap=None,
     ax=None,
@@ -331,6 +332,7 @@ def pcolormesh_df(
         Y,
         df.values,
         vmin=vmin,
+        vmax=vmax,
         rasterized=rasterized,
         cmap=cmap,
         norm=norm,
