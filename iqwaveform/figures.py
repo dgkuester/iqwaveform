@@ -7,6 +7,11 @@ from .power_analysis import powtodB, dBtopow, envtodB, envtopow, sample_ccdf
 from .fourier import to_blocks, iq_to_stft_spectrogram
 import math
 
+
+def is_decade(x, **kwargs):
+    y = np.log10(x)
+    return np.isclose(y, np.round(y), **kwargs)
+
 class GammaMaxNLocator(mpl.ticker.MaxNLocator):
     """The ticker locator for linearized gamma-distributed survival functions"""
 
@@ -115,10 +120,10 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
             s = self._one_half
         elif np.any(np.isclose(x, np.array([0.01, 0.1, 0.9, 0.99]), rtol=1e-7)):
             s = str(x)
-        elif x < 0.1 and mpl.ticker.is_decade(x, rtol=1e-7):
+        elif x < 0.1 and is_decade(x, rtol=1e-7):
             exponent = round(np.log10(x))
             s = "10^{%d}" % exponent
-        elif x > 0.9 and mpl.ticker.is_decade(1 - x, rtol=1e-7):
+        elif x > 0.9 and is_decade(1 - x, rtol=1e-7):
             exponent = round(np.log10(1 - x))
             s = self._one_minus("10^{%d}" % exponent)
         elif x < 0.05:
