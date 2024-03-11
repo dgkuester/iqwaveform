@@ -33,6 +33,10 @@ lint = [
     "flake8",
     "black",
 ]
+dev = [
+    "ipython>=8.12.3",
+    "mlx>=0.0.5",
+]
 
 [tool.black]
 line-length = 88

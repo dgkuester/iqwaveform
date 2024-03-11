@@ -5,7 +5,7 @@ import numpy as np
 from scipy import stats
 from .power_analysis import powtodB, dBtopow, envtodB, envtopow, sample_ccdf
 from .fourier import to_blocks, iq_to_stft_spectrogram
-
+import math
 
 class GammaMaxNLocator(mpl.ticker.MaxNLocator):
     """The ticker locator for linearized gamma-distributed survival functions"""
@@ -111,7 +111,7 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
             return ""
         if x <= 0 or x >= 1:
             return ""
-        if mpl.ticker.is_close_to_int(2 * x) and round(2 * x) == 1:
+        if math.isclose(2*x, round(2*x)) and round(2*x) == 1:
             s = self._one_half
         elif np.any(np.isclose(x, np.array([0.01, 0.1, 0.9, 0.99]), rtol=1e-7)):
             s = str(x)
