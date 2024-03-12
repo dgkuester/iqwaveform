@@ -89,10 +89,18 @@ class LTE_PHY:
         20e6: 30.72e6,
     }
 
-    def __init__(self, channel_bandwidth):
+    def __init__(self, channel_bandwidth, force_fft_size: float=None, force_sample_rate=None):
         self.channel_bandwidth = channel_bandwidth
-        self.sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
-        self.fft_size = int(self.sample_rate / 15000)
+        if force_sample_rate is None:
+            self.sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
+        else:
+            self.sample_rate = force_sample_rate
+
+        if force_fft_size is None:
+            self.fft_size = int(self.sample_rate / 15000)
+        else:
+            self.fft_size = force_fft_size
+
         self.slot_size = 15 * self.fft_size // 2
         self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
 
@@ -152,9 +160,10 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         channel_bandwidth: float,  # the channel bandwidth in Hz: 1.4 MHz, 5 MHz, 10 MHz, 20 MHz, etc
         correlation_subframes: int = 20,  # correlation window size, in subframes (20 = 1 frame)
         sync_window_count: int = 2,  # how many correlation windows to synchronize at a time (suggest >= 2)
-        which_cp: str = "all",  # 'all', 'special', or 'normal'
+        which_cp: str = "all",  # 'all', 'special', or 'normal',
+        phy_overrides: dict = {}
     ):
-        self.phy = LTE_PHY(channel_bandwidth)
+        self.phy = LTE_PHY(channel_bandwidth, **phy_overrides)
         self.correlation_subframes = correlation_subframes
         self.sync_size = sync_window_count * correlation_subframes * self.phy.slot_size
 
