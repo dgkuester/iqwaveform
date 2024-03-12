@@ -162,12 +162,12 @@ def iq_to_frame_power(
     Returns:
         dict keyed on ('rms', 'peak') with values (min: np.array, mean: np.array, max: np.array)
     """
-    if not np.isclose(frame_period % Ts, 0, 1e-6):
+    if not np.isclose(frame_period % Ts, 0, atol=1e-6):
         raise ValueError(
             "frame period must be positive integer multiple of the sampling period"
         )
 
-    if not np.isclose(detector_period % Ts, 0, 1e-6):
+    if not np.isclose(detector_period % Ts, 0, atol=1e-6):
         raise ValueError(
             "detector_period period must be positive integer multiple of the sampling period"
         )
