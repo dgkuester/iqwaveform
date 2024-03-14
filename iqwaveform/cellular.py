@@ -425,8 +425,8 @@ class SymbolDecoder:
 
         return symbols[tti_offset:]
 
-    def __call__(self, x, only_3gpp_subcarriers=True):
+    def __call__(self, x):
         """Ringlead the decoding process"""
-        symbols = self._decode_symbols(x, only_3gpp_subcarriers=only_3gpp_subcarriers)
+        symbols = self._decode_symbols(x)
         symbols = self._align_symbols_to_tti(symbols)
         return symbols
