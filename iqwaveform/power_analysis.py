@@ -183,17 +183,17 @@ def iq_to_frame_power(
 
     power_bins = envtopow(iq_bins)
 
-    # compute statistics first by cycle
-    rms_power = power_bins.mean(axis=0)
-    peak_power = power_bins.max(axis=0)
+    # first, apply the detector statistic
+    rms_power = power_bins.mean(axis=2)
+    peak_power = power_bins.max(axis=2)
 
-    # then do the detector
+    # then, the cycle statistic
     return {
-        "rms": (rms_power.min(axis=1), rms_power.mean(axis=1), rms_power.max(axis=1)),
+        "rms": (rms_power.min(axis=0), rms_power.mean(axis=0), rms_power.max(axis=0)),
         "peak": (
-            peak_power.min(axis=1),
-            peak_power.mean(axis=1),
-            peak_power.max(axis=1),
+            peak_power.min(axis=0),
+            peak_power.mean(axis=0),
+            peak_power.max(axis=0),
         ),
     }
 

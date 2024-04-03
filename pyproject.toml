@@ -1,6 +1,6 @@
 [project]
 name = "iqwaveform"
-version = "0.9.0"
+version = "0.10.0"
 description = "tools for IQ waveform analysis and visualization"
 authors = [
     {name = "Dan Kuester", email = "daniel.kuester@nist.gov"},
