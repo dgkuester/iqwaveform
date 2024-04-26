@@ -164,8 +164,11 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         correlation_subframes: int = 20,  # correlation window size, in subframes (20 = 1 frame)
         sync_window_count: int = 2,  # how many correlation windows to synchronize at a time (suggest >= 2)
         which_cp: str = "all",  # 'all', 'special', or 'normal'
+        subcarrier_spacing=15e3
     ):
-        self.phy = PHY_FEATURES(channel_bandwidth)
+        self.phy = PHY_FEATURES(
+            channel_bandwidth, subcarrier_spacing=subcarrier_spacing
+        )
         self.correlation_subframes = correlation_subframes
         self.sync_size = sync_window_count * correlation_subframes * self.phy.slot_size
 
