@@ -99,11 +99,11 @@ class PHY_FEATURES:
             raise ValueError(
                 f'subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}'
             )
-        
+
         self.channel_bandwidth = channel_bandwidth
         self.sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
         self.fft_size = int(np.rint(self.sample_rate / subcarrier_spacing))
-        self.slot_size = 15 * self.fft_size // 2
+        self.slot_size = 15 * self.fft_size
         self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
 
         ### UL slot structure including cyclic prefix (CP) indices are specified in
@@ -112,7 +112,7 @@ class PHY_FEATURES:
         # Table 5.6-1
 
         self.slot_cp_sizes = (
-            self.fft_size * np.array((10, 9, 9, 9, 9, 9, 9), dtype=int)
+            self.fft_size * np.array((10, 9, 9, 9, 9, 9, 9, 10, 9, 9, 9, 9, 9, 9), dtype=int)
         ) // (128)
 
         pair_sizes = np.concatenate(((0,), self.slot_cp_sizes + self.fft_size))
@@ -121,7 +121,7 @@ class PHY_FEATURES:
         n_slot = np.arange(self.slot_size).astype(int)
         loc_size_pairs = zip(self.slot_cp_start_indices, self.slot_cp_sizes)
         self.slot_cp_indices = np.concatenate(
-            [n_slot[i0 : i0 + s] for i0, s in loc_size_pairs]
+            [n_slot[i0:i0 + s] for i0, s in loc_size_pairs]
         )
         self.slot_symbol_indices = np.array(
             list(
