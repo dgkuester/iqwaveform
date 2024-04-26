@@ -62,7 +62,7 @@ def to_blocks(y, size, truncate=False):
     )
 
 
-class LTE_PHY:
+class PHY_FEATURES:
     """Some physical layer constants, lookup tables, and indices for
     a given channel bandwidth from 3GPP TS 36.211.
     """
@@ -89,10 +89,20 @@ class LTE_PHY:
         20e6: 30.72e6,
     }
 
-    def __init__(self, channel_bandwidth):
+    # TODO: add 5G FR2 SCS values
+    SUBCARRIER_SPACINGS = {
+        15e3, 30e3, 60e3
+    }
+
+    def __init__(self, channel_bandwidth, subcarrier_spacing=15e3):
+        if subcarrier_spacing not in self.SUBCARRIER_SPACINGS:
+            raise ValueError(
+                f'subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}'
+            )
+        
         self.channel_bandwidth = channel_bandwidth
         self.sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
-        self.fft_size = int(self.sample_rate / 15000)
+        self.fft_size = int(np.rint(self.sample_rate / subcarrier_spacing))
         self.slot_size = 15 * self.fft_size // 2
         self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
 
@@ -100,9 +110,10 @@ class LTE_PHY:
         ### 3GPP TS 36.211, Section 5.6
 
         # Table 5.6-1
+
         self.slot_cp_sizes = (
             self.fft_size * np.array((10, 9, 9, 9, 9, 9, 9), dtype=int)
-        ) // 128
+        ) // (128)
 
         pair_sizes = np.concatenate(((0,), self.slot_cp_sizes + self.fft_size))
         self.slot_cp_start_indices = (pair_sizes.cumsum()).astype(int)[:-1]
@@ -154,7 +165,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         sync_window_count: int = 2,  # how many correlation windows to synchronize at a time (suggest >= 2)
         which_cp: str = "all",  # 'all', 'special', or 'normal'
     ):
-        self.phy = LTE_PHY(channel_bandwidth)
+        self.phy = PHY_FEATURES(channel_bandwidth)
         self.correlation_subframes = correlation_subframes
         self.sync_size = sync_window_count * correlation_subframes * self.phy.slot_size
 
@@ -381,12 +392,12 @@ class SymbolDecoder:
     """
 
     def __init__(self, channel_bandwidth):
-        self.phy = LTE_PHY(channel_bandwidth)
+        self.phy = PHY_FEATURES(channel_bandwidth)
 
     @staticmethod
     def prb_power(symbols):
         """Return the total power in the PRB"""
-        return (np.abs(to_blocks(symbols, LTE_PHY.SUBFRAMES_PER_PRB)) ** 2).sum(axis=-1)
+        return (np.abs(to_blocks(symbols, PHY_FEATURES.SUBFRAMES_PER_PRB)) ** 2).sum(axis=-1)
 
     def _decode_symbols(self, x, only_3gpp_subcarriers=True):
         # first, select symbol indices (== remove cyclic prefixes)
@@ -415,7 +426,7 @@ class SymbolDecoder:
         power = self.prb_power(symbols)
         power_diff = np.diff(power, axis=0, append=0) / power
         diff_peaks = np.abs(power_diff).max(axis=1)
-        diff_peak_by_symbol = to_blocks(diff_peaks, LTE_PHY.FFT_PER_TTI)
+        diff_peak_by_symbol = to_blocks(diff_peaks, PHY_FEATURES.FFT_PER_TTI)
         self._diff_peak_by_symbol = diff_peak_by_symbol
         self._diff_peaks = diff_peaks
         self._power_diff = power_diff

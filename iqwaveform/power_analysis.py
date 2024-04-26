@@ -172,8 +172,8 @@ def iq_to_frame_power(
             "detector_period period must be positive integer multiple of the sampling period"
         )
 
-    Nframes = int(np.round(frame_period / Ts))
-    Npts = int(np.round(frame_period / detector_period))
+    Nframes = int(np.rint(frame_period / Ts))
+    Npts = int(np.rint(frame_period / detector_period))
 
     # set up dimensions to make the statistics fast
     chunked_shape = (iq.shape[0] // Nframes, Npts, Nframes // Npts) + tuple(
