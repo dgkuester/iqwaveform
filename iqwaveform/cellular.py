@@ -113,7 +113,8 @@ class PHY_FEATURES:
         self.sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
         self.fft_size = int(np.rint(self.sample_rate / subcarrier_spacing))
         self.slot_size = 15 * self.fft_size
-        self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
+        if self.fft_size in self.subcarriers:
+            self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
 
         ### UL slot structure including cyclic prefix (CP) indices are specified in
         ### 3GPP TS 36.211, Section 5.6
