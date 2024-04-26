@@ -87,6 +87,15 @@ class PHY_FEATURES:
         10e6: 15.36e6,
         15e6: 23.04e6,
         20e6: 30.72e6,
+        25e6: 38.40e6,
+        30e6: 46.08e6,
+        40e6: 61.44e6,
+    }
+
+    SCS_TO_SLOTS_PER_FRAME = {
+        15e3: 10,
+        30e3: 20,
+        60e3: 40
     }
 
     # TODO: add 5G FR2 SCS values
