@@ -92,21 +92,15 @@ class PHY_FEATURES:
         40e6: 61.44e6,
     }
 
-    SCS_TO_SLOTS_PER_FRAME = {
-        15e3: 10,
-        30e3: 20,
-        60e3: 40
-    }
+    SCS_TO_SLOTS_PER_FRAME = {15e3: 10, 30e3: 20, 60e3: 40}
 
     # TODO: add 5G FR2 SCS values
-    SUBCARRIER_SPACINGS = {
-        15e3, 30e3, 60e3
-    }
+    SUBCARRIER_SPACINGS = {15e3, 30e3, 60e3}
 
     def __init__(self, channel_bandwidth, subcarrier_spacing=15e3):
         if subcarrier_spacing not in self.SUBCARRIER_SPACINGS:
             raise ValueError(
-                f'subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}'
+                f"subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}"
             )
 
         self.channel_bandwidth = channel_bandwidth
@@ -122,7 +116,8 @@ class PHY_FEATURES:
         # Table 5.6-1
 
         self.slot_cp_sizes = (
-            self.fft_size * np.array((10, 9, 9, 9, 9, 9, 9, 10, 9, 9, 9, 9, 9, 9), dtype=int)
+            self.fft_size
+            * np.array((10, 9, 9, 9, 9, 9, 9, 10, 9, 9, 9, 9, 9, 9), dtype=int)
         ) // (128)
 
         pair_sizes = np.concatenate(((0,), self.slot_cp_sizes + self.fft_size))
@@ -131,7 +126,7 @@ class PHY_FEATURES:
         n_slot = np.arange(self.slot_size).astype(int)
         loc_size_pairs = zip(self.slot_cp_start_indices, self.slot_cp_sizes)
         self.slot_cp_indices = np.concatenate(
-            [n_slot[i0:i0 + s] for i0, s in loc_size_pairs]
+            [n_slot[i0 : i0 + s] for i0, s in loc_size_pairs]
         )
         self.slot_symbol_indices = np.array(
             list(
@@ -174,7 +169,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         correlation_subframes: int = 20,  # correlation window size, in subframes (20 = 1 frame)
         sync_window_count: int = 2,  # how many correlation windows to synchronize at a time (suggest >= 2)
         which_cp: str = "all",  # 'all', 'special', or 'normal'
-        subcarrier_spacing=15e3
+        subcarrier_spacing=15e3,
     ):
         self.phy = PHY_FEATURES(
             channel_bandwidth, subcarrier_spacing=subcarrier_spacing
@@ -410,7 +405,9 @@ class SymbolDecoder:
     @staticmethod
     def prb_power(symbols):
         """Return the total power in the PRB"""
-        return (np.abs(to_blocks(symbols, PHY_FEATURES.SUBFRAMES_PER_PRB)) ** 2).sum(axis=-1)
+        return (np.abs(to_blocks(symbols, PHY_FEATURES.SUBFRAMES_PER_PRB)) ** 2).sum(
+            axis=-1
+        )
 
     def _decode_symbols(self, x, only_3gpp_subcarriers=True):
         # first, select symbol indices (== remove cyclic prefixes)

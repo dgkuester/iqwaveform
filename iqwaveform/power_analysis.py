@@ -1,4 +1,4 @@
-""" Transformations and statistical tools for power data """
+"""Transformations and statistical tools for power data"""
 
 import os
 
@@ -14,14 +14,15 @@ from functools import partial
 warnings.filterwarnings("ignore", message="divide by zero")
 warnings.filterwarnings("ignore", message="invalid value encountered")
 
+
 def stat_ufunc_from_shorthand(kind):
     NAMED_UFUNCS = {
-        'min': np.min,
-        'max': np.max,
-        'peak': np.max,
-        'median': np.median,
-        'mean': np.mean,
-        'rms': np.mean
+        "min": np.min,
+        "max": np.max,
+        "peak": np.max,
+        "median": np.median,
+        "mean": np.mean,
+        "rms": np.mean,
     }
 
     if isinstance(kind, str):
@@ -41,8 +42,9 @@ def stat_ufunc_from_shorthand(kind):
 
     return ufunc
 
+
 def isroundmod(a, div, atol=1e-6):
-    return np.abs(np.rint(a/div)-a/div) <= atol   
+    return np.abs(np.rint(a / div) - a / div) <= atol
 
 
 def dBtopow(x):
@@ -162,10 +164,16 @@ def iq_to_bin_power(
 
     return detector(power_bins, axis=1)
 
+
 def iq_to_cyclic_power(
-    iq: np.ndarray, Ts: float, detector_period: float, cyclic_period: float, truncate=False,
-    detectors = ('rms', 'peak'), cycle_stats = ('min', 'mean', 'max')
-) -> dict:
+    iq: np.ndarray,
+    Ts: float,
+    detector_period: float,
+    cyclic_period: float,
+    truncate=False,
+    detectors=("rms", "peak"),
+    cycle_stats=("min", "mean", "max"),
+) -> dict[str, dict[str, np.array]]:
     """computes a time series of periodic frame power statistics.
 
     The time axis on the cyclic time lag [0, cyclic_period) is binned with step size
@@ -185,11 +193,10 @@ def iq_to_cyclic_power(
         ValueError: if detector_period%Ts != 0 or cyclic_period%detector_period != 0
 
     Returns:
-        dict keyed on ('rms', 'peak') with values (min: np.array, mean: np.array, max: np.array)
+        dict keyed on detector type, with values (dict of np.arrays keyed on cyclic statistic)
     """
 
     # apply the detector statistic
-
 
     power = {
         d: iq_to_bin_power(iq, Ts, detector_period, kind=d, truncate=truncate)
@@ -207,23 +214,22 @@ def iq_to_cyclic_power(
     power_shape = power[detectors[0]].shape
     if power_shape[0] % cyclic_detector_bins != 0:
         if truncate:
-            N = (power_shape[0]//cyclic_detector_bins)*cyclic_detector_bins
+            N = (power_shape[0] // cyclic_detector_bins) * cyclic_detector_bins
             power = {d: x[:N] for d, x in power.items()}
         else:
-            raise ValueError("pass truncate=True to allow truncation to align with cyclic windows")
+            raise ValueError(
+                "pass truncate=True to allow truncation to align with cyclic windows"
+            )
 
     shape_by_cycle = (
         power_shape[0] // cyclic_detector_bins,
         cyclic_detector_bins,
-        *([iq.shape[1]] if iq.ndim == 2 else [])
+        *([iq.shape[1]] if iq.ndim == 2 else []),
     )
 
     power = {d: x.reshape(shape_by_cycle) for d, x in power.items()}
 
-    cycle_stat_ufunc = {
-        kind: stat_ufunc_from_shorthand(kind)
-        for kind in cycle_stats
-    }
+    cycle_stat_ufunc = {kind: stat_ufunc_from_shorthand(kind) for kind in cycle_stats}
 
     # apply the cyclic statistic
 
@@ -236,13 +242,19 @@ def iq_to_cyclic_power(
 
     return ret
 
+
 def iq_to_frame_power(
-    iq: np.ndarray, Ts: float, detector_period: float, frame_period: float, truncate=False
+    iq: np.ndarray,
+    Ts: float,
+    detector_period: float,
+    frame_period: float,
+    truncate=False,
 ) -> dict:
+    warnings.warn(
+        "iq_to_frame_power has been deprecated. use iq_to_cyclic_power instead"
+    )
 
-    warnings.warn('iq_to_frame_power has been deprecated. use iq_to_cyclic_power instead')
-
-    locals()['cyclic_power'] = locals().pop('frame_power')
+    locals()["cyclic_power"] = locals().pop("frame_power")
     return iq_to_cyclic_power(**locals())
 
 

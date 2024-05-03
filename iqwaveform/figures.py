@@ -12,6 +12,7 @@ def is_decade(x, **kwargs):
     y = np.log10(x)
     return np.isclose(y, np.round(y), **kwargs)
 
+
 class GammaMaxNLocator(mpl.ticker.MaxNLocator):
     """The ticker locator for linearized gamma-distributed survival functions"""
 
@@ -116,7 +117,7 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
             return ""
         if x <= 0 or x >= 1:
             return ""
-        if math.isclose(2*x, round(2*x)) and round(2*x) == 1:
+        if math.isclose(2 * x, round(2 * x)) and round(2 * x) == 1:
             s = self._one_half
         elif np.any(np.isclose(x, np.array([0.01, 0.1, 0.9, 0.99]), rtol=1e-7)):
             s = str(x)
@@ -416,7 +417,7 @@ def plot_spectrogram_heatmap_from_iq(
         c,
         cmap=cmap,
         ax=ax,
-        label=f"Bin power (dBm/{freq_res_name})"
+        label=f"Bin power (dBm/{freq_res_name})",
         # rasterized=True
     )
 
@@ -431,9 +432,9 @@ def plot_spectrogram_heatmap(
     vmax: float = None,
     cmap=None,
     time_span=(None, None),
-    transpose = False,
-    colorbar = True,
-    rasterized = True
+    transpose=False,
+    colorbar=True,
+    rasterized=True,
 ) -> tuple((plt.Axes, pd.DataFrame)):
     index_span = (
         None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
@@ -454,7 +455,7 @@ def plot_spectrogram_heatmap(
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
-            rasterized=rasterized
+            rasterized=rasterized,
         )
     else:
         c = pcolormesh_df(
@@ -467,7 +468,7 @@ def plot_spectrogram_heatmap(
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
-            rasterized=rasterized
+            rasterized=rasterized,
         )
 
     freq_res = 1 / Ts / spg.shape[1]
@@ -486,7 +487,7 @@ def plot_spectrogram_heatmap(
             c,
             cmap=cmap,
             ax=ax,
-            label=f"Bin power (dBm/{freq_res_name})"
+            label=f"Bin power (dBm/{freq_res_name})",
             # rasterized=True
         )
 
@@ -616,7 +617,7 @@ def plot_power_histogram_heatmap(
             cmap=cmap,
             ax=ax,
             extend="min",
-            extendrect=True
+            extendrect=True,
             # extendfrac='auto',
             # cax = fig.add_axes([1.02, 0.152, 0.03, 0.7])
         )

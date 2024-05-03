@@ -68,6 +68,7 @@ def set_matplotlib_formats(formats, *args, **kws):
     from IPython.core import pylabtools
 
     from importlib import reload
+
     pylabtools = reload(pylabtools)
 
     def guess_title(fig):

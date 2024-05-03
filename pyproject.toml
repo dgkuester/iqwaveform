@@ -1,6 +1,6 @@
 [project]
 name = "iqwaveform"
-version = "0.16.0"
+version = "0.17.0"
 description = "tools for IQ waveform analysis and visualization"
 authors = [
     {name = "Dan Kuester", email = "daniel.kuester@nist.gov"},
@@ -36,6 +36,7 @@ lint = [
 dev = [
     "ipython>=8.12.3",
     "mlx>=0.0.5",
+    "ruff>=0.4.2",
 ]
 
 [tool.black]

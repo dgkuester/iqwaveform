@@ -29,9 +29,12 @@ def extract_ntia_calibration_metadata(metadata: dict) -> dict:
     }
 
 
-def read_sigmf_metadata(
-    metadata_fn, ntia=False
-) -> tuple((pd.DataFrame, float,)):
+def read_sigmf_metadata(metadata_fn, ntia=False) -> tuple(
+    (
+        pd.DataFrame,
+        float,
+    )
+):
     with open(metadata_fn, "r") as fd:
         metadata = json.load(fd)
 
