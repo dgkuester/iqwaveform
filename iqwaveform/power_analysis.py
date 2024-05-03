@@ -138,7 +138,7 @@ def iq_to_bin_power(
     return pow[:Nmax]
 
 
-def iq_to_frame_power(
+def iq_to_cyclic_power(
     iq: np.ndarray, Ts: float, detector_period: float, frame_period: float, truncate=False
 ) -> dict:
     """computes a time series of periodic frame power statistics.
@@ -205,6 +205,15 @@ def iq_to_frame_power(
             peak_power.max(axis=0),
         ),
     }
+
+
+def iq_to_frame_power(
+    iq: np.ndarray, Ts: float, detector_period: float, frame_period: float, truncate=False
+) -> dict:
+
+    warnings.warn('iq_to_frame_power has been deprecated. use iq_to_cyclic_power instead')
+
+    return iq_to_cyclic_power(**locals())
 
 
 def unstack_series_to_bins(
