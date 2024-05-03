@@ -8,9 +8,41 @@ import numpy as np
 import pandas as pd
 import numexpr as ne
 import warnings
+from numbers import Number
+from functools import partial
 
 warnings.filterwarnings("ignore", message="divide by zero")
 warnings.filterwarnings("ignore", message="invalid value encountered")
+
+def stat_ufunc_from_shorthand(kind):
+    NAMED_UFUNCS = {
+        'min': np.min,
+        'max': np.max,
+        'peak': np.max,
+        'median': np.median,
+        'mean': np.mean,
+        'rms': np.mean
+    }
+
+    if isinstance(kind, str):
+        if kind not in NAMED_UFUNCS:
+            valid = NAMED_UFUNCS.keys()
+            raise ValueError(f"kind argument must be one of {valid}")
+        ufunc = NAMED_UFUNCS[kind]
+
+    elif isinstance(kind, Number):
+        ufunc = partial(np.quantile, q=kind)
+
+    elif callable(kind):
+        ufunc = kind
+
+    else:
+        raise ValueError(f'invalid statistic ufunc "{kind}"')
+
+    return ufunc
+
+def isroundmod(a, div, atol=1e-6):
+    return np.abs(np.rint(a/div)-a/div) <= atol   
 
 
 def dBtopow(x):
@@ -100,19 +132,16 @@ def iq_to_bin_power(
         Ts: sample period of the input waveform
         Tbin: time duration of the bin size
         randomize: if True, randomize the start locations of the bins; otherwise, bins are contiguous
-        kind: the detection operation in each bin, one of 'min', 'max', 'median', or 'mean'
+        kind: a named statistic ('max', 'mean', 'median', 'min', 'peak', 'rms'), a quantile, or a callable ufunc
         truncate: if True, truncate the last samples of `iq` to an integer number of bins
     """
 
-    VALID_DETECTORS = ("min", "max", "median", "mean")
-
-    if not truncate and not np.isclose(Tbin % Ts, 0, atol=1e-6):
+    if not truncate and not isroundmod(Tbin, Ts):
         raise ValueError(
             f"bin period ({Tbin} s) must be multiple of waveform sample period ({Ts})"
         )
 
-    if kind not in VALID_DETECTORS:
-        raise ValueError(f"kind argument must be one of {VALID_DETECTORS}")
+    detector = stat_ufunc_from_shorthand(kind)
 
     N = int(Tbin / Ts)
 
@@ -131,81 +160,81 @@ def iq_to_bin_power(
             (iq.shape[0] // N, N) + tuple([iq.shape[1]] if iq.ndim == 2 else [])
         )
 
-    detector_ufunc = getattr(np, kind)
-    return detector_ufunc(power_bins, axis=1)
-
-    Nmax = min(pow.shape[0], iq.shape[0] // N)
-    return pow[:Nmax]
-
+    return detector(power_bins, axis=1)
 
 def iq_to_cyclic_power(
-    iq: np.ndarray, Ts: float, detector_period: float, frame_period: float, truncate=False
+    iq: np.ndarray, Ts: float, detector_period: float, cyclic_period: float, truncate=False,
+    detectors = ('rms', 'peak'), cycle_stats = ('min', 'mean', 'max')
 ) -> dict:
     """computes a time series of periodic frame power statistics.
 
-    The time axis on the frame time elapsed spans [0, frame_period) binned with step size
-    `detector_period`, for a total of `int(frame_period/detector_period)` samples.
+    The time axis on the cyclic time lag [0, cyclic_period) is binned with step size
+    `detector_period`, for a total of `cyclic_period/detector_period` samples.
 
     RMS and peak power detector data are returned. For each type of detector, a time
     series is returned for (min, mean, max) statistics, which are computed across the
-    number of frames (`frame_period/Ts`).
+    number of frames (`cyclic_period/Ts`).
 
     Args:
         iq: complex-valued input waveform samples
         Ts: sample period of the iq waveform
         detector_period: sampling period within the frame
-        frame_period: frame period to analyze
+        cyclic_period: the cyclic period to analyze
 
     Raises:
-        ValueError: if detector_period%Ts != 0 or frame_period%detector_period != 0
+        ValueError: if detector_period%Ts != 0 or cyclic_period%detector_period != 0
 
     Returns:
         dict keyed on ('rms', 'peak') with values (min: np.array, mean: np.array, max: np.array)
     """
-    if not np.isclose(frame_period % Ts, 0, atol=Ts/4):
-        raise ValueError(
-            "frame period must be positive integer multiple of the sampling period"
-        )
 
-    if not np.isclose(detector_period % Ts, 0, atol=Ts/4):
-        raise ValueError(
-            "detector_period period must be positive integer multiple of the sampling period"
-        )
+    # apply the detector statistic
 
-    frame_samples = int(np.rint(frame_period / Ts))
-    frame_detector_bins = int(np.rint(frame_period / detector_period))
 
-    if iq.shape[0] % frame_samples != 0:
-        if truncate:
-            iq = iq[:(iq.shape[0]//frame_samples)*frame_samples]
-        else:
-            raise ValueError("pass truncate=True to allow truncation to integer number of cyclic periods")
-
-    # set up dimensions to make the statistics fast
-    chunked_shape = (
-        iq.shape[0] // frame_samples,
-        frame_detector_bins,
-        frame_samples // frame_detector_bins,
-        *([iq.shape[1]] if iq.ndim == 2 else [])
-    )
-    iq_bins = iq.reshape(chunked_shape)
-
-    power_bins = envtopow(iq_bins)
-
-    # first, apply the detector statistic
-    rms_power = power_bins.mean(axis=2)
-    peak_power = power_bins.max(axis=2)
-
-    # then, the cycle statistic
-    return {
-        "rms": (rms_power.min(axis=0), rms_power.mean(axis=0), rms_power.max(axis=0)),
-        "peak": (
-            peak_power.min(axis=0),
-            peak_power.mean(axis=0),
-            peak_power.max(axis=0),
-        ),
+    power = {
+        d: iq_to_bin_power(iq, Ts, detector_period, kind=d, truncate=truncate)
+        for d in detectors
     }
 
+    if not isroundmod(cyclic_period, detector_period, atol=1e-6):
+        raise ValueError(
+            "cyclic period must be positive integer multiple of the detector period"
+        )
+
+    # bin by cyclic period
+    cyclic_detector_bins = int(np.rint(cyclic_period / detector_period))
+
+    power_shape = power[detectors[0]].shape
+    if power_shape[0] % cyclic_detector_bins != 0:
+        if truncate:
+            N = (power_shape[0]//cyclic_detector_bins)*cyclic_detector_bins
+            power = {d: x[:N] for d, x in power.items()}
+        else:
+            raise ValueError("pass truncate=True to allow truncation to align with cyclic windows")
+
+    shape_by_cycle = (
+        power_shape[0] // cyclic_detector_bins,
+        cyclic_detector_bins,
+        *([iq.shape[1]] if iq.ndim == 2 else [])
+    )
+
+    power = {d: x.reshape(shape_by_cycle) for d, x in power.items()}
+
+    cycle_stat_ufunc = {
+        kind: stat_ufunc_from_shorthand(kind)
+        for kind in cycle_stats
+    }
+
+    # apply the cyclic statistic
+
+    ret = {}
+
+    for detector, x in power.items():
+        ret[detector] = {}
+        for cycle_stat, func in cycle_stat_ufunc.items():
+            ret[detector][cycle_stat] = func(x, axis=0)
+
+    return ret
 
 def iq_to_frame_power(
     iq: np.ndarray, Ts: float, detector_period: float, frame_period: float, truncate=False
@@ -213,6 +242,7 @@ def iq_to_frame_power(
 
     warnings.warn('iq_to_frame_power has been deprecated. use iq_to_cyclic_power instead')
 
+    locals()['cyclic_power'] = locals().pop('frame_power')
     return iq_to_cyclic_power(**locals())
 
 
@@ -232,8 +262,7 @@ def unstack_series_to_bins(
 
     Ts = pvt.index[1] - pvt.index[0]
 
-    if not truncate and not np.isclose(Tbin % Ts, 0, 1e-6):
-        print(Tbin, Ts, Tbin % Ts)
+    if not truncate and not isroundmod(Tbin, Ts):
         raise ValueError(
             "analysis window length must be multiple of the power INTEGRATION length"
         )
