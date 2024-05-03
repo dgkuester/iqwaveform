@@ -139,7 +139,7 @@ def iq_to_bin_power(
 
 
 def iq_to_frame_power(
-    iq: np.ndarray, Ts: float, detector_period: float, frame_period: float
+    iq: np.ndarray, Ts: float, detector_period: float, frame_period: float, truncate=False
 ) -> dict:
     """computes a time series of periodic frame power statistics.
 
@@ -162,22 +162,31 @@ def iq_to_frame_power(
     Returns:
         dict keyed on ('rms', 'peak') with values (min: np.array, mean: np.array, max: np.array)
     """
-    if not np.isclose(frame_period % Ts, 0, atol=1e-6):
+    if not np.isclose(frame_period % Ts, 0, atol=Ts/4):
         raise ValueError(
             "frame period must be positive integer multiple of the sampling period"
         )
 
-    if not np.isclose(detector_period % Ts, 0, atol=1e-6):
+    if not np.isclose(detector_period % Ts, 0, atol=Ts/4):
         raise ValueError(
             "detector_period period must be positive integer multiple of the sampling period"
         )
 
-    Nframes = int(np.rint(frame_period / Ts))
-    Npts = int(np.rint(frame_period / detector_period))
+    frame_samples = int(np.rint(frame_period / Ts))
+    frame_detector_bins = int(np.rint(frame_period / detector_period))
+
+    if iq.shape[0] % frame_samples != 0:
+        if truncate:
+            iq = iq[:(iq.shape[0]//frame_samples)*frame_samples]
+        else:
+            raise ValueError("pass truncate=True to allow truncation to integer number of cyclic periods")
 
     # set up dimensions to make the statistics fast
-    chunked_shape = (iq.shape[0] // Nframes, Npts, Nframes // Npts) + tuple(
-        [iq.shape[1]] if iq.ndim == 2 else []
+    chunked_shape = (
+        iq.shape[0] // frame_samples,
+        frame_detector_bins,
+        frame_samples // frame_detector_bins,
+        *([iq.shape[1]] if iq.ndim == 2 else [])
     )
     iq_bins = iq.reshape(chunked_shape)
 
