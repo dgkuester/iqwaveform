@@ -1,6 +1,6 @@
 from ._version import __version__
 
-from . import fourier, figures, io, power_analysis, cellular
+from . import fourier, figures, io, ofdm, power_analysis
 
 from .power_analysis import (
     dBtopow,
