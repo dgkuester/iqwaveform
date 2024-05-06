@@ -6,6 +6,7 @@ from sklearn.linear_model import LinearRegression
 from pylab import plot
 from numbers import Number
 
+
 def correlate_along_axis(a, b, axis=0):
     """cross-correlate `a` and `b` along the specified axis.
     this implementation
@@ -133,7 +134,7 @@ class Phy3GPP:
         n_slot = np.arange(self.slot_size).astype(int)
         loc_size_pairs = zip(self.slot_cp_start_indices, self.slot_cp_sizes)
         self.slot_cp_indices = np.concatenate(
-            [n_slot[i0: i0 + s] for i0, s in loc_size_pairs]
+            [n_slot[i0 : i0 + s] for i0, s in loc_size_pairs]
         )
         self.slot_symbol_indices = np.array(
             list(
@@ -151,25 +152,39 @@ class Phy802_16:
 
     # the remaining 1 "slot" worth of samples per slot are for cyclic prefixes
 
-    VALID_CP_RATIO = {1/32, 1/16, 1/8, 1/4}
+    VALID_CP_RATIO = {1 / 32, 1 / 16, 1 / 8, 1 / 4}
     VALID_FFT_SIZE = {128, 512, 1024, 2048}
     VALID_FRAME_DURATION = {
-        2e-3, 2.5e-3, 4e-3, 5e-3, 8e-3, 10e-3, 12.5e-3, 20e-3, 25e-3, 40e-3, 50e-3
+        2e-3,
+        2.5e-3,
+        4e-3,
+        5e-3,
+        8e-3,
+        10e-3,
+        12.5e-3,
+        20e-3,
+        25e-3,
+        40e-3,
+        50e-3,
     }
 
     SAMPLING_FACTOR_BY_FREQUENCY_DIV = {
-        1.25: 28/25,
-        1.5: 28/25,
-        1.75e6: 8/7,
-        2: 28/25,
-        2.75: 28/25
+        1.25: 28 / 25,
+        1.5: 28 / 25,
+        1.75e6: 8 / 7,
+        2: 28 / 25,
+        2.75: 28 / 25,
     }
 
-    def __init__(self, channel_bandwidth, *, frame_duration=5e-3, fft_size=2048, cp_ratio=1/8.):
+    def __init__(
+        self, channel_bandwidth, *, frame_duration=5e-3, fft_size=2048, cp_ratio=1 / 8.0
+    ):
         if not isinstance(channel_bandwidth, Number):
-            raise TypeError('expected numeric value for channel_bandwidth')
+            raise TypeError("expected numeric value for channel_bandwidth")
         elif channel_bandwidth < 1.25e6:
-            raise ValueError('standardized values for channel_bandwidth not supported yet')
+            raise ValueError(
+                "standardized values for channel_bandwidth not supported yet"
+            )
         elif not np.isclose(channel_bandwidth % 125e3, 0, atol=1e-6):
             raise ValueError("channel bandwidth must be set in increments of 125 kHz")
         else:
@@ -184,7 +199,7 @@ class Phy802_16:
             self.cp_ratio = cp_ratio
         else:
             raise ValueError(f"cp_ratio must be one of {self.VALID_CP_RATIO}")
-        
+
         if frame_duration in self.VALID_FRAME_DURATION:
             self.frame_duration = frame_duration
         else:
@@ -198,18 +213,20 @@ class Phy802_16:
                 break
         else:
             # no match with the table - standardized default
-            self.sampling_factor = 8/7
+            self.sampling_factor = 8 / 7
 
         self.sample_rate = (
-            np.floor(self.sampling_factor * channel_bandwidth/8000)*8000
+            np.floor(self.sampling_factor * channel_bandwidth / 8000) * 8000
         )
 
         cp_size = int(np.rint(self.cp_ratio * self.fft_size))
 
-        self.subcarrier_spacing = 1/self.fft_size
-        self.total_symbol_duration = (1+self.cp_ratio) * self.fft_size
-        self.symbols_per_frame = int(np.floor(self.frame_duration/self.total_symbol_duration))
-        self.frame_size = int(np.rint(self.sample_rate*self.frame_duration))
+        self.subcarrier_spacing = 1 / self.fft_size
+        self.total_symbol_duration = (1 + self.cp_ratio) * self.fft_size
+        self.symbols_per_frame = int(
+            np.floor(self.frame_duration / self.total_symbol_duration)
+        )
+        self.frame_size = int(np.rint(self.sample_rate * self.frame_duration))
         self.frame_cp_sizes = np.ones(self.symbols_per_frame, dtype=int) * cp_size
 
         # compute the start of each cyclic prefix
@@ -218,7 +235,7 @@ class Phy802_16:
         n_slot = np.arange(self.frame_size).astype(int)
         loc_size_pairs = zip(self.slot_cp_start_indices, self.slot_cp_sizes)
         self.frame_cp_indices = np.concatenate(
-            [n_slot[i0: i0 + s] for i0, s in loc_size_pairs]
+            [n_slot[i0 : i0 + s] for i0, s in loc_size_pairs]
         )
 
         # locations of the start of the cyclic prefix for each symbol
@@ -259,9 +276,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         which_cp: str = "all",  # 'all', 'special', or 'normal'
         subcarrier_spacing=15e3,
     ):
-        self.phy = Phy3GPP(
-            channel_bandwidth, subcarrier_spacing=subcarrier_spacing
-        )
+        self.phy = Phy3GPP(channel_bandwidth, subcarrier_spacing=subcarrier_spacing)
         self.correlation_subframes = correlation_subframes
         self.sync_size = sync_window_count * correlation_subframes * self.phy.slot_size
 
@@ -493,9 +508,7 @@ class SymbolDecoder:
     @staticmethod
     def prb_power(symbols):
         """Return the total power in the PRB"""
-        return (np.abs(to_blocks(symbols, Phy3GPP.SUBFRAMES_PER_PRB)) ** 2).sum(
-            axis=-1
-        )
+        return (np.abs(to_blocks(symbols, Phy3GPP.SUBFRAMES_PER_PRB)) ** 2).sum(axis=-1)
 
     def _decode_symbols(self, x, only_3gpp_subcarriers=True):
         # first, select symbol indices (== remove cyclic prefixes)
