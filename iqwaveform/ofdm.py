@@ -91,6 +91,7 @@ class PhyOFDM:
         fft_size: float,
         cp_sizes=np.array,
         frame_duration: float | None = None,
+        contiguous_size: float | None = None
     ):
         self.channel_bandwidth = channel_bandwidth
         self.sample_rate = sample_rate
@@ -105,15 +106,19 @@ class PhyOFDM:
             self.frame_size = int(np.rint(sample_rate * frame_duration))
 
         self.cp_sizes = cp_sizes
+
         if cp_sizes is None:
-            self.contiguous_size = None
+            self.contiguous_size = contiguous_size
             self.cp_start_idx = None
             self.cp_idx = None
             self.symbol_idx = None
 
         else:
-            # precompute indexing for contiguous sequences of (CP, symbol)
-            self.contiguous_size = np.sum(cp_sizes) + len(cp_sizes) * fft_size
+            if contiguous_size is not None:
+                self.contiguous_size = contiguous_size
+            else:
+                # if not specified, assume no padding is needed to complete a contiguos block of symbols
+                self.contiguous_size = np.sum(cp_sizes) + len(cp_sizes) * fft_size
 
             # build a (start_idx, size) pair for each CP
             pair_sizes = np.concatenate(((0,), self.cp_sizes + self.fft_size))
@@ -252,13 +257,15 @@ class Phy3GPP(PhyOFDM):
 
         return inds
 
+def isclosetoint(v, atol=1e-6):
+    return np.isclose(v % 1, (0,1), atol=atol).any()
 
 class Phy802_16(PhyOFDM):
     """Sampling and index parameters and lookup tables for IEEE 802.16-2017 OFDMA"""
 
-    VALID_CP_RATIO = {1 / 32, 1 / 16, 1 / 8, 1 / 4}
+    VALID_CP_RATIOS = {1 / 32, 1 / 16, 1 / 8, 1 / 4}
     VALID_FFT_SIZES = {128, 512, 1024, 2048}
-    VALID_FRAME_DURATION = {
+    VALID_FRAME_DURATIONS = {
         2e-3,
         2.5e-3,
         4e-3,
@@ -281,8 +288,16 @@ class Phy802_16(PhyOFDM):
     }
 
     def __init__(
-        self, channel_bandwidth, *, frame_duration=5e-3, fft_size=2048, cp_ratio=1 / 8
+        self, channel_bandwidth: float, *, alt_sample_rate: float=None, frame_duration: float = 5e-3, fft_size: float =2048, cp_ratio: float =1 / 8
     ):
+        """
+        Args:
+            channel_bandwidth: Channel bandwidth as defined by 802.16-2017
+            alt_sample_rate (_type_, optional): If specified, overrides the 802.16-2017 value with sample rate of recorded data.
+            frame_duration: _description_. Defaults to 5e-3.
+            fft_size: the fft size corresponding to the length of the useful portion of each symbol. Defaults to 2048.
+            cp_ratio: the size of the cyclic prefix as a fraction of fft_size. Defaults to 1/8.
+        """
         if not isinstance(channel_bandwidth, Number):
             raise TypeError('expected numeric value for channel_bandwidth')
         elif channel_bandwidth < 1.25e6:
@@ -295,14 +310,14 @@ class Phy802_16(PhyOFDM):
         if fft_size not in self.VALID_FFT_SIZES:
             raise ValueError(f'fft_size must be one of {self.VALID_FFT_SIZES}')
 
-        if cp_ratio in self.VALID_CP_RATIO:
+        if cp_ratio in self.VALID_CP_RATIOS:
             self.cp_ratio = cp_ratio
         else:
-            raise ValueError(f'cp_ratio must be one of {self.VALID_CP_RATIO}')
+            raise ValueError(f'cp_ratio must be one of {self.VALID_CP_RATIOS}')
 
-        if frame_duration not in self.VALID_FRAME_DURATION:
+        if frame_duration not in self.VALID_FRAME_DURATIONS:
             raise ValueError(
-                f'frame_duration must be one of {self.VALID_FRAME_DURATION}'
+                f'frame_duration must be one of {self.VALID_FRAME_DURATIONS}'
             )
 
         for freq_divisor, n in self.SAMPLING_FACTOR_BY_FREQUENCY_DIV.items():
@@ -313,12 +328,30 @@ class Phy802_16(PhyOFDM):
             # no match with the table - standardized default
             sampling_factor = self.sampling_factor = 8 / 7
 
-        sample_rate = np.floor(sampling_factor * channel_bandwidth / 8000) * 8000
+        std_sample_rate = np.floor(sampling_factor * channel_bandwidth / 8000) * 8000
         cp_size = int(np.rint(cp_ratio * fft_size))
-        self.total_symbol_duration = int(np.rint((1 + cp_ratio) * fft_size))/sample_rate
+        self.total_symbol_duration = int(np.rint((1 + cp_ratio) * fft_size))/std_sample_rate
         self.symbols_per_frame = int(
             np.floor(frame_duration / self.total_symbol_duration)
         )
+
+        if alt_sample_rate is None:
+            sample_rate = std_sample_rate
+        else:
+            scale = alt_sample_rate/std_sample_rate
+
+            if not (isclosetoint(scale) or isclosetoint(1/scale)):
+                raise ValueError('alt_sample_rate must be integer multiple or divisor of ofdm sample_rate')
+            if not isclosetoint(cp_size*scale):
+                raise ValueError('alt_sample_rate is too small to capture any cyclic prefixes')
+            
+            fft_size = int(np.rint(fft_size * scale))
+            cp_size = int(np.rint(cp_size * scale))
+            sample_rate = alt_sample_rate
+
+        # we need to specify explicitly the length of the contiguous sequence
+        # of symbols to ensure proper padding out to a full frame
+        contiguous_size = int(np.rint(frame_duration*sample_rate))
 
         super().__init__(
             channel_bandwidth=channel_bandwidth,
@@ -326,6 +359,7 @@ class Phy802_16(PhyOFDM):
             sample_rate=sample_rate,
             frame_duration=frame_duration,
             cp_sizes=np.full(self.symbols_per_frame, cp_size),
+            contiguous_size=contiguous_size
         )
 
     @methodtools.lru_cache(4)
