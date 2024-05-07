@@ -192,8 +192,8 @@ class Phy3GPP(PhyOFDM):
         sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
         fft_size = int(np.rint(sample_rate / subcarrier_spacing))
 
-        if self.fft_size in self.FFT_SIZE_TO_SUBCARRIERS:
-            self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
+        if fft_size in self.FFT_SIZE_TO_SUBCARRIERS:
+            self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[fft_size]
 
         super().__init__(
             channel_bandwidth=channel_bandwidth,
