@@ -114,26 +114,26 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
 
     def __call__(self, x, pos=None):
         if self._minor and x not in self._labelled:
-            return ""
+            return ''
         if x <= 0 or x >= 1:
-            return ""
+            return ''
         if math.isclose(2 * x, round(2 * x)) and round(2 * x) == 1:
             s = self._one_half
         elif np.any(np.isclose(x, np.array([0.01, 0.1, 0.9, 0.99]), rtol=1e-7)):
             s = str(x)
         elif x < 0.1 and is_decade(x, rtol=1e-7):
             exponent = round(np.log10(x))
-            s = "10^{%d}" % exponent
+            s = '10^{%d}' % exponent
         elif x > 0.9 and is_decade(1 - x, rtol=1e-7):
             exponent = round(np.log10(1 - x))
-            s = self._one_minus("10^{%d}" % exponent)
+            s = self._one_minus('10^{%d}' % exponent)
         elif x < 0.05:
             s = self._format_value(x, self.locs)
         elif x > 0.98:
             s = self._one_minus(self._format_value(1 - x, 1 - self.locs))
         else:
             s = self._format_value(x, self.locs, sci_notation=False)
-        return r"$\mathdefault{%s}$" % s
+        return r'$\mathdefault{%s}$' % s
 
 
 class GammaQQScale(mpl.scale.FuncScale):
@@ -154,7 +154,7 @@ class GammaQQScale(mpl.scale.FuncScale):
 
     """
 
-    name = "gamma-qq"
+    name = 'gamma-qq'
 
     def __init__(
         self,
@@ -197,7 +197,7 @@ class GammaQQScale(mpl.scale.FuncScale):
         if self._minor_locator is not None:
             axis.set_minor_locator(self._minor_locator)
 
-        axis.set_major_formatter(GammaLogitFormatter(one_half="0.5"))
+        axis.set_major_formatter(GammaLogitFormatter(one_half='0.5'))
 
 
 mpl.scale.register_scale(GammaQQScale)
@@ -230,9 +230,9 @@ def _has_tick_label_collision(ax, which: str, spacing_threshold=10):
     """
     fig = ax.get_figure()
 
-    if which == "x":
+    if which == 'x':
         the_ax = ax.xaxis
-    elif which == "y":
+    elif which == 'y':
         the_ax = ax.yaxis
     else:
         raise ValueError(f'"which" must be "x" or "y", but got "{repr(which)}"')
@@ -241,7 +241,7 @@ def _has_tick_label_collision(ax, which: str, spacing_threshold=10):
         l.get_tightbbox(fig.canvas.get_renderer()) for l in the_ax.get_ticklabels()
     ]
 
-    if which == "x":
+    if which == 'x':
         boxen = np.array([(b.x0, b.x1) for b in boxen])
     else:
         boxen = np.array([(b.y0, b.y1) for b in boxen])
@@ -255,14 +255,14 @@ def rotate_ticklabels_on_collision(ax, which: str, angles: list, spacing_thresho
     def set_rotation(the_ax, angle):
         for label in the_ax.get_ticklabels():
             label.set_rotation(angle)
-            if which == "y" and angle == 90:
-                label.set_verticalalignment("center")
-            elif which == "x" and angle == 90:
-                label.set_horizontalalignment("right")
+            if which == 'y' and angle == 90:
+                label.set_verticalalignment('center')
+            elif which == 'x' and angle == 90:
+                label.set_horizontalalignment('right')
 
-    if which == "x":
+    if which == 'x':
         the_ax = ax.xaxis
-    elif which == "y":
+    elif which == 'y':
         the_ax = ax.yaxis
     else:
         raise ValueError(
@@ -292,14 +292,14 @@ def xaxis_concise_dates(fig, ax, adjacent_offset: bool = True):
     )
 
     if adjacent_offset:
-        plt.xticks(rotation=0, ha="right")
+        plt.xticks(rotation=0, ha='right')
     ax.xaxis.set_major_formatter(formatter)
 
     plt.draw()
 
     if adjacent_offset:
         labels = [item.get_text() for item in ax.get_xticklabels()]
-        labels[0] = f"{formatter.get_offset()} {labels[0]}"
+        labels[0] = f'{formatter.get_offset()} {labels[0]}'
         ax.set_xticklabels(labels)
 
         dx = 5 / 72.0
@@ -342,8 +342,8 @@ def pcolormesh_df(
         rasterized=rasterized,
         cmap=cmap,
         norm=norm,
-        edgecolors="none",
-        edgecolor="none",
+        edgecolors='none',
+        edgecolor='none',
     )
 
     if xlabel is not False:
@@ -359,13 +359,13 @@ def pcolormesh_df(
         ax.xaxis.set_major_formatter(
             mpl.ticker.EngFormatter(unit=x_unit, useMathText=True, places=x_places)
         )
-        rotate_ticklabels_on_collision(ax, "x", [0, 25])
+        rotate_ticklabels_on_collision(ax, 'x', [0, 25])
 
     if y_unit is not None:
         ax.yaxis.set_major_formatter(
             mpl.ticker.EngFormatter(unit=y_unit, useMathText=True, places=y_places)
         )
-        rotate_ticklabels_on_collision(ax, "y", [90, 65, 0])
+        rotate_ticklabels_on_collision(ax, 'y', [90, 65, 0])
 
     return drawing
 
@@ -389,13 +389,13 @@ def plot_spectrogram_heatmap_from_iq(
     spg = iq_to_stft_spectrogram(iq=iq, window=window, Ts=Ts, overlap=True)
 
     if cmap is None:
-        cmap = mpl.cm.get_cmap("magma")
+        cmap = mpl.cm.get_cmap('magma')
 
     c = pcolormesh_df(
         powtodB(spg.T),
-        xlabel="Time elapsed (s)",
-        ylabel="Baseband Frequency",
-        y_unit="Hz",
+        xlabel='Time elapsed (s)',
+        ylabel='Baseband Frequency',
+        y_unit='Hz',
         # x_unit='s',
         ax=ax,
         cmap=cmap,
@@ -405,19 +405,19 @@ def plot_spectrogram_heatmap_from_iq(
     freq_res = 1 / Ts / window.size
 
     if freq_res < 1e3:
-        freq_res_name = f"{freq_res:0.1f}"
+        freq_res_name = f'{freq_res:0.1f}'
     elif freq_res < 1e6:
-        freq_res_name = f"{freq_res/1e3:0.1f} kHz"
+        freq_res_name = f'{freq_res/1e3:0.1f} kHz'
     elif freq_res < 1e9:
-        freq_res_name = f"{freq_res/1e6:0.1f} MHz"
+        freq_res_name = f'{freq_res/1e6:0.1f} MHz'
     else:
-        freq_res_name = f"{freq_res/1e9:0.1f} GHz"
+        freq_res_name = f'{freq_res/1e9:0.1f} GHz'
 
     cb = plt.colorbar(
         c,
         cmap=cmap,
         ax=ax,
-        label=f"Bin power (dBm/{freq_res_name})",
+        label=f'Bin power (dBm/{freq_res_name})',
         # rasterized=True
     )
 
@@ -442,14 +442,14 @@ def plot_spectrogram_heatmap(
     )
 
     if cmap is None:
-        cmap = mpl.cm.get_cmap("magma")
+        cmap = mpl.cm.get_cmap('magma')
 
     if transpose:
         c = pcolormesh_df(
             powtodB(spg),
-            ylabel="Time elapsed (s)",
-            xlabel="Baseband Frequency",
-            x_unit="Hz",
+            ylabel='Time elapsed (s)',
+            xlabel='Baseband Frequency',
+            x_unit='Hz',
             # x_unit='s',
             ax=ax,
             cmap=cmap,
@@ -460,9 +460,9 @@ def plot_spectrogram_heatmap(
     else:
         c = pcolormesh_df(
             powtodB(spg.T),
-            xlabel="Time elapsed (s)",
-            ylabel="Baseband Frequency",
-            y_unit="Hz",
+            xlabel='Time elapsed (s)',
+            ylabel='Baseband Frequency',
+            y_unit='Hz',
             # x_unit='s',
             ax=ax,
             cmap=cmap,
@@ -474,20 +474,20 @@ def plot_spectrogram_heatmap(
     freq_res = 1 / Ts / spg.shape[1]
 
     if freq_res < 1e3:
-        freq_res_name = f"{freq_res:0.1f}"
+        freq_res_name = f'{freq_res:0.1f}'
     elif freq_res < 1e6:
-        freq_res_name = f"{freq_res/1e3:0.1f} kHz"
+        freq_res_name = f'{freq_res/1e3:0.1f} kHz'
     elif freq_res < 1e9:
-        freq_res_name = f"{freq_res/1e6:0.1f} MHz"
+        freq_res_name = f'{freq_res/1e6:0.1f} MHz'
     else:
-        freq_res_name = f"{freq_res/1e9:0.1f} GHz"
+        freq_res_name = f'{freq_res/1e9:0.1f} GHz'
 
     if colorbar:
         cb = plt.colorbar(
             c,
             cmap=cmap,
             ax=ax,
-            label=f"Bin power (dBm/{freq_res_name})",
+            label=f'Bin power (dBm/{freq_res_name})',
             # rasterized=True
         )
 
@@ -504,7 +504,7 @@ def plot_power_histogram_heatmap(
     title: str = None,
     ylabel: str = None,
     xlabel: str = None,
-    clabel: str = "Count",
+    clabel: str = 'Count',
     xlim: tuple = None,
     ax=None,
     cbar=True,
@@ -544,8 +544,8 @@ def plot_power_histogram_heatmap(
     #     )
 
     # quantize the color map levels to the number of bins
-    bad_color = "0.95"
-    cmap = mpl.cm.get_cmap("magma")
+    bad_color = '0.95'
+    cmap = mpl.cm.get_cmap('magma')
     if rolling_histogram.shape[1] < cmap.N:
         subset = np.linspace(
             0, len(cmap.colors) - 1, rolling_histogram.shape[1], dtype=int
@@ -555,7 +555,7 @@ def plot_power_histogram_heatmap(
         cmap.set_bad(bad_color)
 
     if log_counts:
-        if rolling_histogram.values.dtype == np.dtype("int64"):
+        if rolling_histogram.values.dtype == np.dtype('int64'):
             plot_norm = mpl.colors.LogNorm(vmin=1, vmax=rolling_histogram.max().max())
         else:
             plot_norm = mpl.colors.LogNorm(
@@ -583,7 +583,7 @@ def plot_power_histogram_heatmap(
 
         if contiguous_threshold is not None:
             segments = contiguous_segments(
-                rolling_histogram, "Time", threshold=contiguous_threshold
+                rolling_histogram, 'Time', threshold=contiguous_threshold
             )
         else:
             segments = [rolling_histogram]
@@ -602,7 +602,7 @@ def plot_power_histogram_heatmap(
         )
 
         # debug['rolling_histogram'] = rolling_histogram
-        debug["hist_sub"] = hist_sub
+        debug['hist_sub'] = hist_sub
         # debug['t'] = t
 
         c = pcolormesh_df(hist_sub.T, **pc_kws)
@@ -616,7 +616,7 @@ def plot_power_histogram_heatmap(
             c,
             cmap=cmap,
             ax=ax,
-            extend="min",
+            extend='min',
             extendrect=True,
             # extendfrac='auto',
             # cax = fig.add_axes([1.02, 0.152, 0.03, 0.7])
@@ -624,10 +624,10 @@ def plot_power_histogram_heatmap(
 
         formatter = mpl.ticker.ScalarFormatter(useMathText=True)
         cb.ax.yaxis.set_major_formatter(formatter)
-        cb.ax.ticklabel_format(style="sci", scilimits=(6, 6))
+        cb.ax.ticklabel_format(style='sci', scilimits=(6, 6))
         cb.ax.yaxis.get_offset_text().set_position((0, 1.01))
-        cb.ax.yaxis.get_offset_text().set_horizontalalignment("left")
-        cb.ax.yaxis.get_offset_text().set_verticalalignment("bottom")
+        cb.ax.yaxis.get_offset_text().set_horizontalalignment('left')
+        cb.ax.yaxis.get_offset_text().set_verticalalignment('bottom')
 
         cb.set_label(
             clabel,
@@ -635,8 +635,8 @@ def plot_power_histogram_heatmap(
             y=-0.08,
             # x=-1,
             rotation=0,
-            va="top",
-            ha="right",
+            va='top',
+            ha='right',
         )
 
     elif cbar:
@@ -648,7 +648,7 @@ def plot_power_histogram_heatmap(
             c,
             cmap=cbar_cmap,
             ax=ax,
-            extend="min",
+            extend='min',
             extendrect=True,
             extendfrac=0.05,
             # cax = fig.add_axes([1.02, 0.152, 0.03, 0.75])
@@ -669,15 +669,15 @@ def plot_power_histogram_heatmap(
             + list(np.linspace(cb._values[0], cb._values[1], cb._values.size - 1))
         )
 
-        debug["cb"] = cb
+        debug['cb'] = cb
         cb._do_extends(cb._get_extension_lengths(extension_length, True, True))
 
         cb.ax.text(
             1,
             -extension_length / 2,
-            "- 0",
-            ha="left",
-            va="center",
+            '- 0',
+            ha='left',
+            va='center',
             transform=cb.ax.transAxes,
         )
 
@@ -697,8 +697,8 @@ def plot_power_histogram_heatmap(
             y=-0.08,
             # x=-1,
             rotation=0,
-            va="top",
-            ha="right",
+            va='top',
+            ha='right',
         )
     else:
         cb = None
@@ -733,7 +733,7 @@ def plot_power_ccdf(
     Tavg=None,
     random_offsets=False,
     bins=None,
-    scale="gamma-qq",
+    scale='gamma-qq',
     major_ticks=12,
     ax=None,
     label=None,
@@ -762,7 +762,7 @@ def plot_power_ccdf(
     ccdf = sample_ccdf(power_dB, bins)
     ax.plot(ccdf, bins, label=label)  # Path(DATA_FILE).parent.name)
 
-    if scale == "gamma-qq":
+    if scale == 'gamma-qq':
         ax.set_xscale(scale, k=Navg, major_ticks=major_ticks, db_ordinal=True)
     else:
         ax.set_xscale(scale)

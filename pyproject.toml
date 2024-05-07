@@ -1,6 +1,6 @@
 [project]
 name = "iqwaveform"
-version = "0.20.0"
+version = "0.21.0"
 description = "tools for IQ waveform analysis and visualization"
 authors = [
     {name = "Dan Kuester", email = "daniel.kuester@nist.gov"},
@@ -32,7 +32,6 @@ write_template = "__version__ = '{}'"
 [tool.pdm.dev-dependencies]
 lint = [
     "flake8",
-    "black",
 ]
 dev = [
     "ipython>=8.12.3",
@@ -40,8 +39,17 @@ dev = [
     "ruff>=0.4.2",
 ]
 
-[tool.black]
+[tool.ruff]
+target-version = "py39"
+extend-include = ["*.ipynb"]
 line-length = 88
-target-version = ["py38", "py39", "py310", "py311"]
-include = '\.pyi?$'
 
+[tool.ruff.format]
+quote-style = "single"
+line-ending = "lf"
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[tool.ruff.lint.extend-per-file-ignores]
+"**/__init__.py" = ["F401", "F403", "E402"]
+"**/*.py" = ["EM102","G004"]

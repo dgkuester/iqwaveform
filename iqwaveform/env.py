@@ -32,20 +32,20 @@ def print_svg(self, *a, **k):
             if title_:
                 return title_
         else:
-            return "untitled"
+            return 'untitled'
 
     def title_to_label(title_):
         """replace 1 or more non-alphanumeric characters with '-'"""
         import re, string
 
-        pattern = re.compile(r"[\W_]+")
-        return pattern.sub("-", title_).lower()
+        pattern = re.compile(r'[\W_]+')
+        return pattern.sub('-', title_).lower()
 
     k = dict(k)
     label = title_to_label(guess_title(self.figure))
-    caption_text = _captions.get(id(self.figure), "")
-    title_ = f"{label}##{caption_text}" if caption_text else label
-    k.setdefault("metadata", {})["Title"] = title_
+    caption_text = _captions.get(id(self.figure), '')
+    title_ = f'{label}##{caption_text}' if caption_text else label
+    k.setdefault('metadata', {})['Title'] = title_
 
     return backend_svg.FigureCanvasSVG._print_svg(self, *a, **k)
 
@@ -80,20 +80,20 @@ def set_matplotlib_formats(formats, *args, **kws):
             if title_:
                 return title_
         else:
-            return "untitled"
+            return 'untitled'
 
     def title_to_label(title_):
         """replace 1 or more non-alphanumeric characters with '-'"""
         import re, string
 
-        pattern = re.compile(r"[\W_]+")
-        return pattern.sub("-", title_).lower()
+        pattern = re.compile(r'[\W_]+')
+        return pattern.sub('-', title_).lower()
 
     @functools.wraps(pylabtools.print_figure)
-    def wrapper(fig, fmt="png", *a, **k):
+    def wrapper(fig, fmt='png', *a, **k):
         k = dict(k)
         label = title_to_label(guess_title(fig))
-        caption_text = _captions.get(id(fig), "")
+        caption_text = _captions.get(id(fig), '')
 
         ret = pylabtools._print_figure(fig, fmt=fmt, *a, **k)
 
@@ -121,7 +121,7 @@ def set_caption(*args):
     elif len(args) == 2:
         fig, text = args
     else:
-        raise ValueError(f"expected 1 or 2 args, but got {len(args)}")
+        raise ValueError(f'expected 1 or 2 args, but got {len(args)}')
 
     _captions[id(fig)] = text
 
@@ -132,4 +132,4 @@ mpl.units.registry[np.datetime64] = converter
 mpl.units.registry[datetime.date] = converter
 mpl.units.registry[datetime.datetime] = converter
 
-set_matplotlib_formats("svg")
+set_matplotlib_formats('svg')

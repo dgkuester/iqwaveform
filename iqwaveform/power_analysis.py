@@ -2,7 +2,7 @@
 
 import os
 
-os.environ.setdefault("NUMEXPR_MAX_THREADS", "4")
+os.environ.setdefault('NUMEXPR_MAX_THREADS', '4')
 
 import numpy as np
 import pandas as pd
@@ -11,24 +11,24 @@ import warnings
 from numbers import Number
 from functools import partial
 
-warnings.filterwarnings("ignore", message="divide by zero")
-warnings.filterwarnings("ignore", message="invalid value encountered")
+warnings.filterwarnings('ignore', message='divide by zero')
+warnings.filterwarnings('ignore', message='invalid value encountered')
 
 
 def stat_ufunc_from_shorthand(kind):
     NAMED_UFUNCS = {
-        "min": np.min,
-        "max": np.max,
-        "peak": np.max,
-        "median": np.median,
-        "mean": np.mean,
-        "rms": np.mean,
+        'min': np.min,
+        'max': np.max,
+        'peak': np.max,
+        'median': np.median,
+        'mean': np.mean,
+        'rms': np.mean,
     }
 
     if isinstance(kind, str):
         if kind not in NAMED_UFUNCS:
             valid = NAMED_UFUNCS.keys()
-            raise ValueError(f"kind argument must be one of {valid}")
+            raise ValueError(f'kind argument must be one of {valid}')
         ufunc = NAMED_UFUNCS[kind]
 
     elif isinstance(kind, Number):
@@ -50,7 +50,7 @@ def isroundmod(a, div, atol=1e-6):
 def dBtopow(x):
     """Computes `10**(x/10.)` with speed optimizations"""
     # for large arrays, this is much faster than just writing the expression in python
-    values = ne.evaluate("10**(x/10.)", local_dict=dict(x=x))
+    values = ne.evaluate('10**(x/10.)', local_dict=dict(x=x))
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
@@ -64,14 +64,14 @@ def powtodB(x, abs: bool = True, eps: float = 0):
     """Computes `10*log10(abs(x) + eps)` or `10*log10(x + eps)` with speed optimizations"""
 
     # for large arrays, this is much faster than just writing the expression in python
-    eps_str = "" if eps == 0 else "+eps"
+    eps_str = '' if eps == 0 else '+eps'
 
     if abs:
         values = ne.evaluate(
-            f"10*log10(abs(x){eps_str})", local_dict=dict(x=x, eps=eps)
+            f'10*log10(abs(x){eps_str})', local_dict=dict(x=x, eps=eps)
         )
     else:
-        values = ne.evaluate(f"10*log10(x+eps){eps_str}", local_dict=dict(x=x, eps=eps))
+        values = ne.evaluate(f'10*log10(x+eps){eps_str}', local_dict=dict(x=x, eps=eps))
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
@@ -83,7 +83,7 @@ def powtodB(x, abs: bool = True, eps: float = 0):
 
 def envtopow(x):
     """Computes abs(x)**2 with speed optimizations"""
-    values = ne.evaluate("abs(x)**2", local_dict=dict(x=x))
+    values = ne.evaluate('abs(x)**2', local_dict=dict(x=x))
 
     if np.iscomplexobj(values):
         values = np.real(values)
@@ -99,14 +99,14 @@ def envtopow(x):
 def envtodB(x, abs: bool = True, eps: float = 0):
     """Computes `20*log10(abs(x) + eps)` or `20*log10(x + eps)` with speed optimizations"""
     # for large arrays, this is much faster than just writing the expression in python
-    eps_str = "" if eps == 0 else "+eps"
+    eps_str = '' if eps == 0 else '+eps'
 
     if abs:
         values = ne.evaluate(
-            f"20*log10(abs(x){eps_str})", local_dict=dict(x=x, eps=eps)
+            f'20*log10(abs(x){eps_str})', local_dict=dict(x=x, eps=eps)
         )
     else:
-        values = ne.evaluate(f"20*log10(x+eps){eps_str}", local_dict=dict(x=x, eps=eps))
+        values = ne.evaluate(f'20*log10(x+eps){eps_str}', local_dict=dict(x=x, eps=eps))
 
     if np.iscomplexobj(values):
         values = np.real(values)
@@ -124,7 +124,7 @@ def iq_to_bin_power(
     Ts: float,
     Tbin: float,
     randomize: bool = False,
-    kind: str = "mean",
+    kind: str = 'mean',
     truncate=False,
 ):
     """computes power along the rows of `iq` (time axis) on bins of duration Tbin.
@@ -140,7 +140,7 @@ def iq_to_bin_power(
 
     if not truncate and not isroundmod(Tbin, Ts):
         raise ValueError(
-            f"bin period ({Tbin} s) must be multiple of waveform sample period ({Ts})"
+            f'bin period ({Tbin} s) must be multiple of waveform sample period ({Ts})'
         )
 
     detector = stat_ufunc_from_shorthand(kind)
@@ -171,8 +171,8 @@ def iq_to_cyclic_power(
     detector_period: float,
     cyclic_period: float,
     truncate=False,
-    detectors=("rms", "peak"),
-    cycle_stats=("min", "mean", "max"),
+    detectors=('rms', 'peak'),
+    cycle_stats=('min', 'mean', 'max'),
 ) -> dict[str, dict[str, np.array]]:
     """computes a time series of periodic frame power statistics.
 
@@ -205,7 +205,7 @@ def iq_to_cyclic_power(
 
     if not isroundmod(cyclic_period, detector_period, atol=1e-6):
         raise ValueError(
-            "cyclic period must be positive integer multiple of the detector period"
+            'cyclic period must be positive integer multiple of the detector period'
         )
 
     # bin by cyclic period
@@ -218,7 +218,7 @@ def iq_to_cyclic_power(
             power = {d: x[:N] for d, x in power.items()}
         else:
             raise ValueError(
-                "pass truncate=True to allow truncation to align with cyclic windows"
+                'pass truncate=True to allow truncation to align with cyclic windows'
             )
 
     shape_by_cycle = (
@@ -251,10 +251,10 @@ def iq_to_frame_power(
     truncate=False,
 ) -> dict:
     warnings.warn(
-        "iq_to_frame_power has been deprecated. use iq_to_cyclic_power instead"
+        'iq_to_frame_power has been deprecated. use iq_to_cyclic_power instead'
     )
 
-    locals()["cyclic_power"] = locals().pop("frame_power")
+    locals()['cyclic_power'] = locals().pop('frame_power')
     return iq_to_cyclic_power(**locals())
 
 
@@ -276,7 +276,7 @@ def unstack_series_to_bins(
 
     if not truncate and not isroundmod(Tbin, Ts):
         raise ValueError(
-            "analysis window length must be multiple of the power INTEGRATION length"
+            'analysis window length must be multiple of the power INTEGRATION length'
         )
 
     N = int(np.rint(Tbin / Ts))
@@ -291,8 +291,8 @@ def unstack_series_to_bins(
 
     df = pd.DataFrame(values, index=pvt.index[::N], columns=pvt.index[:N])
 
-    df.columns.name = "Analysis window time elapsed (s)"
-    df.index = pd.TimedeltaIndex(df.index, unit="s")
+    df.columns.name = 'Analysis window time elapsed (s)'
+    df.index = pd.TimedeltaIndex(df.index, unit='s')
 
     return df
 
@@ -312,12 +312,12 @@ def sample_ccdf(a: np.array, edges: np.array, density: bool = True) -> np.array:
 
     # 'left' makes the bin interval open-ended on the left side
     # (the CCDF is "number of samples exceeding interval", and not equal to)
-    edge_inds = np.searchsorted(edges, a, side="left")
+    edge_inds = np.searchsorted(edges, a, side='left')
     bin_counts = np.bincount(edge_inds, minlength=edges.size + 1)
     ccdf = (a.size - bin_counts.cumsum())[:-1]
 
     if density:
-        ccdf = ccdf.astype("float64")
+        ccdf = ccdf.astype('float64')
         ccdf /= a.size
 
     return ccdf
@@ -343,7 +343,7 @@ def hist_laxis(x: np.ndarray, n_bins: int, range_limits: tuple) -> np.ndarray:
     N = x.shape[-1]
     bins = np.linspace(range_limits[0], range_limits[1], n_bins + 1)
     data2D = x.reshape(-1, N)
-    idx = np.searchsorted(bins, data2D, "right") - 1
+    idx = np.searchsorted(bins, data2D, 'right') - 1
 
     # Some elements would be off limits, so get a mask for those
     bad_mask = (idx == -1) | (idx == n_bins)
@@ -369,7 +369,7 @@ def power_histogram_along_axis(
     resolution_db: float,
     resolution_axis: int = 1,
     truncate: bin = True,
-    dtype="uint32",
+    dtype='uint32',
     axis=0,
 ) -> pd.DataFrame:
     """Computes a histogram along the index of a pd.Series time series of power readings.
@@ -398,19 +398,19 @@ def power_histogram_along_axis(
     """
 
     if isinstance(pvt, pd.Series) and axis != 0:
-        raise ValueError("axis argument is invalid for pd.Series")
+        raise ValueError('axis argument is invalid for pd.Series')
 
     if axis == 0:
         pvt = pvt.T
     elif axis != 1:
-        raise ValueError(f"axis argument must be 0 or 1")
+        raise ValueError(f'axis argument must be 0 or 1')
 
     # truncate to an integer number of sweep blocks
     pvt = powtodB(pvt, abs=False)
 
     if not truncate and len(pvt) % resolution_axis != 0:
         raise ValueError(
-            "non-integer number of sweeps in pvt; pass truncate=False to truncate"
+            'non-integer number of sweeps in pvt; pass truncate=False to truncate'
         )
 
     pvt = pvt.iloc[: resolution_axis * (len(pvt) // resolution_axis)]
@@ -424,7 +424,7 @@ def power_histogram_along_axis(
     # pack a DataFrame with the bin labels
     #     timestamps = pvt.index.get_level_values('Time')
     #     time_bins = pd.to_datetime(timestamps[::resolution_axis])
-    power_bins = np.linspace(bounds[0], bounds[1], n_bins).astype("float64")
+    power_bins = np.linspace(bounds[0], bounds[1], n_bins).astype('float64')
     df = pd.DataFrame(h, index=pvt.index[::resolution_axis], columns=power_bins)
 
     return df

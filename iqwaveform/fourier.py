@@ -14,7 +14,7 @@ ifft = partial(scipy.fft.ifft, workers=CPU_COUNT // 2, overwrite_x=True)
 
 def zero_pad(x, pad_amt):
     """shortcut for np.pad(x, pad_amt, mode="constant", constant_values=0)"""
-    return np.pad(x, pad_amt, mode="constant", constant_values=0)
+    return np.pad(x, pad_amt, mode='constant', constant_values=0)
 
 
 def tile_axis0(x, N):
@@ -39,16 +39,16 @@ def to_blocks(y: np.ndarray, size: int, truncate=False, axis=0) -> np.ndarray:
         view on `y` with shape (..., N[axis]//size, size, ..., N[K-1]])
     """
     if not isinstance(size, int):
-        raise TypeError("block size must be integer")
+        raise TypeError('block size must be integer')
     if y.size == 0:
-        raise IndexError("cannot form blocks on arrays of size 0")
+        raise IndexError('cannot form blocks on arrays of size 0')
 
     # ensure the axis dimension is a multiple of the block size
     ax_size = y.shape[axis]
     if ax_size % size != 0:
         if not truncate:
             raise ValueError(
-                f"axis 0 size {ax_size} is not a factor of block size {size}"
+                f'axis 0 size {ax_size} is not a factor of block size {size}'
             )
 
         slices = len(y.shape) * [slice(None, None)]
@@ -123,9 +123,9 @@ def stft(
 
     FFT_SIZE = nperseg
     if noverlap not in (0, FFT_SIZE // 2):
-        raise NotImplementedError("noverlap must be noverlap//2 or 0")
+        raise NotImplementedError('noverlap must be noverlap//2 or 0')
 
-    if norm == "power":
+    if norm == 'power':
         window = window / np.sqrt(np.mean(np.abs(window) ** 2))
     elif norm is None:
         pass
@@ -150,7 +150,7 @@ def stft(
     else:
         if axis != 0:
             raise NotImplementedError(
-                "for now, only axis=0 is supported with noverlap>0"
+                'for now, only axis=0 is supported with noverlap>0'
             )
 
         x = np.array([x[:-noverlap], x[noverlap:]])
@@ -196,7 +196,7 @@ def low_pass_filter(
     if window is None:
         if axis != 0 or len(iq.shape) != 2:
             raise NotImplementedError(
-                f"in current implementation, `window` can only be used when axis=0 and iq has 2 axes"
+                f'in current implementation, `window` can only be used when axis=0 and iq has 2 axes'
             )
         window = np.array([1])
 
@@ -334,10 +334,10 @@ def channelize_power(
         ValueError: if channel_count * (fft_size_per_channel - analysis_bins_per_channel) is not even
     """
     if axis != 0:
-        raise NotImplementedError("sorry, only axis=0 implemented for now")
+        raise NotImplementedError('sorry, only axis=0 implemented for now')
 
     if analysis_bins_per_channel > fft_size_per_channel:
-        raise ValueError(f"the number of analysis bins cannot be greater than FFT size")
+        raise ValueError(f'the number of analysis bins cannot be greater than FFT size')
 
     freqs, times, X = stft(
         iq,
@@ -345,14 +345,14 @@ def channelize_power(
         window=window,
         nperseg=fft_size_per_channel * channel_count,
         noverlap=fft_overlap_per_channel * channel_count,
-        norm="power",
+        norm='power',
         axis=axis,
     )
 
     # extract only the bins inside the analysis bandwidth
     skip_bins = channel_count * (fft_size_per_channel - analysis_bins_per_channel)
     if skip_bins % 2 == 1:
-        raise ValueError("must pass an even number of bins to skip")
+        raise ValueError('must pass an even number of bins to skip')
     X = X[:, skip_bins // 2 : -skip_bins // 2]
     freqs = freqs[skip_bins // 2 : -skip_bins // 2]
 
@@ -379,7 +379,7 @@ def iq_to_stft_spectrogram(iq, window, Ts, overlap=True, analysis_bandwidth=None
         window=window,
         nperseg=fft_size,
         noverlap=fft_size // 2 if overlap else 0,
-        norm="power",
+        norm='power',
         axis=0,
     )
 
@@ -394,7 +394,7 @@ def iq_to_stft_spectrogram(iq, window, Ts, overlap=True, analysis_bandwidth=None
         )  # (len(freqs)-int(np.rint(FFT_SIZE*analysis_bandwidth*Ts)))//2
         if len(times) > 1 and np.abs(throwaway - np.rint(throwaway)) > 1e-6:
             raise ValueError(
-                f"analysis bandwidth yield integral number of samples, but got {throwaway}"
+                f'analysis bandwidth yield integral number of samples, but got {throwaway}'
             )
         # throwaway = throwaway
         # if throwaway % 2 == 1:
@@ -422,7 +422,7 @@ def time_to_frequency(iq, Ts, window=None, axis=0):
 def _len_guards(M):
     """Handle small or incorrect window lengths"""
     if int(M) != M or M < 0:
-        raise ValueError("Window length M must be a non-negative integer")
+        raise ValueError('Window length M must be a non-negative integer')
     return M <= 1
 
 
@@ -497,18 +497,18 @@ def taylor(M, nbar=4, sll=30, norm=True, sym=True):
     >>> import matplotlib.pyplot as plt
     >>> window = signal.windows.taylor(51, nbar=20, sll=100, norm=False)
     >>> plt.plot(window)
-    >>> plt.title("Taylor window (100 dB)")
-    >>> plt.ylabel("Amplitude")
-    >>> plt.xlabel("Sample")
+    >>> plt.title('Taylor window (100 dB)')
+    >>> plt.ylabel('Amplitude')
+    >>> plt.xlabel('Sample')
     >>> plt.figure()
-    >>> A = fft(window, 2048) / (len(window)/2.0)
+    >>> A = fft(window, 2048) / (len(window) / 2.0)
     >>> freq = np.linspace(-0.5, 0.5, len(A))
     >>> response = 20 * np.log10(np.abs(fftshift(A / abs(A).max())))
     >>> plt.plot(freq, response)
     >>> plt.axis([-0.5, 0.5, -120, 0])
-    >>> plt.title("Frequency response of the Taylor window (100 dB)")
-    >>> plt.ylabel("Normalized magnitude [dB]")
-    >>> plt.xlabel("Normalized frequency [cycles per sample]")
+    >>> plt.title('Frequency response of the Taylor window (100 dB)')
+    >>> plt.ylabel('Normalized magnitude [dB]')
+    >>> plt.xlabel('Normalized frequency [cycles per sample]')
     """  # noqa: E501
     if _len_guards(M):
         return np.ones(M)

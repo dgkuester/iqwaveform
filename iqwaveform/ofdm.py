@@ -55,7 +55,7 @@ def to_blocks(y, size, truncate=False):
     size = int(size)
     if not truncate and y.shape[-1] % size != 0:
         raise ValueError(
-            "last axis size {} is not integer multiple of block size {}".format(
+            'last axis size {} is not integer multiple of block size {}'.format(
                 y.shape[-1], size
             )
         )
@@ -83,14 +83,22 @@ def _index_or_all(x, name, size):
 
 
 class PhyOFDM:
-    def __init__(self, *, channel_bandwidth: float, sample_rate: float, fft_size: float, cp_sizes=np.array, frame_duration: float|None=None):
+    def __init__(
+        self,
+        *,
+        channel_bandwidth: float,
+        sample_rate: float,
+        fft_size: float,
+        cp_sizes=np.array,
+        frame_duration: float | None = None,
+    ):
         self.channel_bandwidth = channel_bandwidth
         self.sample_rate = sample_rate
 
         self.fft_size: float = fft_size
         self.frame_duration = frame_duration
-        
-        self.subcarrier_spacing: float = self.sample_rate/fft_size
+
+        self.subcarrier_spacing: float = self.sample_rate / fft_size
         if frame_duration is None:
             self.frame_size = None
         else:
@@ -106,7 +114,7 @@ class PhyOFDM:
         else:
             # precompute indexing for contiguous sequences of (CP, symbol)
             self.contiguous_size = (
-                np.sum(self.cp_sizes) + len(self.cp_sizes)*self.fft_size
+                np.sum(self.cp_sizes) + len(self.cp_sizes) * self.fft_size
             )
 
             # build a (start_idx, size) pair for each CP
@@ -117,10 +125,9 @@ class PhyOFDM:
             idx_range = range(self.contiguous_size)
 
             # indices in the contiguous range that are CP
-            self.cp_idx = np.concatenate([
-                idx_range[start: start + size]
-                for start, size in start_and_size
-            ])
+            self.cp_idx = np.concatenate(
+                [idx_range[start : start + size] for start, size in start_and_size]
+            )
 
             # indices in the contiguous range that are not CP
             self.symbol_idx = np.array(list(set(idx_range) - set(self.cp_idx)))
@@ -169,10 +176,7 @@ class Phy3GPP(PhyOFDM):
     # 3GPP TS 38.211, Section 5.3.1. Below are the sizes of all CPs (in samples)
     # in 1 slot for FFT size 128. CP size then scales proportionally to FFT size.
     # 1 slot is the minimum number of contiguous symbols in a sequence
-    MIN_CP_SIZES = np.array(
-        (10, 9, 9, 9, 9, 9, 9, 10, 9, 9, 9, 9, 9, 9),
-        dtype=int
-    )
+    MIN_CP_SIZES = np.array((10, 9, 9, 9, 9, 9, 9, 10, 9, 9, 9, 9, 9, 9), dtype=int)
 
     SCS_TO_SLOTS_PER_FRAME = {15e3: 10, 30e3: 20, 60e3: 40}
 
@@ -182,37 +186,22 @@ class Phy3GPP(PhyOFDM):
     def __init__(self, channel_bandwidth, subcarrier_spacing=15e3):
         if subcarrier_spacing not in self.SUBCARRIER_SPACINGS:
             raise ValueError(
-                f"subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}"
+                f'subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}'
             )
 
         sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
         fft_size = int(np.rint(sample_rate / subcarrier_spacing))
+
+        if self.fft_size in self.FFT_SIZE_TO_SUBCARRIERS:
+            self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
 
         super().__init__(
             channel_bandwidth=channel_bandwidth,
             fft_size=fft_size,
             sample_rate=sample_rate,
             frame_duration=10e-3,
-            cp_sizes=(self.fft_size * self.MIN_CP_SIZES) // 128
+            cp_sizes=(fft_size * self.MIN_CP_SIZES) // 128,
         )
-
-        if self.fft_size in self.FFT_SIZE_TO_SUBCARRIERS:
-            self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
-
-        # pair_sizes = np.concatenate(((0,), self.cp_sizes + self.fft_size))
-        # self.cp_start_idx = (pair_sizes.cumsum()).astype(int)[:-1]
-
-        # idx_range = range(self.contiguous_size)
-        # start_and_size = zip(self.cp_start_idx, self.cp_sizes)
-
-        # # indices in the contiguous range that are CP
-        # self.cp_idx = np.concatenate([
-        #     idx_range[start: start + size]
-        #     for start, size in start_and_size
-        # ])
-
-        # # indices in the contiguous range that are not CP
-        # self.symbol_idx = np.array(list(set(idx_range) - set(self.cp_idx)))
 
     @methodtools.lru_cache(4)
     def index_cyclic_prefix(
@@ -228,12 +217,11 @@ class Phy3GPP(PhyOFDM):
         frame_size = int(np.rint(self.sample_rate * 10e-3))
 
         slots = _index_or_all(
-            slots, '"slots" argument',
-            size=self.SCS_TO_SLOTS_PER_FRAME[self.subcarrier_spacing]
+            slots,
+            '"slots" argument',
+            size=self.SCS_TO_SLOTS_PER_FRAME[self.subcarrier_spacing],
         )
-        symbols = _index_or_all(
-            symbols, '"symbols" argument', size=self.FFT_PER_SLOT
-        )
+        symbols = _index_or_all(symbols, '"symbols" argument', size=self.FFT_PER_SLOT)
 
         # first build each grid axis separately
         grid = []
@@ -250,9 +238,9 @@ class Phy3GPP(PhyOFDM):
         grid.extend(
             np.ogrid[
                 # axis 3: cp index
-                0: self.cp_sizes[1],
+                0 : self.cp_sizes[1],
                 # axis 4: start offset within the symbol
-                0: self.fft_size + self.cp_sizes[1],
+                0 : self.fft_size + self.cp_sizes[1],
             ]
         )
 
@@ -298,25 +286,25 @@ class Phy802_16(PhyOFDM):
         self, channel_bandwidth, *, frame_duration=5e-3, fft_size=2048, cp_ratio=1 / 8
     ):
         if not isinstance(channel_bandwidth, Number):
-            raise TypeError("expected numeric value for channel_bandwidth")
+            raise TypeError('expected numeric value for channel_bandwidth')
         elif channel_bandwidth < 1.25e6:
             raise ValueError(
-                "standardized values for channel_bandwidth not supported yet"
+                'standardized values for channel_bandwidth not supported yet'
             )
         elif not np.isclose(channel_bandwidth % 125e3, 0, atol=1e-6):
-            raise ValueError("channel bandwidth must be set in increments of 125 kHz")
+            raise ValueError('channel bandwidth must be set in increments of 125 kHz')
 
         if fft_size not in self.VALID_FFT_SIZES:
-            raise ValueError(f"fft_size must be one of {self.VALID_FFT_SIZES}")
+            raise ValueError(f'fft_size must be one of {self.VALID_FFT_SIZES}')
 
         if cp_ratio in self.VALID_CP_RATIO:
             self.cp_ratio = cp_ratio
         else:
-            raise ValueError(f"cp_ratio must be one of {self.VALID_CP_RATIO}")
+            raise ValueError(f'cp_ratio must be one of {self.VALID_CP_RATIO}')
 
         if frame_duration not in self.VALID_FRAME_DURATION:
             raise ValueError(
-                f"frame_duration must be one of {self.VALID_FRAME_DURATION}"
+                f'frame_duration must be one of {self.VALID_FRAME_DURATION}'
             )
 
         for freq_divisor, n in self.SAMPLING_FACTOR_BY_FREQUENCY_DIV.items():
@@ -325,38 +313,65 @@ class Phy802_16(PhyOFDM):
                 break
         else:
             # no match with the table - standardized default
-            self.sampling_factor = 8 / 7
+            sampling_factor = self.sampling_factor = 8 / 7
 
         sample_rate = np.floor(sampling_factor * channel_bandwidth / 8000) * 8000
         cp_size = int(np.rint(cp_ratio * fft_size))
+        self.total_symbol_duration = (1 + cp_ratio) * fft_size
+        self.symbols_per_frame = int(
+            np.floor(frame_duration / self.total_symbol_duration)
+        )
 
         super().__init__(
             channel_bandwidth=channel_bandwidth,
             fft_size=fft_size,
             sample_rate=sample_rate,
-            frame_duration=frame_duration
+            frame_duration=frame_duration,
+            cp_sizes=np.full(self.symbols_per_frame, cp_size),
         )
 
-        self.total_symbol_duration = (1 + self.cp_ratio) * fft_size
-        self.symbols_per_frame = int(
-            np.floor(self.frame_duration / self.total_symbol_duration)
-        )
-        self.frame_cp_sizes = np.ones(self.symbols_per_frame, dtype=int) * cp_size
+    @methodtools.lru_cache(4)
+    def index_cyclic_prefix(
+        self,
+        *,
+        frames=(0,),
+        symbols='all',
+    ) -> np.ndarray:
+        """build an indexing tensor for performing cyclic prefix correlation across various axes"""
 
-        # compute the start of each cyclic prefix
-        pair_sizes = np.concatenate(((0,), self.frame_cp_sizes + self.fft_size))
-        self.frame_cp_start_indices = (pair_sizes.cumsum()).astype(int)[:-1]
-        n_slot = np.arange(self.frame_size).astype(int)
-        loc_size_pairs = zip(self.frame_cp_start_indices, self.slot_cp_sizes)
-        self.frame_cp_indices = np.concatenate(
-            [n_slot[i0: i0 + s] for i0, s in loc_size_pairs]
-        )
+        frames = np.array(frames)
 
-        # start index of the data copied for each cyclic prefix
-        self.frame_symbol_indices = np.concatenate(
-            (self.slot_symbol_indices, self.slot_symbol_indices + self.frame_size)
+        symbols = _index_or_all(
+            symbols, '"symbols" argument', size=self.symbols_per_frame
         )
 
+        # first build each grid axis separately
+        grid = []
+
+        # axis 0: symbol number in each frame
+        grid.append(self.cp_start_idx[symbols])
+
+        # axis 1: frame number
+        grid.append(frames * self.frame_size)
+
+        grid.extend(
+            np.ogrid[
+                # axis 2: cp index
+                0: self.cp_sizes[1],
+                # axis 3: start offset within the symbol
+                0: self.fft_size + self.cp_sizes[1],
+            ]
+        )
+
+        # pad the axis dimensions so they can be broadcast together
+        a = np.meshgrid(*grid, indexing='ij', copy=False)
+
+        # sum all of the index offsets
+        inds = a[0].copy()
+        for sub in a[1:]:
+            inds += sub
+
+        return inds
 
 empty_complex64 = np.zeros(0, dtype=np.complex64)
 
@@ -387,12 +402,17 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         channel_bandwidth: float,  # the channel bandwidth in Hz: 1.4 MHz, 5 MHz, 10 MHz, 20 MHz, etc
         correlation_subframes: int = 20,  # correlation window size, in subframes (20 = 1 frame)
         sync_window_count: int = 2,  # how many correlation windows to synchronize at a time (suggest >= 2)
-        which_cp: str = "all",  # 'all', 'special', or 'normal'
+        which_cp: str = 'all',  # 'all', 'special', or 'normal'
         subcarrier_spacing=15e3,
     ):
-        self.phy = Phy3GPP(channel_bandwidth, subcarrier_spacing=subcarrier_spacing)
+        self.phy = Phy3GPP(
+            channel_bandwidth,
+            subcarrier_spacing=subcarrier_spacing
+        )
         self.correlation_subframes = correlation_subframes
-        self.sync_size = sync_window_count * correlation_subframes * self.phy.contiguous_size
+        self.sync_size = (
+            sync_window_count * correlation_subframes * self.phy.contiguous_size
+        )
 
         # index array of cyclic prefix samples
         cp_gate = self.phy.cp_idx  # 1 single slot
@@ -436,11 +456,11 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         index 0 in the complex sample vector `x`
         """
         # print("_find_slot_start_offset")
-        self._debug.setdefault("x", []).append(x)
+        self._debug.setdefault('x', []).append(x)
 
         # Coarse estimate of alignment offset to within coarse_step samples
         coarse_corr = np.abs(self._cp_correlate(x, self.cp_indices_coarse))
-        self._debug.setdefault("coarse_corr", []).append(coarse_corr)
+        self._debug.setdefault('coarse_corr', []).append(coarse_corr)
         coarse_offset = self.cp_offsets_coarse[np.argmax(coarse_corr)]
 
         # Fine calculation for the offset (near the coarse result)
@@ -493,7 +513,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         select = self.snr > snr_min  # "good" indices
 
         print(
-            f"  {select.sum()} sync windows had well-correlated cyclic prefix ({select.sum() / select.size * 100:0.1f}%)"
+            f'  {select.sum()} sync windows had well-correlated cyclic prefix ({select.sum() / select.size * 100:0.1f}%)'
         )
         offsets = offsets[select]
         t_sync = t_sync[select]
@@ -503,14 +523,14 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         # unwrap here to keep linear regression from breaking
         offsets = self._unwrap_offsets(offsets)
 
-        print("LinearRegression.fit()")
-        print("tsync shape:" + str(t_sync.shape))
-        print("offsets shape:" + str(offsets.shape))
-        print("weights shape:" + str(weights.shape))
+        print('LinearRegression.fit()')
+        print('tsync shape:' + str(t_sync.shape))
+        print('offsets shape:' + str(offsets.shape))
+        print('weights shape:' + str(weights.shape))
         fit = LinearRegression().fit(
             t_sync.reshape(-1, 1), offsets.reshape(-1, 1), weights
         )
-        print("LinearRegression.fit() finished")
+        print('LinearRegression.fit() finished')
         slipped_samples = np.round(
             fit.coef_[0, 0] * x.size / self.phy.sample_rate
         ).astype(int)
@@ -527,12 +547,12 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
 
     def plot_offset_with_fit(self, x):
         slope, intercept = self._estimate_clock_mismatch(x)
-        t, offsets, weights = self._regression_info["inputs"]
-        plot(t, offsets, ".")
-        plot(t, t * self._regression_info["slope"] + self._regression_info["intercept"])
+        t, offsets, weights = self._regression_info['inputs']
+        plot(t, offsets, '.')
+        plot(t, t * self._regression_info['slope'] + self._regression_info['intercept'])
 
     def __call__(
-        self, x, subsample_offset_correction=True, max_passes=10, on_fail="except"
+        self, x, subsample_offset_correction=True, max_passes=10, on_fail='except'
     ):
         """Resample to correct for baseband clock mismatch.
 
@@ -546,7 +566,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         # attempts at resampling.
         total_sample_slip = 0
         for i in range(max_passes + 1):
-            print(f"baseband clock correction pass {i + 1}")
+            print(f'baseband clock correction pass {i + 1}')
             sample_slip, offset = self._estimate_clock_mismatch(x)
             total_sample_slip += sample_slip
 
@@ -554,41 +574,41 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
                 break
             else:
                 # resample to correct sample slipping
-                print("resampling")
-                print("sample slip iiiiiiis: " + str(sample_slip))
-                print("total samples is: " + str(x.size - sample_slip))
+                print('resampling')
+                print('sample slip iiiiiiis: ' + str(sample_slip))
+                print('total samples is: ' + str(x.size - sample_slip))
                 #                print('forcing sample slip to be 8.4Hz')
                 #                sample_slip = 42
                 now = datetime.now()
                 print(
-                    "start resample with sample_slip: "
+                    'start resample with sample_slip: '
                     + str(sample_slip)
-                    + " "
+                    + ' '
                     + str(now)
                 )
                 x = signal.resample(x, x.size - sample_slip)
                 elapsed = datetime.now() - now
-                print("done resampling " + str(sample_slip) + " " + str(elapsed))
+                print('done resampling ' + str(sample_slip) + ' ' + str(elapsed))
 
         else:
-            if on_fail == "except":
+            if on_fail == 'except':
                 raise ValueError(
-                    f"failed to converge on clock mismatch within {max_passes} passes"
+                    f'failed to converge on clock mismatch within {max_passes} passes'
                 )
 
         print(
-            f"corrected baseband clock slip by {total_sample_slip} samples"
-            f"({total_sample_slip / x.size * self.phy.sample_rate:0.2f} Hz clock mismatch)"
+            f'corrected baseband clock slip by {total_sample_slip} samples'
+            f'({total_sample_slip / x.size * self.phy.sample_rate:0.2f} Hz clock mismatch)'
         )
 
         # last, correct the fixed offset at the beginning in an attempt to align
         if subsample_offset_correction:
-            print(f"subsample shift to correct offset of {offset:0.3f} samples")
+            print(f'subsample shift to correct offset of {offset:0.3f} samples')
             x = subsample_shift(x, -offset)
         else:
             int_offset = int(offset.round())
             print(
-                f"shift to correct offset of {int_offset} (out of {offset:0.3f}) samples"
+                f'shift to correct offset of {int_offset} (out of {offset:0.3f}) samples'
             )
             x = x[int_offset % self.phy.contiguous_size :]
 
@@ -626,9 +646,7 @@ class SymbolDecoder:
 
     def _decode_symbols(self, x, only_3gpp_subcarriers=True):
         # first, select symbol indices (== remove cyclic prefixes)
-        x = to_blocks(x, 2 * self.phy.contiguous_size)[
-            :, self.phy.symbol_idx
-        ].flatten()
+        x = to_blocks(x, 2 * self.phy.contiguous_size)[:, self.phy.symbol_idx].flatten()
 
         # break up the waveform into windows of length fft_size
         blocks = to_blocks(x, self.phy.fft_size)
