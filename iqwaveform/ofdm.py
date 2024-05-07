@@ -113,9 +113,7 @@ class PhyOFDM:
 
         else:
             # precompute indexing for contiguous sequences of (CP, symbol)
-            self.contiguous_size = (
-                np.sum(self.cp_sizes) + len(self.cp_sizes) * self.fft_size
-            )
+            self.contiguous_size = np.sum(cp_sizes) + len(cp_sizes) * fft_size
 
             # build a (start_idx, size) pair for each CP
             pair_sizes = np.concatenate(((0,), self.cp_sizes + self.fft_size))
@@ -317,7 +315,7 @@ class Phy802_16(PhyOFDM):
 
         sample_rate = np.floor(sampling_factor * channel_bandwidth / 8000) * 8000
         cp_size = int(np.rint(cp_ratio * fft_size))
-        self.total_symbol_duration = (1 + cp_ratio) * fft_size
+        self.total_symbol_duration = int(np.rint((1 + cp_ratio) * fft_size))/sample_rate
         self.symbols_per_frame = int(
             np.floor(frame_duration / self.total_symbol_duration)
         )
@@ -448,14 +446,12 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
                   dimension 1 gives corresponding index offsets of CP samples relative to the start of the slot
 
         """
-        # print("_cp_correlate")
         return correlate_along_axis(x[cp_inds], x[self.phy.fft_size :][cp_inds], axis=1)
 
     def _find_slot_start_offset(self, x):
         """Estimate the offset required to align the start of a slot to
         index 0 in the complex sample vector `x`
         """
-        # print("_find_slot_start_offset")
         self._debug.setdefault('x', []).append(x)
 
         # Coarse estimate of alignment offset to within coarse_step samples
@@ -480,7 +476,6 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         applied to the full window between sync periods.
         """
 
-        # print("_offset_by_sync_period")
         self._debug = {}
 
         ret = []
@@ -501,7 +496,6 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         all synchronization windows.
         """
 
-        # print("_estimate_clock_mismatch")
         offsets, weights, noise = self._offset_by_sync_period(x).T
         t_sync = (self.sync_size / self.phy.sample_rate) * np.arange(offsets.size)
 
