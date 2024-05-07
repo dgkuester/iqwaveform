@@ -13,6 +13,7 @@ dependencies = [
     "matplotlib>=3.6",
     "numexpr>=2.7",
     "scikit-learn>=1.1,<2.0",
+    "methodtools"
 ]
 requires-python = ">=3.9"
 readme = "README.md"

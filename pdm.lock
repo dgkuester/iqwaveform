@@ -5,7 +5,7 @@
 groups = ["default", "lint", "dev"]
 strategy = ["cross_platform"]
 lock_version = "4.4.1"
-content_hash = "sha256:c484fceecd1c7125dc58f7c56e5cc240e511b436ea45d9ddecae9da31ac5f946"
+content_hash = "sha256:7dd976f6a682d3b61ea481eb370216952e69e54d83c23ada5b9c1d09c1fade67"
 
 [[package]]
 name = "appnope"
@@ -431,6 +431,17 @@ summary = "McCabe checker, plugin for flake8"
 files = [
     {file = "mccabe-0.7.0-py2.py3-none-any.whl", hash = "sha256:6c2d30ab6be0e4a46919781807b4f0d834ebdd6c6e3dca0bda5a15f863427b6e"},
     {file = "mccabe-0.7.0.tar.gz", hash = "sha256:348e0240c33b60bbdf4e523192ef919f28cb2c3d7d5c7794f74009290f236325"},
+]
+
+[[package]]
+name = "methodtools"
+version = "0.4.7"
+summary = "Expand standard functools to methods"
+dependencies = [
+    "wirerope>=0.4.7",
+]
+files = [
+    {file = "methodtools-0.4.7.tar.gz", hash = "sha256:e213439dd64cfe60213f7015da6efe5dd4003fd89376db3baa09fe13ec2bb0ba"},
 ]
 
 [[package]]
@@ -982,6 +993,17 @@ summary = "Measures the displayed width of unicode strings in a terminal"
 files = [
     {file = "wcwidth-0.2.12-py2.py3-none-any.whl", hash = "sha256:f26ec43d96c8cbfed76a5075dac87680124fa84e0855195a6184da9c187f133c"},
     {file = "wcwidth-0.2.12.tar.gz", hash = "sha256:f01c104efdf57971bcb756f054dd58ddec5204dd15fa31d6503ea57947d97c02"},
+]
+
+[[package]]
+name = "wirerope"
+version = "0.4.7"
+summary = "'Turn functions and methods into fully controllable objects'"
+dependencies = [
+    "six>=1.11.0",
+]
+files = [
+    {file = "wirerope-0.4.7.tar.gz", hash = "sha256:f3961039218276283c5037da0fa164619def0327595f10892d562a61a8603990"},
 ]
 
 [[package]]

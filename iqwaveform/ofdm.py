@@ -5,6 +5,7 @@ from scipy import signal
 from sklearn.linear_model import LinearRegression
 from pylab import plot
 from numbers import Number
+import methodtools
 
 
 def correlate_along_axis(a, b, axis=0):
@@ -63,7 +64,53 @@ def to_blocks(y, size, truncate=False):
     )
 
 
-class Phy3GPP:
+def _index_or_all(x, name, size):
+    if isinstance(x, str) and x == 'all':
+        if size is None:
+            raise ValueError('must set max to allow "all" value')
+        x = np.arange(size)
+    elif np.ndim(x) in (0, 1):
+        x = np.array(x)
+    else:
+        raise ValueError(f'{name} argument must be a flat array of indices or "all"')
+
+    if np.max(x) > size:
+        raise ValueError(f'{name} value {x} exceeds the maximum {size}')
+    if np.max(-x) > size:
+        raise ValueError(f'{name} value {x} is below the minimum {-size}')
+
+    return x
+
+
+class PhyOFDM:
+    def __init__(self, *, channel_bandwidth: float, sample_rate: float, subcarrier_spacing: float|None=None, fft_size: float|None=None, frame_duration: float|None=None):
+        self.channel_bandwidth = channel_bandwidth
+        self.sample_rate = sample_rate
+
+        if subcarrier_spacing is None and fft_size is not None:
+            self.fft_size: float = fft_size
+            self.subcarrier_spacing: float = self.sample_rate/fft_size
+
+        elif subcarrier_spacing is not None and fft_size is None:
+            self.fft_size: float = int(np.rint(self.sample_rate / subcarrier_spacing))
+            self.subcarrier_spacing: float = subcarrier_spacing
+
+        else:
+            raise ValueError('pass exactly one of fft_size or subcarrier_spacing')
+        
+        self.frame_duration = frame_duration
+        
+        if frame_duration is None:
+            self.frame_size = None
+        else:
+            self.frame_size = int(np.rint(sample_rate * frame_duration))
+
+
+    def index_cyclic_prefix(self) -> np.array:
+        raise NotImplementedError
+
+
+class Phy3GPP(PhyOFDM):
     """Sampling and index parameters and lookup tables for 3GPP 5G-NR.
 
     These are equivalent to LTE if subcarrier_spacing is fixed to 15 kHz
@@ -110,10 +157,13 @@ class Phy3GPP:
                 f"subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}"
             )
 
-        self.channel_bandwidth = channel_bandwidth
-        self.sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
-        self.fft_size = int(np.rint(self.sample_rate / subcarrier_spacing))
-        self.subcarrier_spacing = subcarrier_spacing
+        super().__init__(
+            channel_bandwidth=channel_bandwidth,
+            subcarrier_spacing=subcarrier_spacing,
+            sample_rate=self.BW_TO_SAMPLE_RATE[channel_bandwidth],
+            frame_duration=10e-3
+        )
+
         self.slot_size = 15 * self.fft_size
         if self.fft_size in self.FFT_SIZE_TO_SUBCARRIERS:
             self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
@@ -146,14 +196,64 @@ class Phy3GPP:
             (self.slot_symbol_indices, self.slot_symbol_indices + self.slot_size)
         )
 
+    @methodtools.lru_cache(4)
+    def index_cyclic_prefix(
+        self,
+        *,
+        frames=(0,),
+        symbols='all',
+        slots='all',
+    ):
+        """build an indexing tensor for performing cyclic prefix correlation across various axes"""
 
-class Phy802_16:
+        frames = np.array(frames)
+        frame_size = int(np.rint(self.sample_rate * 10e-3))
+
+        slots = _index_or_all(
+            slots, '"slots" argument',
+            size=self.SCS_TO_SLOTS_PER_FRAME[self.subcarrier_spacing]
+        )
+        symbols = _index_or_all(
+            symbols, '"symbols" argument', size=self.FFT_PER_SLOT
+        )
+
+        # first build each grid axis separately
+        grid = []
+
+        # axis 0: symbol number within each slot
+        grid.append(self.slot_cp_start_indices[symbols])
+
+        # axis 1: slot number
+        grid.append(self.slot_size * slots)
+
+        # axis 2: frame number
+        grid.append(frames * frame_size)
+
+        grid.extend(
+            np.ogrid[
+                # axis 3: cp index
+                0 : self.slot_cp_sizes[1],
+                # axis 4: start offset within the symbol
+                0 : self.fft_size + self.slot_cp_sizes[1],
+            ]
+        )
+
+        # pad the axis dimensions so they can be broadcast together
+        a = np.meshgrid(*grid, indexing='ij', copy=False)
+
+        # sum all of the index offsets
+        inds = a[0].copy()
+        for sub in a[1:]:
+            inds += sub
+
+        return inds
+
+
+class Phy802_16(PhyOFDM):
     """Sampling and index parameters and lookup tables for IEEE 802.16-2017 OFDMA"""
 
-    # the remaining 1 "slot" worth of samples per slot are for cyclic prefixes
-
     VALID_CP_RATIO = {1 / 32, 1 / 16, 1 / 8, 1 / 4}
-    VALID_FFT_SIZE = {128, 512, 1024, 2048}
+    VALID_FFT_SIZES = {128, 512, 1024, 2048}
     VALID_FRAME_DURATION = {
         2e-3,
         2.5e-3,
@@ -177,7 +277,7 @@ class Phy802_16:
     }
 
     def __init__(
-        self, channel_bandwidth, *, frame_duration=5e-3, fft_size=2048, cp_ratio=1 / 8.0
+        self, channel_bandwidth, *, frame_duration=5e-3, fft_size=2048, cp_ratio=1 / 8
     ):
         if not isinstance(channel_bandwidth, Number):
             raise TypeError("expected numeric value for channel_bandwidth")
@@ -187,58 +287,54 @@ class Phy802_16:
             )
         elif not np.isclose(channel_bandwidth % 125e3, 0, atol=1e-6):
             raise ValueError("channel bandwidth must be set in increments of 125 kHz")
-        else:
-            self.channel_bandwidth = channel_bandwidth
 
-        if fft_size in self.VALID_FFT_SIZE:
-            self.fft_size = fft_size
-        else:
-            raise ValueError(f"fft_size must be one of {self.VALID_FFT_SIZE}")
+        if fft_size not in self.VALID_FFT_SIZES:
+            raise ValueError(f"fft_size must be one of {self.VALID_FFT_SIZES}")
 
         if cp_ratio in self.VALID_CP_RATIO:
             self.cp_ratio = cp_ratio
         else:
             raise ValueError(f"cp_ratio must be one of {self.VALID_CP_RATIO}")
 
-        if frame_duration in self.VALID_FRAME_DURATION:
-            self.frame_duration = frame_duration
-        else:
+        if frame_duration not in self.VALID_FRAME_DURATION:
             raise ValueError(
                 f"frame_duration must be one of {self.VALID_FRAME_DURATION}"
             )
 
         for freq_divisor, n in self.SAMPLING_FACTOR_BY_FREQUENCY_DIV.items():
             if np.isclose(channel_bandwidth % freq_divisor, 0, atol=1e-6):
-                self.sampling_factor = n
+                sampling_factor = self.sampling_factor = n
                 break
         else:
             # no match with the table - standardized default
             self.sampling_factor = 8 / 7
 
-        self.sample_rate = (
-            np.floor(self.sampling_factor * channel_bandwidth / 8000) * 8000
+        sample_rate = np.floor(sampling_factor * channel_bandwidth / 8000) * 8000
+        cp_size = int(np.rint(cp_ratio * fft_size))
+
+        super().__init__(
+            channel_bandwidth=channel_bandwidth,
+            fft_size=fft_size,
+            sample_rate=sample_rate,
+            frame_duration=frame_duration
         )
 
-        cp_size = int(np.rint(self.cp_ratio * self.fft_size))
-
-        self.subcarrier_spacing = 1 / self.fft_size
-        self.total_symbol_duration = (1 + self.cp_ratio) * self.fft_size
+        self.total_symbol_duration = (1 + self.cp_ratio) * fft_size
         self.symbols_per_frame = int(
             np.floor(self.frame_duration / self.total_symbol_duration)
         )
-        self.frame_size = int(np.rint(self.sample_rate * self.frame_duration))
         self.frame_cp_sizes = np.ones(self.symbols_per_frame, dtype=int) * cp_size
 
         # compute the start of each cyclic prefix
         pair_sizes = np.concatenate(((0,), self.frame_cp_sizes + self.fft_size))
         self.frame_cp_start_indices = (pair_sizes.cumsum()).astype(int)[:-1]
         n_slot = np.arange(self.frame_size).astype(int)
-        loc_size_pairs = zip(self.slot_cp_start_indices, self.slot_cp_sizes)
+        loc_size_pairs = zip(self.frame_cp_start_indices, self.slot_cp_sizes)
         self.frame_cp_indices = np.concatenate(
-            [n_slot[i0 : i0 + s] for i0, s in loc_size_pairs]
+            [n_slot[i0: i0 + s] for i0, s in loc_size_pairs]
         )
 
-        # locations of the start of the cyclic prefix for each symbol
+        # start index of the data copied for each cyclic prefix
         self.frame_symbol_indices = np.concatenate(
             (self.slot_symbol_indices, self.slot_symbol_indices + self.frame_size)
         )
