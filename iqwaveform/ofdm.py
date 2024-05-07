@@ -83,28 +83,47 @@ def _index_or_all(x, name, size):
 
 
 class PhyOFDM:
-    def __init__(self, *, channel_bandwidth: float, sample_rate: float, subcarrier_spacing: float|None=None, fft_size: float|None=None, frame_duration: float|None=None):
+    def __init__(self, *, channel_bandwidth: float, sample_rate: float, fft_size: float, cp_sizes=np.array, frame_duration: float|None=None):
         self.channel_bandwidth = channel_bandwidth
         self.sample_rate = sample_rate
 
-        if subcarrier_spacing is None and fft_size is not None:
-            self.fft_size: float = fft_size
-            self.subcarrier_spacing: float = self.sample_rate/fft_size
-
-        elif subcarrier_spacing is not None and fft_size is None:
-            self.fft_size: float = int(np.rint(self.sample_rate / subcarrier_spacing))
-            self.subcarrier_spacing: float = subcarrier_spacing
-
-        else:
-            raise ValueError('pass exactly one of fft_size or subcarrier_spacing')
-        
+        self.fft_size: float = fft_size
         self.frame_duration = frame_duration
         
+        self.subcarrier_spacing: float = self.sample_rate/fft_size
         if frame_duration is None:
             self.frame_size = None
         else:
             self.frame_size = int(np.rint(sample_rate * frame_duration))
 
+        self.cp_sizes = cp_sizes
+        if cp_sizes is None:
+            self.contiguous_size = None
+            self.cp_start_idx = None
+            self.cp_idx = None
+            self.symbol_idx = None
+
+        else:
+            # precompute indexing for contiguous sequences of (CP, symbol)
+            self.contiguous_size = (
+                np.sum(self.cp_sizes) + len(self.cp_sizes)*self.fft_size
+            )
+
+            # build a (start_idx, size) pair for each CP
+            pair_sizes = np.concatenate(((0,), self.cp_sizes + self.fft_size))
+            self.cp_start_idx = (pair_sizes.cumsum()).astype(int)[:-1]
+            start_and_size = zip(self.cp_start_idx, self.cp_sizes)
+
+            idx_range = range(self.contiguous_size)
+
+            # indices in the contiguous range that are CP
+            self.cp_idx = np.concatenate([
+                idx_range[start: start + size]
+                for start, size in start_and_size
+            ])
+
+            # indices in the contiguous range that are not CP
+            self.symbol_idx = np.array(list(set(idx_range) - set(self.cp_idx)))
 
     def index_cyclic_prefix(self) -> np.array:
         raise NotImplementedError
@@ -146,6 +165,15 @@ class Phy3GPP(PhyOFDM):
         40e6: 61.44e6,
     }
 
+    # Slot structure including cyclic prefix (CP) indices are specified in
+    # 3GPP TS 38.211, Section 5.3.1. Below are the sizes of all CPs (in samples)
+    # in 1 slot for FFT size 128. CP size then scales proportionally to FFT size.
+    # 1 slot is the minimum number of contiguous symbols in a sequence
+    MIN_CP_SIZES = np.array(
+        (10, 9, 9, 9, 9, 9, 9, 10, 9, 9, 9, 9, 9, 9),
+        dtype=int
+    )
+
     SCS_TO_SLOTS_PER_FRAME = {15e3: 10, 30e3: 20, 60e3: 40}
 
     # TODO: add 5G FR2 SCS values
@@ -157,44 +185,34 @@ class Phy3GPP(PhyOFDM):
                 f"subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}"
             )
 
+        sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
+        fft_size = int(np.rint(sample_rate / subcarrier_spacing))
+
         super().__init__(
             channel_bandwidth=channel_bandwidth,
-            subcarrier_spacing=subcarrier_spacing,
-            sample_rate=self.BW_TO_SAMPLE_RATE[channel_bandwidth],
-            frame_duration=10e-3
+            fft_size=fft_size,
+            sample_rate=sample_rate,
+            frame_duration=10e-3,
+            cp_sizes=(self.fft_size * self.MIN_CP_SIZES) // 128
         )
 
-        self.slot_size = 15 * self.fft_size
         if self.fft_size in self.FFT_SIZE_TO_SUBCARRIERS:
             self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[self.fft_size]
 
-        ### UL slot structure including cyclic prefix (CP) indices are specified in
-        ### 3GPP TS 38.211, Section 5.6
+        # pair_sizes = np.concatenate(((0,), self.cp_sizes + self.fft_size))
+        # self.cp_start_idx = (pair_sizes.cumsum()).astype(int)[:-1]
 
-        # Table 5.6-1
+        # idx_range = range(self.contiguous_size)
+        # start_and_size = zip(self.cp_start_idx, self.cp_sizes)
 
-        self.slot_cp_sizes = (
-            self.fft_size
-            * np.array((10, 9, 9, 9, 9, 9, 9, 10, 9, 9, 9, 9, 9, 9), dtype=int)
-        ) // (128)
+        # # indices in the contiguous range that are CP
+        # self.cp_idx = np.concatenate([
+        #     idx_range[start: start + size]
+        #     for start, size in start_and_size
+        # ])
 
-        pair_sizes = np.concatenate(((0,), self.slot_cp_sizes + self.fft_size))
-        self.slot_cp_start_indices = (pair_sizes.cumsum()).astype(int)[:-1]
-
-        n_slot = np.arange(self.slot_size).astype(int)
-        loc_size_pairs = zip(self.slot_cp_start_indices, self.slot_cp_sizes)
-        self.slot_cp_indices = np.concatenate(
-            [n_slot[i0 : i0 + s] for i0, s in loc_size_pairs]
-        )
-        self.slot_symbol_indices = np.array(
-            list(
-                set(n_slot).difference(self.slot_cp_indices)
-            )  # all indices that are not CP
-        )
-
-        self.subframe_symbol_indices = np.concatenate(
-            (self.slot_symbol_indices, self.slot_symbol_indices + self.slot_size)
-        )
+        # # indices in the contiguous range that are not CP
+        # self.symbol_idx = np.array(list(set(idx_range) - set(self.cp_idx)))
 
     @methodtools.lru_cache(4)
     def index_cyclic_prefix(
@@ -221,10 +239,10 @@ class Phy3GPP(PhyOFDM):
         grid = []
 
         # axis 0: symbol number within each slot
-        grid.append(self.slot_cp_start_indices[symbols])
+        grid.append(self.cp_start_idx[symbols])
 
         # axis 1: slot number
-        grid.append(self.slot_size * slots)
+        grid.append(self.contiguous_size * slots)
 
         # axis 2: frame number
         grid.append(frames * frame_size)
@@ -232,9 +250,9 @@ class Phy3GPP(PhyOFDM):
         grid.extend(
             np.ogrid[
                 # axis 3: cp index
-                0 : self.slot_cp_sizes[1],
+                0: self.cp_sizes[1],
                 # axis 4: start offset within the symbol
-                0 : self.fft_size + self.slot_cp_sizes[1],
+                0: self.fft_size + self.cp_sizes[1],
             ]
         )
 
@@ -374,11 +392,11 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
     ):
         self.phy = Phy3GPP(channel_bandwidth, subcarrier_spacing=subcarrier_spacing)
         self.correlation_subframes = correlation_subframes
-        self.sync_size = sync_window_count * correlation_subframes * self.phy.slot_size
+        self.sync_size = sync_window_count * correlation_subframes * self.phy.contiguous_size
 
         # index array of cyclic prefix samples
-        cp_gate = self.phy.slot_cp_indices  # 1 single slot
-        i_slot_starts = self.phy.slot_size * np.arange(correlation_subframes)
+        cp_gate = self.phy.cp_idx  # 1 single slot
+        i_slot_starts = self.phy.contiguous_size * np.arange(correlation_subframes)
         cp_gate = indexsum2d(
             i_slot_starts, cp_gate
         ).flatten()  # duplicate across slot_count slots
@@ -388,9 +406,9 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         # standard size (i.e., not the first) CP window.
         #
         # This grid spans a total length of a single slot.
-        coarse_step = int(self.phy.slot_cp_sizes[1] * self.COARSE_CP0_STEP)
+        coarse_step = int(self.phy.cp_sizes[1] * self.COARSE_CP0_STEP)
         self.cp_offsets_coarse = np.arange(
-            0, self.phy.fft_size + self.phy.slot_cp_sizes[1], coarse_step, dtype=int
+            0, self.phy.fft_size + self.phy.cp_sizes[1], coarse_step, dtype=int
         )
 
         # 2-D search grid
@@ -572,10 +590,10 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
             print(
                 f"shift to correct offset of {int_offset} (out of {offset:0.3f}) samples"
             )
-            x = x[int_offset % self.phy.slot_size :]
+            x = x[int_offset % self.phy.contiguous_size :]
 
             # keep only an integer number of slots
-        spare_samples = x.size % (2 * self.phy.slot_size)
+        spare_samples = x.size % (2 * self.phy.contiguous_size)
         if spare_samples > 0:
             x = x[:-spare_samples]
 
@@ -608,8 +626,8 @@ class SymbolDecoder:
 
     def _decode_symbols(self, x, only_3gpp_subcarriers=True):
         # first, select symbol indices (== remove cyclic prefixes)
-        x = to_blocks(x, 2 * self.phy.slot_size)[
-            :, self.phy.subframe_symbol_indices
+        x = to_blocks(x, 2 * self.phy.contiguous_size)[
+            :, self.phy.symbol_idx
         ].flatten()
 
         # break up the waveform into windows of length fft_size
