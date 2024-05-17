@@ -1,4 +1,4 @@
-"""Transformations and statistical tools for power data"""
+"""Transformations and statistical tools for power time series"""
 
 import os
 
@@ -10,9 +10,11 @@ import numexpr as ne
 import warnings
 from numbers import Number
 from functools import partial
+from array_api_compat import array_namespace
+from array_api_strict._typing import Array
 
-warnings.filterwarnings('ignore', message='divide by zero')
-warnings.filterwarnings('ignore', message='invalid value encountered')
+warnings.filterwarnings('ignore', message='.*divide by zero.*')
+warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
 
 
 def stat_ufunc_from_shorthand(kind):
@@ -43,11 +45,13 @@ def stat_ufunc_from_shorthand(kind):
     return ufunc
 
 
-def isroundmod(a, div, atol=1e-6):
-    return np.abs(np.rint(a / div) - a / div) <= atol
+def isroundmod(a: Array, div, atol=1e-6) -> bool:
+    xp = array_namespace(x)
+
+    return xp.abs(xp.rint(a / div) - a / div) <= atol
 
 
-def dBtopow(x):
+def dBtopow(x: Array):
     """Computes `10**(x/10.)` with speed optimizations"""
     # for large arrays, this is much faster than just writing the expression in python
     values = ne.evaluate('10**(x/10.)', local_dict=dict(x=x))
@@ -81,8 +85,9 @@ def powtodB(x, abs: bool = True, eps: float = 0):
         return values
 
 
-def envtopow(x):
+def envtopow(x: np.ndarray) -> np.ndarray:
     """Computes abs(x)**2 with speed optimizations"""
+
     values = ne.evaluate('abs(x)**2', local_dict=dict(x=x))
 
     if np.iscomplexobj(values):
@@ -96,7 +101,7 @@ def envtopow(x):
         return values
 
 
-def envtodB(x, abs: bool = True, eps: float = 0):
+def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0) -> np.ndarray:
     """Computes `20*log10(abs(x) + eps)` or `20*log10(x + eps)` with speed optimizations"""
     # for large arrays, this is much faster than just writing the expression in python
     eps_str = '' if eps == 0 else '+eps'
