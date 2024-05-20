@@ -1,10 +1,6 @@
 """Transformations and statistical tools for power time series"""
 
-import os
-
-os.environ.setdefault('NUMEXPR_MAX_THREADS', '4')
-
-import numpy as np
+import array_api_compat.numpy as np
 import pandas as pd
 import numexpr as ne
 import warnings
@@ -12,10 +8,12 @@ from numbers import Number
 from functools import partial
 from array_api_compat import array_namespace
 from array_api_strict._typing import Array
+from typing import Union, Any
 
 warnings.filterwarnings('ignore', message='.*divide by zero.*')
 warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
 
+ArrayOrPandas = Union[Array, pd.Series, pd.DataFrame]
 
 def stat_ufunc_from_shorthand(kind):
     NAMED_UFUNCS = {
@@ -46,14 +44,15 @@ def stat_ufunc_from_shorthand(kind):
 
 
 def isroundmod(a: Array, div, atol=1e-6) -> bool:
-    xp = array_namespace(x)
+    xp = array_namespace(a)
 
     return xp.abs(xp.rint(a / div) - a / div) <= atol
 
 
-def dBtopow(x: Array):
+def dBtopow(x: ArrayOrPandas) -> Any:
     """Computes `10**(x/10.)` with speed optimizations"""
-    # for large arrays, this is much faster than just writing the expression in python
+    
+    # TODO: add support for CUDA evaluation as well
     values = ne.evaluate('10**(x/10.)', local_dict=dict(x=x))
 
     if isinstance(x, pd.Series):
@@ -64,10 +63,10 @@ def dBtopow(x: Array):
         return values
 
 
-def powtodB(x, abs: bool = True, eps: float = 0):
-    """Computes `10*log10(abs(x) + eps)` or `10*log10(x + eps)` with speed optimizations"""
+def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0) -> Any:
+    """compute `10*log10(abs(x) + eps)` or `10*log10(x + eps)` with speed optimizations"""
 
-    # for large arrays, this is much faster than just writing the expression in python
+    # TODO: add support for CUDA evaluation as well
     eps_str = '' if eps == 0 else '+eps'
 
     if abs:
@@ -85,9 +84,10 @@ def powtodB(x, abs: bool = True, eps: float = 0):
         return values
 
 
-def envtopow(x: np.ndarray) -> np.ndarray:
+def envtopow(x: ArrayOrPandas) -> Any:
     """Computes abs(x)**2 with speed optimizations"""
 
+    # TODO: add support for CUDA evaluation as well
     values = ne.evaluate('abs(x)**2', local_dict=dict(x=x))
 
     if np.iscomplexobj(values):
@@ -102,8 +102,9 @@ def envtopow(x: np.ndarray) -> np.ndarray:
 
 
 def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0) -> np.ndarray:
-    """Computes `20*log10(abs(x) + eps)` or `20*log10(x + eps)` with speed optimizations"""
-    # for large arrays, this is much faster than just writing the expression in python
+    """compute `20*log10(abs(x) + eps)` or `20*log10(x + eps)` with speed optimization"""
+
+    # TODO: add support for CUDA evaluation as well
     eps_str = '' if eps == 0 else '+eps'
 
     if abs:
@@ -154,18 +155,18 @@ def iq_to_bin_power(
 
     # instantaneous power, reshaped into bins
     if randomize:
-        starts = np.random.randint(
-            low=0, high=iq.shape[0] - N, size=int(np.rint(iq.shape[0] / N))
-        )
+        size = int(np.floor(iq.shape[0] / N))
+        starts = np.random.randint(low=0, high=iq.shape[0] - N, size=size)
         offsets = np.arange(N)
 
         power_bins = envtopow(iq)[starts[:, np.newaxis] + offsets[np.newaxis, :]]
 
     else:
-        iq = iq[: (iq.shape[0] // N) * N]
-        power_bins = envtopow(iq).reshape(
-            (iq.shape[0] // N, N) + tuple([iq.shape[1]] if iq.ndim == 2 else [])
-        )
+        size = (iq.shape[0] // N) * N
+        iq = iq[:size]
+        shape01 = (size // N, N)
+        shape2 = iq.shape[1:2] if iq.ndim == 2 else tuple()
+        power_bins = envtopow(iq).reshape(shape01 + shape2)
 
     return detector(power_bins, axis=1)
 
@@ -234,7 +235,9 @@ def iq_to_cyclic_power(
 
     power = {d: x.reshape(shape_by_cycle) for d, x in power.items()}
 
-    cycle_stat_ufunc = {kind: stat_ufunc_from_shorthand(kind) for kind in cycle_stats}
+    cycle_stat_ufunc = {
+        kind: stat_ufunc_from_shorthand(kind) for kind in cycle_stats
+    }
 
     # apply the cyclic statistic
 
@@ -259,7 +262,9 @@ def iq_to_frame_power(
         'iq_to_frame_power has been deprecated. use iq_to_cyclic_power instead'
     )
 
-    locals()['cyclic_power'] = locals().pop('frame_power')
+    cyclic_period = frame_period
+    del frame_period
+
     return iq_to_cyclic_power(**locals())
 
 
