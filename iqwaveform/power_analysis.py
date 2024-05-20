@@ -159,7 +159,7 @@ def iq_to_bin_power(
         starts = np.random.randint(low=0, high=iq.shape[0] - N, size=size)
         offsets = np.arange(N)
 
-        power_bins = envtopow(iq)[starts[:, np.newaxis] + offsets[np.newaxis, :]]
+        power_bins = envtopow(iq[starts[:, np.newaxis] + offsets[np.newaxis, :]])
 
     else:
         size = (iq.shape[0] // N) * N
