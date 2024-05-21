@@ -85,7 +85,7 @@ def _get_window(name_or_tuple, N, norm=True, dtype=None, xp=None):
 
 def broadcast_onto(a: Array, other: Array, axis: int) -> Array:
     """broadcast a 1-D array onto a specified axis of `other`"""
-    xp = array_namespace(a, other)
+    xp = array_namespace(a)
 
     slices = [xp.newaxis] * len(other.shape)
     slices[axis] = slice(None, None)
@@ -179,7 +179,7 @@ def stft(
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
         X = xp.fft.fftshift(
-            fft(x * broadcast_onto(w / fft_size, x, 1), axis=axis + 1),
+            xp.fft.fft(x * broadcast_onto(w / fft_size, x, 1), axis=axis + 1),
             axes=axis + 1,
         )
 
