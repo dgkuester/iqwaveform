@@ -21,10 +21,12 @@ def stat_ufunc_from_shorthand(kind, xp=np):
         'min': xp.min,
         'max': xp.max,
         'peak': xp.max,
-        'median': xp.median,
         'mean': xp.mean,
         'rms': xp.mean,
     }
+
+    if hasattr(xp, 'median'):
+        NAMED_UFUNCS['median'] = xp.median
 
     if isinstance(kind, str):
         if kind not in NAMED_UFUNCS:
