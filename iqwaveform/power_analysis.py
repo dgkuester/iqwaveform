@@ -16,14 +16,14 @@ warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
 ArrayOrPandas = Union[Array, pd.Series, pd.DataFrame]
 
 
-def stat_ufunc_from_shorthand(kind):
+def stat_ufunc_from_shorthand(kind, xp=np):
     NAMED_UFUNCS = {
-        'min': np.min,
-        'max': np.max,
-        'peak': np.max,
-        'median': np.median,
-        'mean': np.mean,
-        'rms': np.mean,
+        'min': xp.min,
+        'max': xp.max,
+        'peak': xp.max,
+        'median': xp.median,
+        'mean': xp.mean,
+        'rms': xp.mean,
     }
 
     if isinstance(kind, str):
@@ -33,7 +33,7 @@ def stat_ufunc_from_shorthand(kind):
         ufunc = NAMED_UFUNCS[kind]
 
     elif isinstance(kind, Number):
-        ufunc = partial(np.quantile, q=kind)
+        ufunc = partial(xp.quantile, q=kind)
 
     elif callable(kind):
         ufunc = kind
@@ -68,7 +68,24 @@ def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0) -> Any:
     # TODO: add support for CUDA evaluation as well
     eps_str = '' if eps == 0 else '+eps'
 
-    if abs:
+    try:
+        xp = array_namespace(x)
+    except TypeError:
+        xp = None
+
+    if xp not in (None, np):
+        # cuda, mlx, etc
+        # TODO: CUDA kernel evaluation here
+        if abs:
+            values = xp.abs(x)
+        else:
+            values = x
+        if eps != 0:
+            values += eps
+        xp.log10(values, out=values)
+        values *= 10
+
+    elif abs:
         values = ne.evaluate(
             f'10*log10(abs(x){eps_str})', local_dict=dict(x=x, eps=eps)
         )
@@ -86,8 +103,19 @@ def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0) -> Any:
 def envtopow(x: ArrayOrPandas) -> Any:
     """Computes abs(x)**2 with speed optimizations"""
 
-    # TODO: add support for CUDA evaluation as well
-    values = ne.evaluate('abs(x)**2', local_dict=dict(x=x))
+    try:
+        xp = array_namespace(x)
+    except TypeError:
+        xp = None
+
+    if xp in (None, np):
+        # numpy, pandas
+        values = ne.evaluate('abs(x)**2', local_dict=dict(x=x))
+    else:
+        # cuda, mlx, etc
+        # TODO: CUDA kernel evaluation here
+        values = xp.abs(x)
+        values *= values
 
     if np.iscomplexobj(values):
         values = np.real(values)
@@ -106,7 +134,24 @@ def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0) -> np.ndarray:
     # TODO: add support for CUDA evaluation as well
     eps_str = '' if eps == 0 else '+eps'
 
-    if abs:
+    try:
+        xp = array_namespace(x)
+    except TypeError:
+        xp = None
+
+    if xp not in (None, np):
+        # cuda, mlx, etc
+        # TODO: CUDA kernel evaluation here
+        if abs:
+            values = xp.abs(x)
+        else:
+            values = x
+        if eps != 0:
+            values += eps
+        xp.log10(values, out=values)
+        values *= 20
+
+    elif abs:
         values = ne.evaluate(
             f'20*log10(abs(x){eps_str})', local_dict=dict(x=x, eps=eps)
         )
@@ -125,7 +170,7 @@ def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0) -> np.ndarray:
 
 
 def iq_to_bin_power(
-    iq: np.array,
+    iq: Array,
     Ts: float,
     Tbin: float,
     randomize: bool = False,
@@ -143,20 +188,22 @@ def iq_to_bin_power(
         truncate: if True, truncate the last samples of `iq` to an integer number of bins
     """
 
+    xp = array_namespace(iq)
+
     if not truncate and not isroundmod(Tbin, Ts):
         raise ValueError(
             f'bin period ({Tbin} s) must be multiple of waveform sample period ({Ts})'
         )
 
-    detector = stat_ufunc_from_shorthand(kind)
+    detector = stat_ufunc_from_shorthand(kind, xp=xp)
 
     N = int(Tbin / Ts)
 
     # instantaneous power, reshaped into bins
     if randomize:
         size = int(np.floor(iq.shape[0] / N))
-        starts = np.random.randint(low=0, high=iq.shape[0] - N, size=size)
-        offsets = np.arange(N)
+        starts = xp.random.randint(0, iq.shape[0] - N, size)
+        offsets = xp.arange(N)
 
         power_bins = envtopow(iq[starts[:, np.newaxis] + offsets[np.newaxis, :]])
 
