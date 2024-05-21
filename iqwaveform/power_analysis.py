@@ -15,6 +15,7 @@ warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
 
 ArrayOrPandas = Union[Array, pd.Series, pd.DataFrame]
 
+
 def stat_ufunc_from_shorthand(kind):
     NAMED_UFUNCS = {
         'min': np.min,
@@ -49,7 +50,7 @@ def isroundmod(value: float, div, atol=1e-6) -> bool:
 
 def dBtopow(x: ArrayOrPandas) -> Any:
     """Computes `10**(x/10.)` with speed optimizations"""
-    
+
     # TODO: add support for CUDA evaluation as well
     values = ne.evaluate('10**(x/10.)', local_dict=dict(x=x))
 
@@ -233,9 +234,7 @@ def iq_to_cyclic_power(
 
     power = {d: x.reshape(shape_by_cycle) for d, x in power.items()}
 
-    cycle_stat_ufunc = {
-        kind: stat_ufunc_from_shorthand(kind) for kind in cycle_stats
-    }
+    cycle_stat_ufunc = {kind: stat_ufunc_from_shorthand(kind) for kind in cycle_stats}
 
     # apply the cyclic statistic
 

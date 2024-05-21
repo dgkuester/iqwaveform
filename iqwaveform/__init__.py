@@ -1,4 +1,5 @@
 import os
+
 os.environ.setdefault('NUMEXPR_MAX_THREADS', '4')
 del os
 

@@ -93,11 +93,13 @@ def broadcast_onto(a: Array, other: Array, axis: int) -> Array:
 
 
 @lru_cache(16)
-def _get_stft_axes(fs: float, fft_size: int, time_size: int, overlap_frac: float=0, xp=np) -> tuple[Array, Array]:
+def _get_stft_axes(
+    fs: float, fft_size: int, time_size: int, overlap_frac: float = 0, xp=np
+) -> tuple[Array, Array]:
     """returns stft (freqs, times) array tuple appropriate to the array module xp"""
 
-    freqs = xp.fft.fftshift(xp.fft.fftfreq(fft_size, d=1/fs))
-    times = xp.arange(time_size) * ((1-overlap_frac) * fft_size / fs)
+    freqs = xp.fft.fftshift(xp.fft.fftfreq(fft_size, d=1 / fs))
+    times = xp.arange(time_size) * ((1 - overlap_frac) * fft_size / fs)
 
     return freqs, times
 
@@ -169,20 +171,15 @@ def stft(
         raise TypeError('norm must be "power" or None')
 
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
-        should_norm = (norm == 'power')
-        w = _get_window(
-            window, fft_size, xp=xp, dtype=x.dtype, norm=should_norm
-        )
+        should_norm = norm == 'power'
+        w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=should_norm)
     else:
         w = xp.array(window)
 
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
         X = xp.fft.fftshift(
-            fft(
-                x * broadcast_onto(w / fft_size, x, 1),
-                axis=axis + 1
-            ),
+            fft(x * broadcast_onto(w / fft_size, x, 1), axis=axis + 1),
             axes=axis + 1,
         )
 
@@ -209,8 +206,8 @@ def stft(
         fs,
         fft_size=fft_size,
         time_size=X.shape[axis],
-        overlap_frac=noverlap/fft_size,
-        xp=xp
+        overlap_frac=noverlap / fft_size,
+        xp=xp,
     )
 
     return freqs, times, X
@@ -423,8 +420,14 @@ def channelize_power(
         return freqs[0], times, channel_power
 
 
-def iq_to_stft_spectrogram(iq: Array, window: Array | str | tuple[str,float],
-                           fft_size: int, Ts, overlap=True, analysis_bandwidth=None):
+def iq_to_stft_spectrogram(
+    iq: Array,
+    window: Array | str | tuple[str, float],
+    fft_size: int,
+    Ts,
+    overlap=True,
+    analysis_bandwidth=None,
+):
     xp = array_namespace(iq)
 
     freqs, times, X = stft(
@@ -498,7 +501,7 @@ def _truncate(w, needed):
         return w
 
 
-def taylor(M: int, nbar: int = 4, sll:float = 30, norm=True, sym=True) -> np.ndarray:
+def taylor(M: int, nbar: int = 4, sll: float = 30, norm=True, sym=True) -> np.ndarray:
     """
     Return a Taylor window.
     The Taylor window taper function approximates the Dolph-Chebyshev window's
