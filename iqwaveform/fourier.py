@@ -69,7 +69,7 @@ def to_blocks(y: Array, size: int, truncate=False, axis=0) -> Array:
 
 
 @lru_cache(8)
-def _get_window(name_or_tuple, N, norm=True, xp=None):
+def _get_window(name_or_tuple, N, norm=True, dtype=None, xp=None):
     if xp is None:
         w = signal.windows.get_window(name_or_tuple, N)
 
@@ -77,7 +77,10 @@ def _get_window(name_or_tuple, N, norm=True, xp=None):
             w /= np.sqrt(np.mean(np.abs(w) ** 2))
         return w
     else:
-        return xp.array(_get_window(name_or_tuple, N))
+        w = xp.array(_get_window(name_or_tuple, N))
+        if dtype is not None:
+            w = w.astype(dtype)
+        return w
 
 
 def broadcast_onto(a: Array, other: Array, axis: int) -> Array:
@@ -140,7 +143,7 @@ def stft(
         stft (see scipy.fft.stft)
 
     """
-    
+
     xp = array_namespace(x)
 
     # # This is probably the same
@@ -164,9 +167,9 @@ def stft(
 
     if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
-    
+
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
-        w = _get_window(window, fft_size, xp=xp, norm=(norm == 'power'))
+        w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=(norm == 'power'))
     else:
         w = xp.array(w)
 
@@ -383,7 +386,7 @@ def channelize_power(
 
     if analysis_bins_per_channel > fft_size_per_channel:
         raise ValueError(f'the number of analysis bins cannot be greater than FFT size')
-    
+
     xp = array_namespace(iq)
 
     freqs, times, X = stft(
