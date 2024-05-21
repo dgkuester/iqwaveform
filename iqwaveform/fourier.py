@@ -657,22 +657,3 @@ def cosh(M: int, alpha, sym=True) -> np.ndarray:
     w /= np.sqrt(np.sum(w**2))
 
     return _truncate(w, needs_trunc)
-
-
-# def modified_bessel(M: int, alpha, sym=True) -> np.ndarray:
-#     if _len_guards(M):
-#         return np.ones(M)
-#     M, needs_trunc = _extend(M, sym)
-
-#     t = np.linspace(-0.5, 0.5, M)
-
-#     sqrt_term = np.sqrt(1 - (2 * t) ** 2)
-#     w = special.i1((np.pi * alpha) * sqrt_term) / (
-#         special.i1(np.pi * alpha) * sqrt_term
-#     )
-
-#     w[0] = w[-1] = 0  # np.pi*alpha/np.sinh(np.pi*alpha)
-
-#     w /= np.sqrt(np.sum(w**2))
-
-#     return _truncate(w, needs_trunc)
