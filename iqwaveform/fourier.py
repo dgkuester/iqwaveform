@@ -169,7 +169,10 @@ def stft(
         raise TypeError('norm must be "power" or None')
 
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
-        w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=(norm == 'power'))
+        should_norm = (norm == 'power')
+        w = _get_window(
+            window, fft_size, xp=xp, dtype=x.dtype, norm=should_norm
+        )
     else:
         w = xp.array(window)
 
@@ -178,7 +181,7 @@ def stft(
         X = xp.fft.fftshift(
             fft(
                 x * broadcast_onto(w / fft_size, x, 1),
-                axis=axis + 1,
+                axis=axis + 1
             ),
             axes=axis + 1,
         )

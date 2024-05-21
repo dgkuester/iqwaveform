@@ -5,7 +5,7 @@
 groups = ["default", "lint", "dev"]
 strategy = ["cross_platform"]
 lock_version = "4.4.1"
-content_hash = "sha256:1d94b84a2e3f251fbb130f7dc8fbe8fd84b96574284525570ea9b9513a5aac1d"
+content_hash = "sha256:88396ced84803ecd6ff55319d1f709a1d0ce54a6b319641de5fe51fafdc3c911"
 
 [[package]]
 name = "appnope"
@@ -36,16 +36,6 @@ dependencies = [
 files = [
     {file = "array_api_strict-1.1.1-py3-none-any.whl", hash = "sha256:0a47de82414b6d4d3ccb1ff29017e5e09d569e6956fcc9ccf5efa78814e4368d"},
     {file = "array_api_strict-1.1.1.tar.gz", hash = "sha256:d90429f26cf026fc5a1f69d9108fd7cfe43b91c1a0138dfef30d48d264b8012b"},
-]
-
-[[package]]
-name = "array-api-stubs"
-version = "0.0.2"
-requires_python = ">=3.8"
-summary = "Stubs for the array API standard"
-files = [
-    {file = "array-api-stubs-0.0.2.tar.gz", hash = "sha256:f49cad0f817926da04de54ec9eb4a0166064302c58211a4a8158c4b80667a1e8"},
-    {file = "array_api_stubs-0.0.2-py3-none-any.whl", hash = "sha256:5c0f3bd231654d5f1a76a365c303f7c5e2e22a9d3c9c9dc451b788e1fd71c0b8"},
 ]
 
 [[package]]
