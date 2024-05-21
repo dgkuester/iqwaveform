@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -91,7 +92,7 @@ class PhyOFDM:
         fft_size: float,
         cp_sizes=np.array,
         frame_duration: float | None = None,
-        contiguous_size: float | None = None
+        contiguous_size: float | None = None,
     ):
         self.channel_bandwidth = channel_bandwidth
         self.sample_rate = sample_rate
@@ -257,8 +258,10 @@ class Phy3GPP(PhyOFDM):
 
         return inds
 
+
 def isclosetoint(v, atol=1e-6):
-    return np.isclose(v % 1, (0,1), atol=atol).any()
+    return np.isclose(v % 1, (0, 1), atol=atol).any()
+
 
 class Phy802_16(PhyOFDM):
     """Sampling and index parameters and lookup tables for IEEE 802.16-2017 OFDMA"""
@@ -288,7 +291,13 @@ class Phy802_16(PhyOFDM):
     }
 
     def __init__(
-        self, channel_bandwidth: float, *, alt_sample_rate: float=None, frame_duration: float = 5e-3, fft_size: float =2048, cp_ratio: float =1 / 8
+        self,
+        channel_bandwidth: float,
+        *,
+        alt_sample_rate: float = None,
+        frame_duration: float = 5e-3,
+        fft_size: float = 2048,
+        cp_ratio: float = 1 / 8,
     ):
         """
         Args:
@@ -330,7 +339,9 @@ class Phy802_16(PhyOFDM):
 
         std_sample_rate = np.floor(sampling_factor * channel_bandwidth / 8000) * 8000
         cp_size = int(np.rint(cp_ratio * fft_size))
-        self.total_symbol_duration = int(np.rint((1 + cp_ratio) * fft_size))/std_sample_rate
+        self.total_symbol_duration = (
+            int(np.rint((1 + cp_ratio) * fft_size)) / std_sample_rate
+        )
         self.symbols_per_frame = int(
             np.floor(frame_duration / self.total_symbol_duration)
         )
@@ -338,20 +349,24 @@ class Phy802_16(PhyOFDM):
         if alt_sample_rate is None:
             sample_rate = std_sample_rate
         else:
-            scale = alt_sample_rate/std_sample_rate
+            scale = alt_sample_rate / std_sample_rate
 
-            if not (isclosetoint(scale) or isclosetoint(1/scale)):
-                raise ValueError('alt_sample_rate must be integer multiple or divisor of ofdm sample_rate')
-            if not isclosetoint(cp_size*scale):
-                raise ValueError('alt_sample_rate is too small to capture any cyclic prefixes')
-            
+            if not (isclosetoint(scale) or isclosetoint(1 / scale)):
+                raise ValueError(
+                    'alt_sample_rate must be integer multiple or divisor of ofdm sample_rate'
+                )
+            if not isclosetoint(cp_size * scale):
+                raise ValueError(
+                    'alt_sample_rate is too small to capture any cyclic prefixes'
+                )
+
             fft_size = int(np.rint(fft_size * scale))
             cp_size = int(np.rint(cp_size * scale))
             sample_rate = alt_sample_rate
 
         # we need to specify explicitly the length of the contiguous sequence
         # of symbols to ensure proper padding out to a full frame
-        contiguous_size = int(np.rint(frame_duration*sample_rate))
+        contiguous_size = int(np.rint(frame_duration * sample_rate))
 
         super().__init__(
             channel_bandwidth=channel_bandwidth,
@@ -359,7 +374,7 @@ class Phy802_16(PhyOFDM):
             sample_rate=sample_rate,
             frame_duration=frame_duration,
             cp_sizes=np.full(self.symbols_per_frame, cp_size),
-            contiguous_size=contiguous_size
+            contiguous_size=contiguous_size,
         )
 
     @methodtools.lru_cache(4)
@@ -389,9 +404,9 @@ class Phy802_16(PhyOFDM):
         grid.extend(
             np.ogrid[
                 # axis 2: cp index
-                0: self.cp_sizes[1],
+                0 : self.cp_sizes[1],
                 # axis 3: start offset within the symbol
-                0: self.fft_size + self.cp_sizes[1],
+                0 : self.fft_size + self.cp_sizes[1],
             ]
         )
 
@@ -404,6 +419,7 @@ class Phy802_16(PhyOFDM):
             inds += sub
 
         return inds
+
 
 empty_complex64 = np.zeros(0, dtype=np.complex64)
 
@@ -437,10 +453,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         which_cp: str = 'all',  # 'all', 'special', or 'normal'
         subcarrier_spacing=15e3,
     ):
-        self.phy = Phy3GPP(
-            channel_bandwidth,
-            subcarrier_spacing=subcarrier_spacing
-        )
+        self.phy = Phy3GPP(channel_bandwidth, subcarrier_spacing=subcarrier_spacing)
         self.correlation_subframes = correlation_subframes
         self.sync_size = (
             sync_window_count * correlation_subframes * self.phy.contiguous_size

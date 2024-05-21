@@ -1,10 +1,14 @@
+from __future__ import annotations
 import numpy as np
 import pandas as pd
-from scipy import signal
+from scipy import signal, special
 from . import power_analysis
 import scipy
 from multiprocessing import cpu_count
-from functools import partial
+from functools import partial, lru_cache
+from array_api_compat import array_namespace
+from array_api_strict._typing import Array
+
 
 CPU_COUNT = cpu_count()
 
@@ -12,17 +16,20 @@ fft = partial(scipy.fft.fft, workers=CPU_COUNT // 2, overwrite_x=True)
 ifft = partial(scipy.fft.ifft, workers=CPU_COUNT // 2, overwrite_x=True)
 
 
-def zero_pad(x, pad_amt):
-    """shortcut for np.pad(x, pad_amt, mode="constant", constant_values=0)"""
-    return np.pad(x, pad_amt, mode='constant', constant_values=0)
+def zero_pad(x: Array, pad_amt: int) -> Array:
+    """shortcut for e.g. np.pad(x, pad_amt, mode="constant", constant_values=0)"""
+    xp = array_namespace(x)
+
+    return xp.pad(x, pad_amt, mode='constant', constant_values=0)
 
 
-def tile_axis0(x, N):
+def tile_axis0(x: Array, N) -> Array:
     """returns N copies of x along axis 0"""
-    return np.tile(x.T, N).T
+    xp = array_namespace(x)
+    return xp.tile(x.T, N).T
 
 
-def to_blocks(y: np.ndarray, size: int, truncate=False, axis=0) -> np.ndarray:
+def to_blocks(y: Array, size: int, truncate=False, axis=0) -> Array:
     """Returns a view on y reshaped into blocks along axis `axis`.
 
     Args:
@@ -38,6 +45,7 @@ def to_blocks(y: np.ndarray, size: int, truncate=False, axis=0) -> np.ndarray:
     Returns:
         view on `y` with shape (..., N[axis]//size, size, ..., N[K-1]])
     """
+
     if not isinstance(size, int):
         raise TypeError('block size must be integer')
     if y.size == 0:
@@ -60,34 +68,65 @@ def to_blocks(y: np.ndarray, size: int, truncate=False, axis=0) -> np.ndarray:
     return y.reshape(newshape)
 
 
-def broadcast_onto(a, other, axis):
+@lru_cache(8)
+def _get_window(name_or_tuple, N, norm=True, dtype=None, xp=None):
+    if xp is None:
+        w = signal.windows.get_window(name_or_tuple, N)
+
+        if norm:
+            w /= np.sqrt(np.mean(np.abs(w) ** 2))
+        return w
+    else:
+        w = xp.array(_get_window(name_or_tuple, N))
+        if dtype is not None:
+            w = w.astype(dtype)
+        return w
+
+
+def broadcast_onto(a: Array, other: Array, axis: int) -> Array:
     """broadcast a 1-D array onto a specified axis of `other`"""
-    slices = [np.newaxis] * len(other.shape)
+    xp = array_namespace(a, other)
+
+    slices = [xp.newaxis] * len(other.shape)
     slices[axis] = slice(None, None)
     return a.__getitem__(tuple(slices))
 
 
+@lru_cache(16)
+def _get_stft_axes(
+    fs: float, fft_size: int, time_size: int, overlap_frac: float = 0, xp=np
+) -> tuple[Array, Array]:
+    """returns stft (freqs, times) array tuple appropriate to the array module xp"""
+
+    freqs = xp.fft.fftshift(xp.fft.fftfreq(fft_size, d=1 / fs))
+    times = xp.arange(time_size) * ((1 - overlap_frac) * fft_size / fs)
+
+    return freqs, times
+
+
 def stft(
-    x: np.ndarray,
+    x: Array,
+    *,
     fs: float,
-    window: np.ndarray,
+    window: Array | str | tuple[str, float],
     nperseg: int = 256,
     noverlap: int = 0,
     axis: int = 0,
     truncate: bool = True,
-    norm: str = None,
+    norm: str | None = None,
 ):
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
-    some overhead that comes with its generality.
+    some overhead that comes with its generality and allow use of the generic
+    python array-api for interchangable numpy/cupy support.
 
     For additional information, see help for scipy.fft.
 
     Args:
         x: input array
 
-        fs: the sampling rate
+        fs: sampling rate
 
-        window: the window function sequence to apply to the input array
+        window: a window array, or a name or (name, parameter) pair as in `scipy.signal.get_window`
 
         nperseg: the size of the FFT (= segment size used if overlapping)
 
@@ -95,7 +134,7 @@ def stft(
 
         axis: the axis on which to compute the STFT
 
-        truncate: whether to allow truncation of samples at the end x[axis] if x.shape[axis] % nperseg != 0
+        truncate: whether to allow truncation of `x` to enforce full fft block sizes
 
     Raises:
         NotImplementedError: if axis != 0
@@ -106,6 +145,9 @@ def stft(
         stft (see scipy.fft.stft)
 
     """
+
+    xp = array_namespace(x)
+
     # # This is probably the same
     # freqs, times, X = signal.spectral._spectral_helper(
     #     x,
@@ -121,31 +163,25 @@ def stft(
     #     padded=True,
     # )
 
-    FFT_SIZE = nperseg
-    if noverlap not in (0, FFT_SIZE // 2):
+    fft_size = nperseg
+    if noverlap not in (0, fft_size // 2):
         raise NotImplementedError('noverlap must be noverlap//2 or 0')
 
-    if norm == 'power':
-        window = window / np.sqrt(np.mean(np.abs(window) ** 2))
-    elif norm is None:
-        pass
-
-    else:
+    if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
 
+    if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
+        should_norm = norm == 'power'
+        w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=should_norm)
+    else:
+        w = xp.array(window)
+
     if noverlap == 0:
-        x = to_blocks(x, FFT_SIZE, truncate=truncate)
-        X = np.fft.fftshift(
-            fft(
-                x * broadcast_onto(window / FFT_SIZE, x, 1),
-                axis=axis + 1,
-            ),
+        x = to_blocks(x, fft_size, truncate=truncate)
+        X = xp.fft.fftshift(
+            fft(x * broadcast_onto(w / fft_size, x, 1), axis=axis + 1),
             axes=axis + 1,
         )
-        freqs = np.fft.fftshift(np.fft.fftfreq(FFT_SIZE, 1 / fs))
-        times = np.arange(X.shape[0]) * (FFT_SIZE / fs)
-
-        return freqs, times, X
 
     else:
         if axis != 0:
@@ -153,32 +189,38 @@ def stft(
                 'for now, only axis=0 is supported with noverlap>0'
             )
 
-        x = np.array([x[:-noverlap], x[noverlap:]])
-        x = to_blocks(x, FFT_SIZE, axis=1, truncate=truncate)
+        x = xp.array([x[:-noverlap], x[noverlap:]])
+        x = to_blocks(x, fft_size, axis=1, truncate=truncate)
 
-        # X = np.empty((x.shape[0], 2, FFT_SIZE) + x.shape[2:])
+        # X = xp.empty((x.shape[0], 2, FFT_SIZE) + x.shape[2:])
 
-        x *= broadcast_onto(window / FFT_SIZE, x, 2)
-        X = scipy.fft.fft(x, axis=axis + 2, workers=CPU_COUNT // 2, overwrite_x=True)
+        x *= broadcast_onto(w / fft_size, x, 2)
+        X = xp.fft.fft(x, axis=axis + 2, workers=CPU_COUNT // 2, overwrite_x=True)
 
         # interleave the 2 overlapping offsets, and axis shift
-        X = np.swapaxes(X, 0, 1).reshape((X.shape[0] * X.shape[1],) + X.shape[2:])
-        X = np.fft.fftshift(X, axes=axis + 1)
+        shape = (X.shape[0] * X.shape[1],) + X.shape[2:]
+        X = xp.swapaxes(X, 0, 1).reshape(shape)
+        X = xp.fft.fftshift(X, axes=axis + 1)
 
-        freqs = np.fft.fftshift(np.fft.fftfreq(FFT_SIZE, 1 / fs))
-        times = np.arange(X.shape[axis]) * (FFT_SIZE / fs / 2)
+    freqs, times = _get_stft_axes(
+        fs,
+        fft_size=fft_size,
+        time_size=X.shape[axis],
+        overlap_frac=noverlap / fft_size,
+        xp=xp,
+    )
 
-        return freqs, times, X
+    return freqs, times, X
 
 
 def low_pass_filter(
-    iq: np.array,
+    iq: Array,
     Ts: float,
     bandwidth: float,
-    window: np.array = None,
+    window: Array = None,
     fc_offset: float = 0,
     axis=0,
-):
+) -> Array:
     """Applies a low-pass filter to the input waveform by conversion into the frequency domain.
 
     Args:
@@ -193,47 +235,50 @@ def low_pass_filter(
     Returns:
         np.ndarray with shape (N0, ..., N[K-1])
     """
+
+    xp = array_namespace(iq, window)
+
     if window is None:
         if axis != 0 or len(iq.shape) != 2:
             raise NotImplementedError(
                 f'in current implementation, `window` can only be used when axis=0 and iq has 2 axes'
             )
-        window = np.array([1])
+        window = xp.array([1])
 
-    X = np.fft.fftshift(
+    X = xp.fft.fftshift(
         fft(
-            iq * window[:, np.newaxis],
+            iq * window[:, xp.newaxis],
             axis=axis,
         ),
         axes=axis,
     )
-    fftfreqs = np.fft.fftshift(np.fft.fftfreq(X.shape[0], Ts))
+    fftfreqs = xp.fft.fftshift(xp.fft.fftfreq(X.shape[0], Ts))
 
     freq_spacing = fftfreqs[1] - fftfreqs[0]
-    inband_mask = np.abs(fftfreqs + fc_offset + freq_spacing / 2) < bandwidth / 2
-    inband = np.where(inband_mask)[0]
-    inband_offset = iq.shape[0] // 2 - int(np.rint(inband.mean()))
+    inband_mask = xp.abs(fftfreqs + fc_offset + freq_spacing / 2) < bandwidth / 2
+    inband = xp.where(inband_mask)[0]
+    inband_offset = iq.shape[0] // 2 - int(xp.rint(inband.mean()))
 
-    center = np.where(inband_mask)[0] - inband_offset
-    outside = np.where(~inband_mask)[0] - inband_offset
+    center = xp.where(inband_mask)[0] - inband_offset
+    outside = xp.where(~inband_mask)[0] - inband_offset
 
     # ind_offset = inds[0]-X.shape[0]//2
     X[center], X[outside] = X[inband], 0
 
-    # print((np.abs(fftfreqs)>=bandwidth/2).sum(), (np.abs(fftfreqs)<bandwidth/2).sum())
+    # print((xp.abs(fftfreqs)>=bandwidth/2).sum(), (xp.abs(fftfreqs)<bandwidth/2).sum())
 
     x = (
         ifft(
-            np.fft.fftshift(X, axes=axis),
+            xp.fft.fftshift(X, axes=axis),
             axis=axis,
         )
-        / window[:, np.newaxis]
+        / window[:, xp.newaxis]
     )
 
     return x  # .astype('complex64')
 
 
-def upsample(iq, factor: int, Ts: float = None, shift_bins=0, axis=0):
+def upsample(iq: Array, factor: int, Ts: float = None, shift_bins=0, axis=0):
     """Upsamples a signal by an integer factor, low-pass filtered so that the new higher frequencies are empty.
 
     Implementation is by zero-padding in the Fourier domain.
@@ -253,7 +298,10 @@ def upsample(iq, factor: int, Ts: float = None, shift_bins=0, axis=0):
         (iq_upsampled) if Ts is None, otherwise (iq_upsampled, Ts/upsample_factor)
 
     """
-    X = np.fft.fftshift(
+
+    xp = array_namespace(iq)
+
+    X = xp.fft.fftshift(
         fft(iq * factor, axis=axis),
         axes=axis,
     )
@@ -268,11 +316,11 @@ def upsample(iq, factor: int, Ts: float = None, shift_bins=0, axis=0):
 
     X = zero_pad(
         X,
-        [[int(np.floor(count)) - shift_bins, int(np.ceil(count)) + shift_bins]]
+        [[int(xp.floor(count)) - shift_bins, int(xp.ceil(count)) + shift_bins]]
         + [[0, 0]] * (len(iq.shape) - 1),
     )
     x = ifft(
-        np.fft.fftshift(X, axes=axis),
+        xp.fft.fftshift(X, axes=axis),
         axis=axis,
     )
 
@@ -283,12 +331,12 @@ def upsample(iq, factor: int, Ts: float = None, shift_bins=0, axis=0):
 
 
 def channelize_power(
-    iq: np.ndarray,
+    iq: Array,
     Ts: float,
     fft_size_per_channel: int,
     *,
     analysis_bins_per_channel: int,
-    window: np.array,
+    window: Array,
     fft_overlap_per_channel=0,
     channel_count: int = 1,
     axis=0,
@@ -339,10 +387,12 @@ def channelize_power(
     if analysis_bins_per_channel > fft_size_per_channel:
         raise ValueError(f'the number of analysis bins cannot be greater than FFT size')
 
+    xp = array_namespace(iq)
+
     freqs, times, X = stft(
         iq,
         fs=1.0 / Ts,
-        window=window,
+        w=window,
         nperseg=fft_size_per_channel * channel_count,
         noverlap=fft_overlap_per_channel * channel_count,
         norm='power',
@@ -370,8 +420,15 @@ def channelize_power(
         return freqs[0], times, channel_power
 
 
-def iq_to_stft_spectrogram(iq, window, Ts, overlap=True, analysis_bandwidth=None):
-    fft_size = len(window)
+def iq_to_stft_spectrogram(
+    iq: Array,
+    window: Array | str | tuple[str, float],
+    fft_size: int,
+    Ts,
+    overlap=True,
+    analysis_bandwidth=None,
+):
+    xp = array_namespace(iq)
 
     freqs, times, X = stft(
         iq,
@@ -383,7 +440,7 @@ def iq_to_stft_spectrogram(iq, window, Ts, overlap=True, analysis_bandwidth=None
         axis=0,
     )
 
-    # X = np.fft.fftshift(X, axes=0)/np.sqrt(fft_size*Ts)
+    # X = xp.fft.fftshift(X, axes=0)/xp.sqrt(fft_size*Ts)
     X = power_analysis.envtopow(X)
 
     spg = pd.DataFrame(X, columns=freqs, index=times)
@@ -391,31 +448,33 @@ def iq_to_stft_spectrogram(iq, window, Ts, overlap=True, analysis_bandwidth=None
     if analysis_bandwidth is not None:
         throwaway = spg.shape[1] * (
             1 - analysis_bandwidth * Ts
-        )  # (len(freqs)-int(np.rint(FFT_SIZE*analysis_bandwidth*Ts)))//2
-        if len(times) > 1 and np.abs(throwaway - np.rint(throwaway)) > 1e-6:
+        )  # (len(freqs)-int(xp.rint(FFT_SIZE*analysis_bandwidth*Ts)))//2
+        if len(times) > 1 and xp.abs(throwaway - xp.rint(throwaway)) > 1e-6:
             raise ValueError(
                 f'analysis bandwidth yield integral number of samples, but got {throwaway}'
             )
         # throwaway = throwaway
         # if throwaway % 2 == 1:
         #     raise ValueError('should have been even')
-        spg = spg.iloc[:, int(np.floor(throwaway / 2)) : -int(np.ceil(throwaway // 2))]
+        spg = spg.iloc[:, int(xp.floor(throwaway / 2)) : -int(xp.ceil(throwaway // 2))]
 
     return spg
 
 
 def time_to_frequency(iq, Ts, window=None, axis=0):
+    xp = array_namespace(iq)
+
     if window is None:
         window = signal.windows.blackmanharris(iq.shape[0], sym=False)
 
-    window /= iq.shape[0] * np.sqrt((window).mean())
+    window /= iq.shape[0] * xp.sqrt((window).mean())
     window = broadcast_onto(window, iq, axis=0)
 
-    X = np.fft.fftshift(
+    X = xp.fft.fftshift(
         fft(iq * window, axis=0),
         axes=0,
     )
-    fftfreqs = np.fft.fftshift(np.fft.fftfreq(X.shape[0], Ts))
+    fftfreqs = xp.fft.fftshift(xp.fft.fftfreq(X.shape[0], Ts))
     return fftfreqs, X
 
 
@@ -442,7 +501,7 @@ def _truncate(w, needed):
         return w
 
 
-def taylor(M, nbar=4, sll=30, norm=True, sym=True):
+def taylor(M: int, nbar: int = 4, sll: float = 30, norm=True, sym=True) -> np.ndarray:
     """
     Return a Taylor window.
     The Taylor window taper function approximates the Dolph-Chebyshev window's
@@ -510,6 +569,7 @@ def taylor(M, nbar=4, sll=30, norm=True, sym=True):
     >>> plt.ylabel('Normalized magnitude [dB]')
     >>> plt.xlabel('Normalized frequency [cycles per sample]')
     """  # noqa: E501
+
     if _len_guards(M):
         return np.ones(M)
     M, needs_trunc = _extend(M, sym)
@@ -547,12 +607,7 @@ def taylor(M, nbar=4, sll=30, norm=True, sym=True):
     return _truncate(w, needs_trunc)
 
 
-import numpy as np
-
-from scipy import special
-
-
-def knab(M, alpha, sym=True):
+def knab(M: int, alpha, sym=True) -> np.ndarray:
     if _len_guards(M):
         return np.ones(M)
     M, needs_trunc = _extend(M, sym)
@@ -587,7 +642,7 @@ def modified_bessel(M, alpha, sym=True):
     return _truncate(w, needs_trunc)
 
 
-def cosh(M, alpha, sym=True):
+def cosh(M: int, alpha, sym=True) -> np.ndarray:
     if _len_guards(M):
         return np.ones(M)
     M, needs_trunc = _extend(M, sym)
@@ -604,20 +659,20 @@ def cosh(M, alpha, sym=True):
     return _truncate(w, needs_trunc)
 
 
-def modified_bessel(M, alpha, sym=True):
-    if _len_guards(M):
-        return np.ones(M)
-    M, needs_trunc = _extend(M, sym)
+# def modified_bessel(M: int, alpha, sym=True) -> np.ndarray:
+#     if _len_guards(M):
+#         return np.ones(M)
+#     M, needs_trunc = _extend(M, sym)
 
-    t = np.linspace(-0.5, 0.5, M)
+#     t = np.linspace(-0.5, 0.5, M)
 
-    sqrt_term = np.sqrt(1 - (2 * t) ** 2)
-    w = special.i1((np.pi * alpha) * sqrt_term) / (
-        special.i1(np.pi * alpha) * sqrt_term
-    )
+#     sqrt_term = np.sqrt(1 - (2 * t) ** 2)
+#     w = special.i1((np.pi * alpha) * sqrt_term) / (
+#         special.i1(np.pi * alpha) * sqrt_term
+#     )
 
-    w[0] = w[-1] = 0  # np.pi*alpha/np.sinh(np.pi*alpha)
+#     w[0] = w[-1] = 0  # np.pi*alpha/np.sinh(np.pi*alpha)
 
-    w /= np.sqrt(np.sum(w**2))
+#     w /= np.sqrt(np.sum(w**2))
 
-    return _truncate(w, needs_trunc)
+#     return _truncate(w, needs_trunc)
