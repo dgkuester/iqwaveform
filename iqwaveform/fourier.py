@@ -89,24 +89,26 @@ def broadcast_onto(a: Array, other: Array, axis: int) -> Array:
     return a.__getitem__(tuple(slices))
 
 
-@lru_cache(128)
-def _get_stft_axes(fs: float, fft_size: int, time_size: int, overlap_frac: float=0, xp=np):
+@lru_cache(16)
+def _get_stft_axes(fs: float, fft_size: int, time_size: int, overlap_frac: float=0, xp=np) -> tuple[Array, Array]:
+    """returns stft (freqs, times) array tuple appropriate to the array module xp"""
+
     freqs = xp.fft.fftshift(xp.fft.fftfreq(fft_size, d=1/fs))
     times = xp.arange(time_size) * ((1-overlap_frac) * fft_size / fs)
 
     return freqs, times
 
+
 def stft(
     x: Array,
     *,
     fs: float,
-    window_spec: str | tuple[str, float],
+    window: Array | str | tuple[str, float],
     nperseg: int = 256,
     noverlap: int = 0,
     axis: int = 0,
     truncate: bool = True,
     norm: str | None = None,
-    index: bool = False
 ):
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
     some overhead that comes with its generality and allow use of the generic
@@ -119,7 +121,7 @@ def stft(
 
         fs: sampling rate
 
-        window_spec: name or (name, parameter) pair specifying the window to use
+        window: a window array, or a name or (name, parameter) pair as in `scipy.signal.get_window`
 
         nperseg: the size of the FFT (= segment size used if overlapping)
 
@@ -138,6 +140,7 @@ def stft(
         stft (see scipy.fft.stft)
 
     """
+    
     xp = array_namespace(x)
 
     # # This is probably the same
@@ -161,7 +164,11 @@ def stft(
 
     if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
-    w = _get_window(window_spec, fft_size, xp=xp, norm=(norm == 'power'))
+    
+    if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
+        w = _get_window(window, fft_size, xp=xp, norm=(norm == 'power'))
+    else:
+        w = xp.array(w)
 
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
@@ -410,13 +417,14 @@ def channelize_power(
         return freqs[0], times, channel_power
 
 
-def iq_to_stft_spectrogram(iq: Array, window_spec, fft_size: int, Ts, overlap=True, analysis_bandwidth=None):
+def iq_to_stft_spectrogram(iq: Array, window: Array | str | tuple[str,float],
+                           fft_size: int, Ts, overlap=True, analysis_bandwidth=None):
     xp = array_namespace(iq)
 
     freqs, times, X = stft(
         iq,
         fs=1.0 / Ts,
-        w=window_spec,
+        window=window,
         nperseg=fft_size,
         noverlap=fft_size // 2 if overlap else 0,
         norm='power',
