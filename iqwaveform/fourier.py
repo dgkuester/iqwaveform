@@ -171,7 +171,7 @@ def stft(
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
         w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=(norm == 'power'))
     else:
-        w = xp.array(w)
+        w = xp.array(window)
 
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
