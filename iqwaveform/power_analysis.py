@@ -43,10 +43,8 @@ def stat_ufunc_from_shorthand(kind):
     return ufunc
 
 
-def isroundmod(a: Array, div, atol=1e-6) -> bool:
-    xp = array_namespace(a)
-
-    return xp.abs(xp.rint(a / div) - a / div) <= atol
+def isroundmod(value: float, div, atol=1e-6) -> bool:
+    return np.abs(np.rint(value / div) - value / div) <= atol
 
 
 def dBtopow(x: ArrayOrPandas) -> Any:
@@ -413,7 +411,7 @@ def power_histogram_along_axis(
     if axis == 0:
         pvt = pvt.T
     elif axis != 1:
-        raise ValueError(f'axis argument must be 0 or 1')
+        raise ValueError('axis argument must be 0 or 1')
 
     # truncate to an integer number of sweep blocks
     pvt = powtodB(pvt, abs=False)

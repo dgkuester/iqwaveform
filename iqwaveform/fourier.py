@@ -1,10 +1,11 @@
+from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy import signal, special
 from . import power_analysis
 import scipy
 from multiprocessing import cpu_count
-from functools import partial
+from functools import partial, lru_cache
 from array_api_compat import array_namespace
 from array_api_strict._typing import Array
 
@@ -67,36 +68,58 @@ def to_blocks(y: Array, size: int, truncate=False, axis=0) -> Array:
     return y.reshape(newshape)
 
 
+@lru_cache(8)
+def _get_window(name_or_tuple, N, norm=True, xp=None):
+    if xp is None:
+        w = signal.windows.get_window(name_or_tuple, N)
+
+        if norm:
+            w /= np.sqrt(np.mean(np.abs(w) ** 2))
+        return w
+    else:
+        return xp.array(_get_window(name_or_tuple, N))
+
+
 def broadcast_onto(a: Array, other: Array, axis: int) -> Array:
     """broadcast a 1-D array onto a specified axis of `other`"""
     xp = array_namespace(a, other)
-    
+
     slices = [xp.newaxis] * len(other.shape)
     slices[axis] = slice(None, None)
     return a.__getitem__(tuple(slices))
 
 
+@lru_cache(128)
+def _get_stft_axes(fs: float, fft_size: int, time_size: int, overlap_frac: float=0, xp=np):
+    freqs = xp.fft.fftshift(xp.fft.fftfreq(fft_size, d=1/fs))
+    times = xp.arange(time_size) * ((1-overlap_frac) * fft_size / fs)
+
+    return freqs, times
+
 def stft(
     x: Array,
+    *,
     fs: float,
-    window: Array,
+    window_spec: str | tuple[str, float],
     nperseg: int = 256,
     noverlap: int = 0,
     axis: int = 0,
     truncate: bool = True,
-    norm: str = None,
+    norm: str | None = None,
+    index: bool = False
 ):
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
-    some overhead that comes with its generality.
+    some overhead that comes with its generality and allow use of the generic
+    python array-api for interchangable numpy/cupy support.
 
     For additional information, see help for scipy.fft.
 
     Args:
         x: input array
 
-        fs: the sampling rate
+        fs: sampling rate
 
-        window: the window function sequence to apply to the input array
+        window_spec: name or (name, parameter) pair specifying the window to use
 
         nperseg: the size of the FFT (= segment size used if overlapping)
 
@@ -104,7 +127,7 @@ def stft(
 
         axis: the axis on which to compute the STFT
 
-        truncate: whether to allow truncation of samples at the end x[axis] if x.shape[axis] % nperseg != 0
+        truncate: whether to allow truncation of `x` to enforce full fft block sizes
 
     Raises:
         NotImplementedError: if axis != 0
@@ -115,7 +138,7 @@ def stft(
         stft (see scipy.fft.stft)
 
     """
-    xp = array_namespace(x, window)
+    xp = array_namespace(x)
 
     # # This is probably the same
     # freqs, times, X = signal.spectral._spectral_helper(
@@ -132,31 +155,23 @@ def stft(
     #     padded=True,
     # )
 
-    FFT_SIZE = nperseg
-    if noverlap not in (0, FFT_SIZE // 2):
+    fft_size = nperseg
+    if noverlap not in (0, fft_size // 2):
         raise NotImplementedError('noverlap must be noverlap//2 or 0')
 
-    if norm == 'power':
-        window = window / xp.sqrt(xp.mean(xp.abs(window) ** 2))
-    elif norm is None:
-        pass
-
-    else:
+    if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
+    w = _get_window(window_spec, fft_size, xp=xp, norm=(norm == 'power'))
 
     if noverlap == 0:
-        x = to_blocks(x, FFT_SIZE, truncate=truncate)
+        x = to_blocks(x, fft_size, truncate=truncate)
         X = xp.fft.fftshift(
             fft(
-                x * broadcast_onto(window / FFT_SIZE, x, 1),
+                x * broadcast_onto(w / fft_size, x, 1),
                 axis=axis + 1,
             ),
             axes=axis + 1,
         )
-        freqs = xp.fft.fftshift(xp.fft.fftfreq(FFT_SIZE, 1 / fs))
-        times = xp.arange(X.shape[0]) * (FFT_SIZE / fs)
-
-        return freqs, times, X
 
     else:
         if axis != 0:
@@ -165,21 +180,27 @@ def stft(
             )
 
         x = xp.array([x[:-noverlap], x[noverlap:]])
-        x = to_blocks(x, FFT_SIZE, axis=1, truncate=truncate)
+        x = to_blocks(x, fft_size, axis=1, truncate=truncate)
 
         # X = xp.empty((x.shape[0], 2, FFT_SIZE) + x.shape[2:])
 
-        x *= broadcast_onto(window / FFT_SIZE, x, 2)
-        X = scipy.fft.fft(x, axis=axis + 2, workers=CPU_COUNT // 2, overwrite_x=True)
+        x *= broadcast_onto(w / fft_size, x, 2)
+        X = xp.fft.fft(x, axis=axis + 2, workers=CPU_COUNT // 2, overwrite_x=True)
 
         # interleave the 2 overlapping offsets, and axis shift
-        X = xp.swapaxes(X, 0, 1).reshape((X.shape[0] * X.shape[1],) + X.shape[2:])
+        shape = (X.shape[0] * X.shape[1],) + X.shape[2:]
+        X = xp.swapaxes(X, 0, 1).reshape(shape)
         X = xp.fft.fftshift(X, axes=axis + 1)
 
-        freqs = xp.fft.fftshift(xp.fft.fftfreq(FFT_SIZE, 1 / fs))
-        times = xp.arange(X.shape[axis]) * (FFT_SIZE / fs / 2)
+    freqs, times = _get_stft_axes(
+        fs,
+        fft_size=fft_size,
+        time_size=X.shape[axis],
+        overlap_frac=noverlap/fft_size,
+        xp=xp
+    )
 
-        return freqs, times, X
+    return freqs, times, X
 
 
 def low_pass_filter(
@@ -361,7 +382,7 @@ def channelize_power(
     freqs, times, X = stft(
         iq,
         fs=1.0 / Ts,
-        window=window,
+        w=window,
         nperseg=fft_size_per_channel * channel_count,
         noverlap=fft_overlap_per_channel * channel_count,
         norm='power',
@@ -389,15 +410,13 @@ def channelize_power(
         return freqs[0], times, channel_power
 
 
-def iq_to_stft_spectrogram(iq, window, Ts, overlap=True, analysis_bandwidth=None):
+def iq_to_stft_spectrogram(iq: Array, window_spec, fft_size: int, Ts, overlap=True, analysis_bandwidth=None):
     xp = array_namespace(iq)
-
-    fft_size = len(window)
 
     freqs, times, X = stft(
         iq,
         fs=1.0 / Ts,
-        window=window,
+        w=window_spec,
         nperseg=fft_size,
         noverlap=fft_size // 2 if overlap else 0,
         norm='power',

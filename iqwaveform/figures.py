@@ -386,7 +386,7 @@ def plot_spectrogram_heatmap_from_iq(
 
     iq = iq[index_span[0] : index_span[1]]
 
-    spg = iq_to_stft_spectrogram(iq=iq, window=window, Ts=Ts, overlap=True)
+    spg = iq_to_stft_spectrogram(iq=iq, window_spec=window, Ts=Ts, overlap=True)
 
     if cmap is None:
         cmap = mpl.cm.get_cmap('magma')
