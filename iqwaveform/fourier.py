@@ -6,7 +6,7 @@ from . import power_analysis
 import scipy
 from multiprocessing import cpu_count
 from functools import partial, lru_cache
-from array_api_compat import array_namespace
+from .util import array_namespace
 from array_api_strict._typing import Array
 
 

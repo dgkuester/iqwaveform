@@ -6,7 +6,7 @@ import numexpr as ne
 import warnings
 from numbers import Number
 from functools import partial
-from array_api_compat import array_namespace
+from .util import array_namespace
 from array_api_strict._typing import Array
 from typing import Union, Any
 
