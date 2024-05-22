@@ -179,7 +179,7 @@ def stft(
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
         X = xp.fft.fftshift(
-            fft(x * broadcast_onto(w / fft_size, x, 1), axis=axis + 1),
+            xp.fft.fft(x * broadcast_onto(w / fft_size, x, 1), axis=axis + 1),
             axes=axis + 1,
         )
 
