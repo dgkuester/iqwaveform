@@ -9,6 +9,7 @@ from functools import partial, lru_cache
 from .util import array_namespace
 from array_api_strict._typing import Array
 from typing import Union, Any
+import array_api_compat
 
 warnings.filterwarnings('ignore', message='.*divide by zero.*')
 warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
@@ -115,14 +116,15 @@ def envtopow(x: ArrayOrPandas) -> Any:
         # numpy, pandas
         values = ne.evaluate('abs(x)**2', local_dict=dict(x=x))
         
+        if np.iscomplexobj(values):
+            values = values.real
+
     else:
         # cuda, mlx, etc
         # TODO: CUDA kernel evaluation here
         values = xp.abs(x)
         values *= values
 
-    if hasattr(values, 'real'):
-        values = values.real
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
@@ -159,11 +161,12 @@ def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0) -> np.ndarray:
         values = ne.evaluate(
             f'20*log10(abs(x){eps_str})', local_dict=dict(x=x, eps=eps)
         )
+
+        if np.iscomplexobj(values):
+            values = values.real
+
     else:
         values = ne.evaluate(f'20*log10(x+eps){eps_str}', local_dict=dict(x=x, eps=eps))
-
-    if hasattr(values, 'real'):
-        values = values.real
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
@@ -374,12 +377,16 @@ def sample_ccdf(a: np.array, edges: np.array, density: bool = True) -> np.array:
     # 'left' makes the bin interval open-ended on the left side
     # (the CCDF is "number of samples exceeding interval", and not equal to)
     edge_inds = xp.searchsorted(edges, a, side='left')
-    bin_counts = xp.bincount(edge_inds, minlength=edges.size + 1)
-    ccdf = (a.size - bin_counts.cumsum())[:-1]
+
+    bin_counts = xp.bincount(edge_inds, minlength=edges.shape[0] + 1)
+    ccdf = (a.shape[0] - bin_counts.cumsum(0))[:-1]
 
     if density:
-        ccdf = ccdf.astype('float64')
-        ccdf /= a.size
+        if array_api_compat.is_torch_array(ccdf):
+            ccdf = ccdf.cpu().numpy().astype(np.float64)
+        else:
+            ccdf = xp.asarray(ccdf, dtype=xp.float64)
+        ccdf /= a.shape[0]
 
     return ccdf
 

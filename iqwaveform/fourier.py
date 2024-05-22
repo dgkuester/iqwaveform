@@ -8,7 +8,7 @@ from multiprocessing import cpu_count
 from functools import partial, lru_cache
 from .util import array_namespace
 from array_api_strict._typing import Array
-
+import array_api_compat
 
 CPU_COUNT = cpu_count()
 
@@ -77,9 +77,11 @@ def _get_window(name_or_tuple, N, norm=True, dtype=None, xp=None):
             w /= np.sqrt(np.mean(np.abs(w) ** 2))
         return w
     else:
-        w = xp.asarray(_get_window(name_or_tuple, N))
-        if dtype is not None:
-            w = w.astype(dtype)
+        w = _get_window(name_or_tuple, N)
+        if hasattr(xp, 'asarray'):
+            w = xp.asarray(w, dtype=dtype)
+        else:
+            w = xp.array(w).astype(dtype)
         return w
 
 
@@ -100,6 +102,7 @@ def _get_stft_axes(
 
     freqs = xp.fft.fftshift(xp.fft.fftfreq(fft_size, d=1 / fs))
     times = xp.arange(time_size) * ((1 - overlap_frac) * fft_size / fs)
+
 
     return freqs, times
 
@@ -172,16 +175,21 @@ def stft(
 
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
         should_norm = norm == 'power'
+        print(xp, type(x))
         w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=should_norm)
+        if array_api_compat.is_torch_array(w):
+            import torch
+            w = torch.asarray(w, dtype=x.dtype, device=x.device)
     else:
         w = xp.array(window)
 
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
-        X = xp.fft.fftshift(
-            fft(x * broadcast_onto(w / fft_size, x, 1), axis=axis + 1),
-            axes=axis + 1,
-        )
+        print(type(x), type(w), type(x * broadcast_onto(w / fft_size, x, 1)), xp)
+        x = x * broadcast_onto(w / fft_size, x, 1)
+        X = xp.fft.fft(x, axis=axis + 1)
+        print(type(X))
+        X = xp.fft.fftshift(X, axes=axis + 1)
 
     else:
         if axis != 0:
