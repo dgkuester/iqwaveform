@@ -77,7 +77,7 @@ def _get_window(name_or_tuple, N, norm=True, dtype=None, xp=None):
             w /= np.sqrt(np.mean(np.abs(w) ** 2))
         return w
     else:
-        w = xp.array(_get_window(name_or_tuple, N))
+        w = xp.asarray(_get_window(name_or_tuple, N))
         if dtype is not None:
             w = w.astype(dtype)
         return w
@@ -102,6 +102,7 @@ def _get_stft_axes(
     times = xp.arange(time_size) * ((1 - overlap_frac) * fft_size / fs)
 
     return freqs, times
+
 
 def stft(
     x: Array,
@@ -178,7 +179,7 @@ def stft(
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
         X = xp.fft.fftshift(
-            xp.fft.fft(x * broadcast_onto(w / fft_size, x, 1), axis=axis + 1),
+            fft(x * broadcast_onto(w / fft_size, x, 1), axis=axis + 1),
             axes=axis + 1,
         )
 
