@@ -103,7 +103,6 @@ def _get_stft_axes(
 
     return freqs, times
 
-
 def stft(
     x: Array,
     *,

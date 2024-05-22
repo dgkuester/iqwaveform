@@ -16,14 +16,13 @@ warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
 ArrayOrPandas = Union[Array, pd.Series, pd.DataFrame]
 
 
-@lru_cache(1000)
 def stat_ufunc_from_shorthand(kind, xp=np):
     NAMED_UFUNCS = {
         'min': xp.min,
         'max': xp.max,
         'peak': xp.max,
         'mean': xp.mean,
-        'rms': xp.mean
+        'rms': xp.mean,
     }
 
     if hasattr(xp, 'median'):
@@ -74,6 +73,7 @@ def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0) -> Any:
     try:
         xp = array_namespace(x)
     except TypeError:
+        # pandas
         xp = None
 
     if xp not in (None, np):
@@ -114,14 +114,15 @@ def envtopow(x: ArrayOrPandas) -> Any:
     if xp in (None, np):
         # numpy, pandas
         values = ne.evaluate('abs(x)**2', local_dict=dict(x=x))
+        
     else:
         # cuda, mlx, etc
         # TODO: CUDA kernel evaluation here
         values = xp.abs(x)
         values *= values
 
-    if np.iscomplexobj(values):
-        values = np.real(values)
+    if hasattr(values, 'real'):
+        values = values.real
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
@@ -151,7 +152,7 @@ def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0) -> np.ndarray:
             values = x
         if eps != 0:
             values += eps
-        xp.log10(values, out=values)
+        values = xp.log10(values)
         values *= 20
 
     elif abs:
@@ -161,8 +162,8 @@ def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0) -> np.ndarray:
     else:
         values = ne.evaluate(f'20*log10(x+eps){eps_str}', local_dict=dict(x=x, eps=eps))
 
-    if np.iscomplexobj(values):
-        values = np.real(values)
+    if hasattr(values, 'real'):
+        values = values.real
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
@@ -252,6 +253,7 @@ def iq_to_cyclic_power(
     """
 
     # apply the detector statistic
+    xp = array_namespace(iq)
 
     power = {
         d: iq_to_bin_power(iq, Ts, detector_period, kind=d, truncate=truncate)
@@ -284,7 +286,7 @@ def iq_to_cyclic_power(
 
     power = {d: x.reshape(shape_by_cycle) for d, x in power.items()}
 
-    cycle_stat_ufunc = {kind: stat_ufunc_from_shorthand(kind) for kind in cycle_stats}
+    cycle_stat_ufunc = {kind: stat_ufunc_from_shorthand(kind, xp=xp) for kind in cycle_stats}
 
     # apply the cyclic statistic
 
@@ -367,10 +369,12 @@ def sample_ccdf(a: np.array, edges: np.array, density: bool = True) -> np.array:
         the empirical complementary cumulative distribution
     """
 
+    xp = array_namespace(a)
+
     # 'left' makes the bin interval open-ended on the left side
     # (the CCDF is "number of samples exceeding interval", and not equal to)
-    edge_inds = np.searchsorted(edges, a, side='left')
-    bin_counts = np.bincount(edge_inds, minlength=edges.size + 1)
+    edge_inds = xp.searchsorted(edges, a, side='left')
+    bin_counts = xp.bincount(edge_inds, minlength=edges.size + 1)
     ccdf = (a.size - bin_counts.cumsum())[:-1]
 
     if density:
