@@ -4,7 +4,7 @@ from array_api_strict._typing import Array
 
 def array_namespace(a):
     try:
-        return array_api_compat(a)
+        return array_api_compat.array_namespace(a)
     except TypeError:
         pass
 

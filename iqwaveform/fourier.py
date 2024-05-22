@@ -85,7 +85,7 @@ def _get_window(name_or_tuple, N, norm=True, dtype=None, xp=None):
 
 def broadcast_onto(a: Array, other: Array, axis: int) -> Array:
     """broadcast a 1-D array onto a specified axis of `other`"""
-    xp = array_namespace(a, other)
+    xp = array_namespace(a)
 
     slices = [xp.newaxis] * len(other.shape)
     slices[axis] = slice(None, None)

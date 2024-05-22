@@ -5,7 +5,7 @@ import pandas as pd
 import numexpr as ne
 import warnings
 from numbers import Number
-from functools import partial
+from functools import partial, lru_cache
 from .util import array_namespace
 from array_api_strict._typing import Array
 from typing import Union, Any
@@ -16,13 +16,14 @@ warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
 ArrayOrPandas = Union[Array, pd.Series, pd.DataFrame]
 
 
+@lru_cache(1000)
 def stat_ufunc_from_shorthand(kind, xp=np):
     NAMED_UFUNCS = {
         'min': xp.min,
         'max': xp.max,
         'peak': xp.max,
         'mean': xp.mean,
-        'rms': xp.mean,
+        'rms': xp.mean
     }
 
     if hasattr(xp, 'median'):
@@ -84,7 +85,7 @@ def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0) -> Any:
             values = x
         if eps != 0:
             values += eps
-        xp.log10(values, out=values)
+        values = xp.log10(values)
         values *= 10
 
     elif abs:
