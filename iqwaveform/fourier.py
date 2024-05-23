@@ -236,10 +236,10 @@ def spectrogram(
         cuda.build()
 
         with cuda.apply_abs2_in_fft:
-            spg = stft(**kws)
+            spg = stft(**kws).real
 
     else:
-        spg = envtopow(stft(**kws))
+        spg = power_analysis.envtopow(stft(**kws))
 
     return spg
 
