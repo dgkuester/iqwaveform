@@ -236,12 +236,14 @@ def spectrogram(
         cuda.build()
 
         with cuda.apply_abs2_in_fft:
-            spg = stft(**kws).real
+            freqs, times, spg = stft(**kws)
+            spg = spg.real
 
     else:
-        spg = power_analysis.envtopow(stft(**kws))
+        freqs, times, X = stft(**kws)
+        spg = power_analysis.envtopow(X)
 
-    return spg
+    return freqs, times, spg
 
 
 def low_pass_filter(
