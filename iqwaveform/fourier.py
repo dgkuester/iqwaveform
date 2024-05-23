@@ -218,6 +218,32 @@ def stft(
     return freqs, times, X
 
 
+def spectrogram(
+    x: Array,
+    *,
+    fs: float,
+    window: Array | str | tuple[str, float],
+    nperseg: int = 256,
+    noverlap: int = 0,
+    axis: int = 0,
+    truncate: bool = True,
+    norm: str | None = None,
+):
+    kws = dict(locals())
+
+    if array_api_compat.is_cupy_array(x):
+        from . import cuda
+        cuda.build()
+
+        with cuda.apply_abs2_in_fft:
+            spg = stft(**kws)
+
+    else:
+        spg = envtopow(stft(**kws))
+
+    return spg
+
+
 def low_pass_filter(
     iq: Array,
     Ts: float,
