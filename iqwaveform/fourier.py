@@ -175,7 +175,6 @@ def stft(
 
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
         should_norm = norm == 'power'
-        print(xp, type(x))
         w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=should_norm)
         if array_api_compat.is_torch_array(w):
             import torch
@@ -185,10 +184,8 @@ def stft(
 
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
-        print(type(x), type(w), type(x * broadcast_onto(w / fft_size, x, 1)), xp)
         x = x * broadcast_onto(w / fft_size, x, 1)
         X = xp.fft.fft(x, axis=axis + 1)
-        print(type(X))
         X = xp.fft.fftshift(X, axes=axis + 1)
 
     else:
@@ -272,8 +269,6 @@ def low_pass_filter(
 
     # ind_offset = inds[0]-X.shape[0]//2
     X[center], X[outside] = X[inband], 0
-
-    # print((xp.abs(fftfreqs)>=bandwidth/2).sum(), (xp.abs(fftfreqs)<bandwidth/2).sum())
 
     x = (
         ifft(
