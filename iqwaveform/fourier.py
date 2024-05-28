@@ -200,7 +200,7 @@ def stft(
         # X = xp.empty((x.shape[0], 2, FFT_SIZE) + x.shape[2:])
 
         x *= broadcast_onto(w / fft_size, x, 2)
-        X = xp.fft.fft(x, axis=axis + 2, workers=CPU_COUNT // 2, overwrite_x=True)
+        X = xp.fft.fft(x, axis=axis + 2)
 
         # interleave the 2 overlapping offsets, and axis shift
         shape = (X.shape[0] * X.shape[1],) + X.shape[2:]
