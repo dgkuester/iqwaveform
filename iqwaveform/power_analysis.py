@@ -382,10 +382,7 @@ def sample_ccdf(a: np.array, edges: np.array, density: bool = True) -> np.array:
     ccdf = (a.shape[0] - bin_counts.cumsum(0))[:-1]
 
     if density:
-        if array_api_compat.is_torch_array(ccdf):
-            ccdf = ccdf.cpu().numpy().astype(np.float64)
-        else:
-            ccdf = xp.asarray(ccdf, dtype=xp.float64)
+        ccdf = xp.asarray(ccdf, dtype=xp.float64)
         ccdf /= a.shape[0]
 
     return ccdf
