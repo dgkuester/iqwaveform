@@ -167,8 +167,7 @@ def stft(
     # )
 
     fft_size = nperseg
-    if noverlap not in (0, fft_size // 2):
-        raise NotImplementedError('noverlap must be noverlap//2 or 0')
+
 
     if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
@@ -184,9 +183,14 @@ def stft(
 
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
-        x = x * broadcast_onto(w / fft_size, x, 1)
-        X = xp.fft.fft(x, axis=axis + 1)
-        X = xp.fft.fftshift(X, axes=axis + 1)
+
+        x = x*broadcast_onto(w / fft_size, x, axis=axis+1)
+        if array_api_compat.is_cupy_array(x):
+            from cupyx import scipy
+            X = scipy.fft.fft(x, axis=axis+1, overwrite_x=True)
+        else:
+            X = fft(buf, axis=axis+1, overwrite_x=True)
+        X = xp.fft.fftshift(X, axes=axis+1)
 
     else:
         if axis != 0:
@@ -194,18 +198,37 @@ def stft(
                 'for now, only axis=0 is supported with noverlap>0'
             )
 
-        x = xp.array([x[:-noverlap], x[noverlap:]])
-        x = to_blocks(x, fft_size, axis=1, truncate=truncate)
+        assert nperseg % noverlap == 0
 
-        # X = xp.empty((x.shape[0], 2, FFT_SIZE) + x.shape[2:])
+        overlap_factor = nperseg//noverlap
 
-        x *= broadcast_onto(w / fft_size, x, 2)
-        X = xp.fft.fft(x, axis=axis + 2)
+        buf = xp.empty(x.shape[:-1]+(fft_size, x.shape[-1]//fft_size, overlap_factor), dtype=x.dtype)
 
-        # interleave the 2 overlapping offsets, and axis shift
-        shape = (X.shape[0] * X.shape[1],) + X.shape[2:]
-        X = xp.swapaxes(X, 0, 1).reshape(shape)
-        X = xp.fft.fftshift(X, axes=axis + 1)
+        # populate the overlapped windows
+        for i in range(overlap_factor):
+           buf_slice = buf.reshape((x.size, overlap_factor))[...,i]
+           istart = i*noverlap
+           iend = ((i-overlap_factor+1)*noverlap) or None
+           if istart > 0:
+              buf_slice[...,0:istart] = 0
+           buf_slice[...,istart:iend] = x[...,istart:iend]
+           if iend is not None:
+              buf_slice[...,iend:] = 0
+
+        # window and transform
+        buf *= broadcast_onto(w/fft_size, buf, axis=axis)
+
+        if array_api_compat.is_cupy_array(buf):
+            from cupyx import scipy
+            X = scipy.fft.fft(buf, axis=axis, overwrite_x=True)
+        else:
+            X = fft(buf, axis=axis, overwrite_x=True)
+
+        # interleave the overlaps in time
+        X = X.reshape(X.shape[:-2] + (X.shape[-2]*X.shape[-1],))
+        X = xp.fft.fftshift(X, axes=axis)
+        X = X.swapaxes(-2, -1)
+
 
     freqs, times = _get_stft_axes(
         fs,
