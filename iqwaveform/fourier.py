@@ -386,8 +386,6 @@ def stft(
         else:
             X = fft(x_ol, axis=axis+1, overwrite_x=True)
 
-        print('transform shape: ', X.shape)
-
         # interleave the overlaps in time
         #X = X.reshape(X.shape[:-2] + (X.shape[-2]*X.shape[-1],))
         X = xp.fft.fftshift(X, axes=axis+1)
