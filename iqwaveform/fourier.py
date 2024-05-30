@@ -8,7 +8,7 @@ from multiprocessing import cpu_count
 from functools import partial, lru_cache
 from .util import array_namespace
 from array_api_strict._typing import Array
-from array_api_compat import array_namespace, is_cupy_array
+from array_api_compat import array_namespace, is_cupy_array, is_torch_array
 from scipy.signal._arraytools import axis_slice
 
 CPU_COUNT = cpu_count()
@@ -237,7 +237,7 @@ def sliding_window_view(x, window_shape, axis=None, *,
 
 
 def _to_overlapping_windows(x: Array, window: Array, nperseg, noverlap, pad_mode='wrap', axis=0):
-    """ reverse _to_overlapping_windows, returning a waveform """
+    """ add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform """
     xp = array_namespace(x)
 
     fft_size = nperseg
@@ -272,6 +272,23 @@ def _from_overlapping_windows(y, noverlap, axis=0):
         xr_slice[...] += yslice
 
     return axis_slice(xr, start=noverlap, stop=-noverlap, axis=axis)
+
+
+def ola_filter(x, *, fs, nperseg, noverlap, window: str|tuple, passband=(None,None), axis=0):
+    freqs, times, X = stft(x, fs=fs, window=window, nperseg=nperseg, noverlap=noverlap, axis=0)
+
+    if passband[0] is not None:
+        X[:,freqs < passband[0]] = 0
+    if passband[1] is not None:
+        X[:,freqs > passband[1]] = 0
+
+    if is_cupy_array(x):
+        from cupyx import scipy
+        x_windows = scipy.fft.ifft(scipy.fft.fftshift(X, axes=axis+1), axis=axis+1, overwrite_x=True)
+    else:
+        x_windows = ifft(np.fft.fftshift(X, axes=axis+1), axis=axis+1, overwrite_x=True)
+
+    return _from_overlapping_windows(x_windows, noverlap, axis=axis)
 
 
 def stft(
@@ -341,7 +358,7 @@ def stft(
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
         should_norm = norm == 'power'
         w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=should_norm)
-        if array_api_compat.is_torch_array(w):
+        if is_torch_array(w):
             import torch
             w = torch.asarray(w, dtype=x.dtype, device=x.device)
     else:
@@ -361,13 +378,13 @@ def stft(
     else:
         assert fft_size % (fft_size-noverlap) == 0
 
-        x = _to_overlapping_windows(x, window=window, nperseg=nperseg, noverlap=noverlap, axis=axis)
+        x_ol = _to_overlapping_windows(x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis)
 
-        if is_cupy_array(buf):
+        if is_cupy_array(x_ol):
             from cupyx import scipy
-            X = scipy.fft.fft(buf, axis=axis+1, overwrite_x=True)
+            X = scipy.fft.fft(x_ol, axis=axis+1, overwrite_x=True)
         else:
-            X = fft(buf, axis=axis+1, overwrite_x=True)
+            X = fft(x_ol, axis=axis+1, overwrite_x=True)
 
         print('transform shape: ', X.shape)
 
