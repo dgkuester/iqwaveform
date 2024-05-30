@@ -8,7 +8,8 @@ from multiprocessing import cpu_count
 from functools import partial, lru_cache
 from .util import array_namespace
 from array_api_strict._typing import Array
-import array_api_compat
+from array_api_compat import array_namespace, is_cupy_array
+from scipy.signal._arraytools import axis_slice
 
 CPU_COUNT = cpu_count()
 
@@ -107,6 +108,172 @@ def _get_stft_axes(
     return freqs, times
 
 
+def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
+    if axis >= 0:
+        pre_pad = [[0,0]] * axis
+    else:
+        pre_pad = [[0,0]] * (axis+a.ndim-1)
+
+    xp = array_namespace(a)
+    return xp.pad(a, pre_pad+pad_width, *args, **kws)
+
+
+def sliding_window_view(x, window_shape, axis=None, *,
+                        subok=False, writeable=False):
+    """
+    Create a sliding window view into the array with the given window shape.
+
+    Also known as rolling or moving window, the window slides across all
+    dimensions of the array and extracts subsets of the array at all window
+    positions.
+
+
+    Parameters
+    ----------
+    x : array_like
+        Array to create the sliding window view from.
+    window_shape : int or tuple of int
+        Size of window over each axis that takes part in the sliding window.
+        If `axis` is not present, must have same length as the number of input
+        array dimensions. Single integers `i` are treated as if they were the
+        tuple `(i,)`.
+    axis : int or tuple of int, optional
+        Axis or axes along which the sliding window is applied.
+        By default, the sliding window is applied to all axes and
+        `window_shape[i]` will refer to axis `i` of `x`.
+        If `axis` is given as a `tuple of int`, `window_shape[i]` will refer to
+        the axis `axis[i]` of `x`.
+        Single integers `i` are treated as if they were the tuple `(i,)`.
+    subok : bool, optional
+        If True, sub-classes will be passed-through, otherwise the returned
+        array will be forced to be a base-class array (default).
+    writeable : bool, optional -- not supported
+        When true, allow writing to the returned view. The default is false,
+        as this should be used with caution: the returned view contains the
+        same memory location multiple times, so writing to one location will
+        cause others to change.
+
+    Returns
+    -------
+    view : ndarray
+        Sliding window view of the array. The sliding window dimensions are
+        inserted at the end, and the original dimensions are trimmed as
+        required by the size of the sliding window.
+        That is, ``view.shape = x_shape_trimmed + window_shape``, where
+        ``x_shape_trimmed`` is ``x.shape`` with every entry reduced by one less
+        than the corresponding window size.
+
+
+    See also
+    --------
+    numpy.lib.stride_tricks.as_strided
+
+    Notes
+    --------
+    This function is adapted from numpy.lib.stride_tricks.as_strided.
+
+    Examples
+    --------
+    >>> x = _cupy.arange(6)
+    >>> x.shape
+    (6,)
+    >>> v = sliding_window_view(x, 3)
+    >>> v.shape
+    (4, 3)
+    >>> v
+    array([[0, 1, 2],
+           [1, 2, 3],
+           [2, 3, 4],
+           [3, 4, 5]])
+
+    """
+
+    if not is_cupy_array(x):
+        return np.lib.stride_tricks.sliding_window_view(**locals())
+
+    import cupy as _cupy
+
+    window_shape = (tuple(window_shape)
+                    if np.iterable(window_shape)
+                    else (window_shape,))
+
+    # writeable is not supported:
+    if writeable:
+        raise NotImplementedError("Writeable views are not supported.")
+
+    # first convert input to array, possibly keeping subclass
+    x = _cupy.array(x, copy=False, subok=subok)
+
+    window_shape_array = _cupy.array(window_shape)
+    for dim in window_shape_array:
+        if dim < 0:
+            raise ValueError('`window_shape` cannot contain negative values')
+
+    if axis is None:
+        axis = tuple(range(x.ndim))
+        if len(window_shape) != len(axis):
+            raise ValueError(f'Since axis is `None`, must provide '
+                             f'window_shape for all dimensions of `x`; '
+                             f'got {len(window_shape)} window_shape elements '
+                             f'and `x.ndim` is {x.ndim}.')
+    else:
+        axis = _cupy._core.internal._normalize_axis_indices(axis, x.ndim)
+        if len(window_shape) != len(axis):
+            raise ValueError(f'Must provide matching length window_shape and '
+                             f'axis; got {len(window_shape)} window_shape '
+                             f'elements and {len(axis)} axes elements.')
+
+    out_strides = x.strides + tuple(x.strides[ax] for ax in axis)
+
+    # note: same axis can be windowed repeatedly
+    x_shape_trimmed = list(x.shape)
+    for ax, dim in zip(axis, window_shape):
+        if x_shape_trimmed[ax] < dim:
+            raise ValueError(
+                'window shape cannot be larger than input array shape')
+        x_shape_trimmed[ax] -= dim - 1
+    out_shape = tuple(x_shape_trimmed) + window_shape
+    return _cupy.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
+
+
+def _to_overlapping_windows(x: Array, window: Array, nperseg, noverlap, pad_mode='wrap', axis=0):
+    """ reverse _to_overlapping_windows, returning a waveform """
+    xp = array_namespace(x)
+
+    fft_size = nperseg
+    hop_size = nperseg - noverlap
+
+    x = pad_along_axis(x, [noverlap, noverlap], mode=pad_mode, axis=axis)
+
+    strided = sliding_window_view(x, fft_size, axis=axis)
+    stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
+
+    # scaling correction based on the shape of the window where it intersects with its neighbor
+    cola_scale = 2*window[window.size//2-hop_size//2]
+
+    return stride_windows*broadcast_onto(window/cola_scale, stride_windows, axis=axis+1)
+
+
+def _from_overlapping_windows(y, noverlap, axis=0):
+    nperseg = fft_size = y.shape[axis+1]
+    hop_size = nperseg - noverlap
+
+    xp = array_namespace(y)
+
+    waveform_size = y.shape[axis]*y.shape[axis+1]*hop_size//fft_size + noverlap
+
+    xr = xp.zeros(y.shape[:axis] + (waveform_size,) + y.shape[axis+2:], dtype=y.dtype)
+
+    # for speed, sum up in groups of non-overlapping windows
+    for i in range(fft_size//hop_size):
+        yslice = axis_slice(y, start=i, step=fft_size//hop_size, axis=axis)
+        yslice = yslice.reshape(yslice.shape[:axis]+(yslice.shape[axis]*yslice.shape[axis+1],)+yslice.shape[axis+2:])
+        xr_slice = axis_slice(xr, start=i*hop_size, stop=i*hop_size+yslice.shape[axis], axis=axis)
+        xr_slice[...] += yslice
+
+    return axis_slice(xr, start=noverlap, stop=-noverlap, axis=axis)
+
+
 def stft(
     x: Array,
     *,
@@ -168,7 +335,6 @@ def stft(
 
     fft_size = nperseg
 
-
     if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
 
@@ -185,7 +351,7 @@ def stft(
         x = to_blocks(x, fft_size, truncate=truncate)
 
         x = x*broadcast_onto(w / fft_size, x, axis=axis+1)
-        if array_api_compat.is_cupy_array(x):
+        if is_cupy_array(x):
             from cupyx import scipy
             X = scipy.fft.fft(x, axis=axis+1, overwrite_x=True)
         else:
@@ -193,42 +359,22 @@ def stft(
         X = xp.fft.fftshift(X, axes=axis+1)
 
     else:
-        if axis != 0:
-            raise NotImplementedError(
-                'for now, only axis=0 is supported with noverlap>0'
-            )
+        assert fft_size % (fft_size-noverlap) == 0
 
-        assert nperseg % noverlap == 0
+        x = _to_overlapping_windows(x, window=window, nperseg=nperseg, noverlap=noverlap, axis=axis)
 
-        overlap_factor = nperseg//noverlap
-
-        buf = xp.empty(x.shape[:-1]+(fft_size, x.shape[-1]//fft_size, overlap_factor), dtype=x.dtype)
-
-        # populate the overlapped windows
-        for i in range(overlap_factor):
-           buf_slice = buf.reshape((x.size, overlap_factor))[...,i]
-           istart = i*noverlap
-           iend = ((i-overlap_factor+1)*noverlap) or None
-           if istart > 0:
-              buf_slice[...,0:istart] = 0
-           buf_slice[...,istart:iend] = x[...,istart:iend]
-           if iend is not None:
-              buf_slice[...,iend:] = 0
-
-        # window and transform
-        buf *= broadcast_onto(w/fft_size, buf, axis=axis)
-
-        if array_api_compat.is_cupy_array(buf):
+        if is_cupy_array(buf):
             from cupyx import scipy
-            X = scipy.fft.fft(buf, axis=axis, overwrite_x=True)
+            X = scipy.fft.fft(buf, axis=axis+1, overwrite_x=True)
         else:
-            X = fft(buf, axis=axis, overwrite_x=True)
+            X = fft(buf, axis=axis+1, overwrite_x=True)
+
+        print('transform shape: ', X.shape)
 
         # interleave the overlaps in time
-        X = X.reshape(X.shape[:-2] + (X.shape[-2]*X.shape[-1],))
-        X = xp.fft.fftshift(X, axes=axis)
-        X = X.swapaxes(-2, -1)
-
+        #X = X.reshape(X.shape[:-2] + (X.shape[-2]*X.shape[-1],))
+        X = xp.fft.fftshift(X, axes=axis+1)
+        #X = X.swapaxes(-2, -1)
 
     freqs, times = _get_stft_axes(
         fs,
@@ -254,7 +400,7 @@ def spectrogram(
 ):
     kws = dict(locals())
 
-    if array_api_compat.is_cupy_array(x):
+    if is_cupy_array(x):
         from . import cuda
         cuda.build()
 
