@@ -236,8 +236,16 @@ def sliding_window_view(x, window_shape, axis=None, *,
     return _cupy.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
 
 
-def _to_overlapping_windows(x: Array, window: Array, nperseg, noverlap, pad_mode='wrap', axis=0):
-    """ add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform """
+def _to_overlapping_windows(x: Array, window: Array, nperseg: int, noverlap: int, pad_mode='constant', axis=0) -> Array:
+    """ add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform.
+
+    Compared to the underlying stft implementations in scipy and cupyx.scipy, this has been simplified
+    to a reduced set of parameters for speed.
+    
+    Args:
+        x: the 1-D waveform (or N-D tensor of waveforms)
+        axis: the waveform axis; stft will be evaluated across all other axes
+    """
     xp = array_namespace(x)
 
     fft_size = nperseg
@@ -254,7 +262,17 @@ def _to_overlapping_windows(x: Array, window: Array, nperseg, noverlap, pad_mode
     return stride_windows*broadcast_onto(window/cola_scale, stride_windows, axis=axis+1)
 
 
-def _from_overlapping_windows(y, noverlap, axis=0):
+def _from_overlapping_windows(y: Array, noverlap: int, axis=0) -> Array:
+    """ reconstruct the time-domain waveform from the stft in y.
+
+    Compared to the underlying istft implementations in scipy and cupyx.scipy, this has been simplified
+    to a reduced set of parameters for speed.
+
+    Args:
+        y: the stft output, containing at least 2 dimensions
+        axis: the axis of the first dimension of the STFT (the second is at axis+1)
+    """
+    
     nperseg = fft_size = y.shape[axis+1]
     hop_size = nperseg - noverlap
 
@@ -274,7 +292,25 @@ def _from_overlapping_windows(y, noverlap, axis=0):
     return axis_slice(xr, start=noverlap, stop=-noverlap, axis=axis)
 
 
-def ola_filter(x, *, fs, nperseg, noverlap, window: str|tuple, passband=(None,None), axis=0):
+def ola_filter(x, *, fs: float, noverlap: int, window: str|tuple, passband=(None,None), axis=0):
+    """ apply a bandpass filter implemented through STFT overlap-and-add.
+
+    Args:
+        noverlap: The size of each overlapping fft window in the stft
+    """
+    if window == 'hamming':
+        nperseg = 2*noverlap
+    elif window == 'blackman':
+        if noverlap % 2 != 0:
+            raise ValueError("blackman window requires noverlap % 2 == 0")
+        nperseg = (noverlap*3)//2
+    elif window == 'blackmanharris':
+        if noverlap % 4 != 0:
+            raise ValueError("blackmanharris window requires noverlap % 4 == 0")
+        nperseg = (noverlap*5)//4
+    else:
+        raise TypeError('ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")')
+
     freqs, times, X = stft(x, fs=fs, window=window, nperseg=nperseg, noverlap=noverlap, axis=0)
 
     if passband[0] is not None:
@@ -288,7 +324,7 @@ def ola_filter(x, *, fs, nperseg, noverlap, window: str|tuple, passband=(None,No
     else:
         x_windows = ifft(np.fft.fftshift(X, axes=axis+1), axis=axis+1, overwrite_x=True)
 
-    return _from_overlapping_windows(x_windows, noverlap, axis=axis)
+    return _from_overlapping_windows(x_windows, noverlap=noverlap, axis=axis)
 
 
 def stft(
@@ -372,7 +408,7 @@ def stft(
             from cupyx import scipy
             X = scipy.fft.fft(x, axis=axis+1, overwrite_x=True)
         else:
-            X = fft(buf, axis=axis+1, overwrite_x=True)
+            X = fft(x, axis=axis+1, overwrite_x=True)
         X = xp.fft.fftshift(X, axes=axis+1)
 
     else:
