@@ -12,8 +12,36 @@ from scipy.signal._arraytools import axis_slice
 
 CPU_COUNT = cpu_count()
 
-fft = partial(scipy.fft.fft, workers=CPU_COUNT // 2, overwrite_x=True)
-ifft = partial(scipy.fft.ifft, workers=CPU_COUNT // 2, overwrite_x=True)
+def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
+    if is_cupy_array(x):
+        # TODO: see about upstream question on this
+        if out is not None:
+            out = out.reshape(x.shape)
+        import cupy as cp
+        return cp.fft._fft._fftn(
+            x, (None,), (axis,), None, cp.cuda.cufft.CUFFT_FORWARD,
+            overwrite_x=overwrite_x, plan=plan, out=out, order='C'
+        )
+    else:
+        if workers is None:
+            workers=CPU_COUNT//2
+        return scipy.fft.fft(x, axis=axis, workers=workers, overwrite_x=overwrite_x, plan=plan)
+
+
+def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
+    if is_cupy_array(x):
+        # TODO: see about upstream question on this
+        if out is not None:
+            out = out.reshape(x.shape)
+        import cupy as cp
+        return cp.fft._fft._fftn(
+            x, (None,), (axis,), None, cp.cuda.cufft.CUFFT_INVERSE,
+            overwrite_x=overwrite_x, plan=plan, out=out, order='C'
+        )
+    else:
+        if workers is None:
+            workers=CPU_COUNT//2        
+        return scipy.fft.ifft(x, axis=axis, workers=workers, overwrite_x=overwrite_x, plan=plan)
 
 
 def zero_pad(x: Array, pad_amt: int) -> Array:
@@ -107,7 +135,7 @@ def _get_stft_axes(
     return freqs, times
 
 
-def _to_overlapping_windows(x: Array, window: Array, nperseg: int, noverlap: int, pad_mode='constant', axis=0) -> Array:
+def _to_overlapping_windows(x: Array, window: Array, nperseg: int, noverlap: int, pad_mode='constant', axis=0, out=None) -> Array:
     """ add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform.
 
     Compared to the underlying stft implementations in scipy and cupyx.scipy, this has been simplified
@@ -125,15 +153,23 @@ def _to_overlapping_windows(x: Array, window: Array, nperseg: int, noverlap: int
     x = pad_along_axis(x, [noverlap, noverlap], mode=pad_mode, axis=axis)
 
     strided = sliding_window_view(x, fft_size, axis=axis)
+
     stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
 
     # scaling correction based on the shape of the window where it intersects with its neighbor
     cola_scale = 2*window[window.size//2-hop_size//2]
 
-    return stride_windows*broadcast_onto(window/cola_scale, stride_windows, axis=axis+1)
+    if out is None:
+        stride_windows = stride_windows.copy()
+    else:
+        out[:] = stride_windows
+
+    stride_windows *= broadcast_onto(window/cola_scale, stride_windows, axis=axis+1)
+
+    return stride_windows
 
 
-def _from_overlapping_windows(y: Array, noverlap: int, axis=0) -> Array:
+def _from_overlapping_windows(y: Array, noverlap: int, axis=0, out=None) -> Array:
     """ reconstruct the time-domain waveform from the stft in y.
 
     Compared to the underlying istft implementations in scipy and cupyx.scipy, this has been simplified
@@ -141,17 +177,25 @@ def _from_overlapping_windows(y: Array, noverlap: int, axis=0) -> Array:
 
     Args:
         y: the stft output, containing at least 2 dimensions
+        noverlap: the overlap size used to generate the stft (see stft docs)
         axis: the axis of the first dimension of the STFT (the second is at axis+1)
+        out: if specified, the output array that will receive the result. it must have at least the same allocated size as y
+
     """
-    
+
     nperseg = fft_size = y.shape[axis+1]
     hop_size = nperseg - noverlap
 
     xp = array_namespace(y)
 
     waveform_size = y.shape[axis]*y.shape[axis+1]*hop_size//fft_size + noverlap
+    target_shape = y.shape[:axis] + (waveform_size,) + y.shape[axis+2:]
 
-    xr = xp.zeros(y.shape[:axis] + (waveform_size,) + y.shape[axis+2:], dtype=y.dtype)
+    if out is None:
+        xr = xp.zeros(target_shape, dtype=y.dtype)
+    else:
+        xr = out.flatten()[:np.prod(target_shape)].reshape(target_shape)
+        xr[:] = 0
 
     # for speed, sum up in groups of non-overlapping windows
     for i in range(fft_size//hop_size):
@@ -163,7 +207,7 @@ def _from_overlapping_windows(y: Array, noverlap: int, axis=0) -> Array:
     return axis_slice(xr, start=noverlap, stop=-noverlap, axis=axis)
 
 
-def ola_filter(x, *, fs: float, noverlap: int, window: str|tuple, passband=(None,None), axis=0):
+def ola_filter(x, *, fs: float, noverlap: int, window: str|tuple, passband=(None,None), axis=0, out=None):
     """ apply a bandpass filter implemented through STFT overlap-and-add.
 
     Args:
@@ -182,6 +226,8 @@ def ola_filter(x, *, fs: float, noverlap: int, window: str|tuple, passband=(None
     else:
         raise TypeError('ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")')
 
+    xp = array_namespace(x)
+
     freqs, times, X = stft(x, fs=fs, window=window, nperseg=nperseg, noverlap=noverlap, axis=0)
 
     if passband[0] is not None:
@@ -189,13 +235,11 @@ def ola_filter(x, *, fs: float, noverlap: int, window: str|tuple, passband=(None
     if passband[1] is not None:
         X[:,freqs > passband[1]] = 0
 
-    if is_cupy_array(x):
-        from cupyx import scipy
-        x_windows = scipy.fft.ifft(scipy.fft.fftshift(X, axes=axis+1), axis=axis+1, overwrite_x=True)
-    else:
-        x_windows = ifft(np.fft.fftshift(X, axes=axis+1), axis=axis+1, overwrite_x=True)
+    x_windows = ifft(xp.fft.fftshift(X, axes=axis+1), axis=axis+1, overwrite_x=True, out=X)
+    if out is None:
+        out = X
 
-    return _from_overlapping_windows(x_windows, noverlap=noverlap, axis=axis)
+    return _from_overlapping_windows(x_windows, noverlap=noverlap, axis=axis, out=out)
 
 
 def stft(
@@ -208,6 +252,7 @@ def stft(
     axis: int = 0,
     truncate: bool = True,
     norm: str | None = None,
+    out=None
 ):
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
     some overhead that comes with its generality and allow use of the generic
@@ -275,23 +320,15 @@ def stft(
         x = to_blocks(x, fft_size, truncate=truncate)
 
         x = x*broadcast_onto(w / fft_size, x, axis=axis+1)
-        if is_cupy_array(x):
-            from cupyx import scipy
-            X = scipy.fft.fft(x, axis=axis+1, overwrite_x=True)
-        else:
-            X = fft(x, axis=axis+1, overwrite_x=True)
+        X = fft(x, axis=axis+1, overwrite_x=True, out=out)
         X = xp.fft.fftshift(X, axes=axis+1)
 
     else:
         assert fft_size % (fft_size-noverlap) == 0
 
-        x_ol = _to_overlapping_windows(x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis)
+        x_ol = _to_overlapping_windows(x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out)
 
-        if is_cupy_array(x_ol):
-            from cupyx import scipy
-            X = scipy.fft.fft(x_ol, axis=axis+1, overwrite_x=True)
-        else:
-            X = fft(x_ol, axis=axis+1, overwrite_x=True)
+        X = fft(x_ol, axis=axis+1, overwrite_x=True, out=out)
 
         # interleave the overlaps in time
         #X = X.reshape(X.shape[:-2] + (X.shape[-2]*X.shape[-1],))
