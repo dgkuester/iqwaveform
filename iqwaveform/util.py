@@ -5,6 +5,9 @@ from array_api_compat import is_cupy_array
 
 class NonStreamContext:
     """a do-nothing cupy.Stream duck type stand-in for array types that do not support synchronization"""
+    def __init__(self, *args, **kws):
+        pass
+
     def __enter__(self):
         return self
     
@@ -12,6 +15,9 @@ class NonStreamContext:
         pass
 
     def synchronize(self):
+        pass
+
+    def use(self):
         pass
 
 
