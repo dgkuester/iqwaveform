@@ -1,7 +1,7 @@
 import array_api_compat
 from array_api_strict._typing import Array
 from array_api_compat import is_cupy_array
-
+import numpy as np
 
 class NonStreamContext:
     """a do-nothing cupy.Stream duck type stand-in for array types that do not support synchronization"""
@@ -25,7 +25,7 @@ def array_stream(obj: Array, null=False, non_blocking=False, ptds=False):
     """returns a cupy.Stream (or a do-nothing stand in) object as appropriate for obj"""
     if is_cupy_array(obj):
         import cupy
-        return cupy.Stream(null=null, non_blocking=non_blocking, ptds=ptds)
+        return cupy.cuda.Stream(null=null, non_blocking=non_blocking, ptds=ptds)
     else:
         return NonStreamContext()
 
