@@ -11,6 +11,7 @@ from array_api_compat import is_cupy_array, is_torch_array
 from scipy.signal._arraytools import axis_slice
 
 CPU_COUNT = cpu_count()
+OLA_MAX_FFT_SIZE = 64*1024
 
 def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
     if is_cupy_array(x):
@@ -42,6 +43,8 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         if workers is None:
             workers=CPU_COUNT//2        
         return scipy.fft.ifft(x, axis=axis, workers=workers, overwrite_x=overwrite_x, plan=plan)
+
+
 
 
 def zero_pad(x: Array, pad_amt: int) -> Array:
@@ -186,6 +189,8 @@ def _from_overlapping_windows(y: Array, noverlap: int, axis=0, out=None) -> Arra
     nperseg = fft_size = y.shape[axis+1]
     hop_size = nperseg - noverlap
 
+    print(nperseg, hop_size)
+
     xp = array_namespace(y)
 
     waveform_size = y.shape[axis]*y.shape[axis+1]*hop_size//fft_size + noverlap
@@ -207,24 +212,107 @@ def _from_overlapping_windows(y: Array, noverlap: int, axis=0, out=None) -> Arra
     return axis_slice(xr, start=noverlap, stop=-noverlap, axis=axis)
 
 
-def ola_filter(x, *, fs: float, noverlap: int, window: str|tuple, passband=(None,None), axis=0, out=None):
+@lru_cache
+def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
+    s = np.arange(3, max, 2)
+
+    for m in range(3, int(np.sqrt(max)+1), 2):
+        if s[(m-3)//2]:
+            s[(m*m-3)//2::m]=0
+
+    return s[(s>min)]
+
+
+@lru_cache
+def design_cola_frequency_shift(fs_base: float, fs_target: float, bw: float, bw_lo: float = 500e3, shift='left', avoid_primes=True) -> (float,float, dict):
+    """ designs sampling parameters meant to shift LO leakage outside of the specified bandwidth.
+    
+    The result includes the integer-divided SDR sample rate to request from the SDR, the LO frequency offset,
+    and the keyword arguments needed to realize resampling with `ola_filter`.
+
+    Args: 
+        fs_base: the base clock rate (sometimes known as master clock rate, MCR) of the receiver
+        fs_target: the desired sample rate after resampling
+        bw: the analysis bandwidth to protect from LO leakage
+        bw_lo: the spectral leakage/phase noise bandwidth of the LO
+        shift: the direction to shift the LO
+        avoid_primes: whether to avoid large prime numbered FFTs for performance reasons
+
+    Returns:
+        (SDR sample rate, RF LO frequency offset in Hz, ola_filter_kws)
+
+    """
+    fs_sdr_min = fs_target + bw/2 + bw_lo/2
+    decimation = int(np.floor(fs_base/fs_sdr_min))
+
+    fs_sdr = fs_base/decimation
+
+    resample_ratio = fs_sdr/fs_target
+
+    # the following returns the modula closest to either 0 or 1, accommodating downward rounding errors (e.g., 0.999)
+    trial_noverlap = resample_ratio * np.arange(1,OLA_MAX_FFT_SIZE+1)
+    check_mods = power_analysis.isroundmod(trial_noverlap, 1)
+
+    # all valid noverlap size candidates
+    valid_noverlap_out = 1 + np.where(check_mods)[0]
+    if avoid_primes:
+        reject = _prime_fft_sizes(100)
+        valid_noverlap_out = np.setdiff1d(valid_noverlap_out, reject, True)
+    if len(valid_noverlap_out) == 0:
+        raise ValueError(f'no rational FFT sizes found that satisfy maximum FFT size and non-primeness constraints')
+
+    noverlap_out = valid_noverlap_out[0]
+    noverlap_in = int(np.rint(resample_ratio*noverlap_out))
+
+    # the following LO shift arguments assume that a hamming COLA window is used
+    if shift == 'left':
+        sign = -1
+    elif shift == 'right':
+        sign = +1
+    else:
+        raise ValueError('shift argument must be "left" or "right"')
+    
+    lo_offset = sign*fs_sdr/noverlap_out*(noverlap_in-noverlap_out)
+
+    ola_filter_kws = {
+        'window': 'hamming', 'noverlap': noverlap_in,
+        'noverlap_out': noverlap_out, 'frequency_shift': shift
+    }
+
+    return fs_sdr, lo_offset, ola_filter_kws
+
+
+def ola_filter(x: Array, *, fs: float, noverlap: int, window: str|tuple='hamming', passband=(None,None), noverlap_out: int = None, frequency_shift=False, axis=0, out=None):
     """ apply a bandpass filter implemented through STFT overlap-and-add.
 
     Args:
-        noverlap: The size of each overlapping fft window in the stft
+        x: the input waveform
+        fs: the sample rate of the input waveform, in Hz
+        noverlap: the size of overlap between adjacent FFT windows, in samples
+        window: the type of COLA window to apply, 'hamming', 'blackman', or 'blackmanharris'
+        passband: a tuple of low-pass cutoff and high-pass cutoff frequency (or None to skip either)
+        noverlap_out: implement downsampling by adjusting the size of overlap between adjacent FFT windows
+        frequency_shift: the direction to shift the downsampled frequencies ('left' or 'right', or False to center)
+        axis: the axis of `x` along which to compute the filter
+
+    Returns:
+        an Array of the same shape as X
+
     """
     if window == 'hamming':
-        nperseg = 2*noverlap
+        segscale = 2
     elif window == 'blackman':
         if noverlap % 2 != 0:
             raise ValueError("blackman window requires noverlap % 2 == 0")
-        nperseg = (noverlap*3)//2
+        segscale = 3/2
     elif window == 'blackmanharris':
         if noverlap % 4 != 0:
             raise ValueError("blackmanharris window requires noverlap % 4 == 0")
-        nperseg = (noverlap*5)//4
+        segscale = 5/4
     else:
         raise TypeError('ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")')
+
+    nperseg = int(np.rint(segscale*noverlap))
 
     xp = array_namespace(x)
 
@@ -235,11 +323,28 @@ def ola_filter(x, *, fs: float, noverlap: int, window: str|tuple, passband=(None
     if passband[1] is not None:
         X[:,freqs > passband[1]] = 0
 
+    if noverlap_out is not None:
+        newsize = noverlap_out*segscale
+        if frequency_shift == 'left':
+            X = X[:,:newsize]
+        elif frequency_shift == 'right':
+            X = X[:,-newsize:]
+        elif frequency_shift is False:
+            # TODO: test this
+            X = X[:,newsize//2:-newsize//2 + (noverlap_out%2)]
+        else:
+            raise ValueError('noverlap_out must be "left", "right", or False')
+
     x_windows = ifft(xp.fft.fftshift(X, axes=axis+1), axis=axis+1, overwrite_x=True, out=X)
     if out is None:
         out = X
 
-    return _from_overlapping_windows(x_windows, noverlap=noverlap, axis=axis, out=out)
+    if noverlap_out is None:
+        noverlap_out = noverlap
+
+    ret = _from_overlapping_windows(x_windows, noverlap=noverlap_out, axis=axis, out=out)
+    print(ret.shape)
+    return ret
 
 
 def stft(
