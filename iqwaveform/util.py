@@ -3,14 +3,16 @@ from array_api_strict._typing import Array
 from array_api_compat import is_cupy_array
 import numpy as np
 
+
 class NonStreamContext:
     """a do-nothing cupy.Stream duck type stand-in for array types that do not support synchronization"""
+
     def __init__(self, *args, **kws):
         pass
 
     def __enter__(self):
         return self
-    
+
     def __exit__(self, *args):
         pass
 
@@ -25,6 +27,7 @@ def array_stream(obj: Array, null=False, non_blocking=False, ptds=False):
     """returns a cupy.Stream (or a do-nothing stand in) object as appropriate for obj"""
     if is_cupy_array(obj):
         import cupy
+
         return cupy.cuda.Stream(null=null, non_blocking=non_blocking, ptds=ptds)
     else:
         return NonStreamContext()
@@ -38,6 +41,7 @@ def array_namespace(a):
 
     try:
         import mlx.core as mx
+
         if isinstance(a, mx.array):
             return mx
         else:
@@ -47,18 +51,18 @@ def array_namespace(a):
 
     raise TypeError('unrecognized object type')
 
+
 def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
     if axis >= 0:
-        pre_pad = [[0,0]] * axis
+        pre_pad = [[0, 0]] * axis
     else:
-        pre_pad = [[0,0]] * (axis+a.ndim-1)
+        pre_pad = [[0, 0]] * (axis + a.ndim - 1)
 
     xp = array_namespace(a)
-    return xp.pad(a, pre_pad+pad_width, *args, **kws)
+    return xp.pad(a, pre_pad + pad_width, *args, **kws)
 
 
-def sliding_window_view(x, window_shape, axis=None, *,
-                        subok=False, writeable=False):
+def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=False):
     """
     Create a sliding window view into the array with the given window shape.
 
@@ -132,13 +136,11 @@ def sliding_window_view(x, window_shape, axis=None, *,
 
     import cupy as _cupy
 
-    window_shape = (tuple(window_shape)
-                    if np.iterable(window_shape)
-                    else (window_shape,))
+    window_shape = tuple(window_shape) if np.iterable(window_shape) else (window_shape,)
 
     # writeable is not supported:
     if writeable:
-        raise NotImplementedError("Writeable views are not supported.")
+        raise NotImplementedError('Writeable views are not supported.')
 
     # first convert input to array, possibly keeping subclass
     x = _cupy.array(x, copy=False, subok=subok)
@@ -151,16 +153,20 @@ def sliding_window_view(x, window_shape, axis=None, *,
     if axis is None:
         axis = tuple(range(x.ndim))
         if len(window_shape) != len(axis):
-            raise ValueError(f'Since axis is `None`, must provide '
-                             f'window_shape for all dimensions of `x`; '
-                             f'got {len(window_shape)} window_shape elements '
-                             f'and `x.ndim` is {x.ndim}.')
+            raise ValueError(
+                f'Since axis is `None`, must provide '
+                f'window_shape for all dimensions of `x`; '
+                f'got {len(window_shape)} window_shape elements '
+                f'and `x.ndim` is {x.ndim}.'
+            )
     else:
         axis = _cupy._core.internal._normalize_axis_indices(axis, x.ndim)
         if len(window_shape) != len(axis):
-            raise ValueError(f'Must provide matching length window_shape and '
-                             f'axis; got {len(window_shape)} window_shape '
-                             f'elements and {len(axis)} axes elements.')
+            raise ValueError(
+                f'Must provide matching length window_shape and '
+                f'axis; got {len(window_shape)} window_shape '
+                f'elements and {len(axis)} axes elements.'
+            )
 
     out_strides = x.strides + tuple(x.strides[ax] for ax in axis)
 
@@ -168,8 +174,7 @@ def sliding_window_view(x, window_shape, axis=None, *,
     x_shape_trimmed = list(x.shape)
     for ax, dim in zip(axis, window_shape):
         if x_shape_trimmed[ax] < dim:
-            raise ValueError(
-                'window shape cannot be larger than input array shape')
+            raise ValueError('window shape cannot be larger than input array shape')
         x_shape_trimmed[ax] -= dim - 1
     out_shape = tuple(x_shape_trimmed) + window_shape
     return _cupy.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)

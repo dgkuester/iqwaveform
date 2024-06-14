@@ -2,7 +2,7 @@ import cupy as cp
 
 # context manager for evaluating abs^2 at the output of the fft
 apply_abs2_in_fft = cp.fft.config.set_cufft_callbacks(
-    cb_store=r'''
+    cb_store=r"""
 __device__ void abs2(
     void *dataOut, 
     size_t offset,
@@ -15,7 +15,9 @@ __device__ void abs2(
 }
 
 __device__ cufftCallbackStoreC d_storeCallbackPtr = abs2;
-''')
+"""
+)
+
 
 def build():
     """pre-build CUDA kernels"""

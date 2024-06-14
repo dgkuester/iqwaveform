@@ -7,13 +7,17 @@ from .power_analysis import powtodB, dBtopow, envtodB, envtopow, sample_ccdf
 from .fourier import to_blocks, iq_to_stft_spectrogram
 import math
 
+
 def _show_xarray_units_in_parentheses():
     from xarray.plot.utils import _get_units_from_attrs
+
     code = _get_units_from_attrs.__code__
     consts = tuple([' ({})' if c == ' [{}]' else c for c in code.co_consts])
     _get_units_from_attrs.__code__ = code.replace(co_consts=consts)
 
+
 _show_xarray_units_in_parentheses()
+
 
 def is_decade(x, **kwargs):
     y = np.log10(x)

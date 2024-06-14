@@ -38,8 +38,9 @@ lint = [
 ]
 dev = [
     "ipython>=8.12.3",
-    "mlx>=0.0.5",
     "ruff>=0.4.2",
+    "pip",
+    "jupyter"
 ]
 
 [tool.ruff]

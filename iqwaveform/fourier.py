@@ -6,12 +6,19 @@ from . import power_analysis
 import scipy
 from multiprocessing import cpu_count
 from functools import partial, lru_cache
-from .util import Array, array_stream, array_namespace, pad_along_axis, sliding_window_view
+from .util import (
+    Array,
+    array_stream,
+    array_namespace,
+    pad_along_axis,
+    sliding_window_view,
+)
 from array_api_compat import is_cupy_array, is_torch_array
 from scipy.signal._arraytools import axis_slice
 
 CPU_COUNT = cpu_count()
-OLA_MAX_FFT_SIZE = 64*1024
+OLA_MAX_FFT_SIZE = 64 * 1024
+
 
 def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
     if is_cupy_array(x):
@@ -19,14 +26,24 @@ def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         if out is not None:
             out = out.reshape(x.shape)
         import cupy as cp
+
         return cp.fft._fft._fftn(
-            x, (None,), (axis,), None, cp.cuda.cufft.CUFFT_FORWARD,
-            overwrite_x=overwrite_x, plan=plan, out=out, order='C'
+            x,
+            (None,),
+            (axis,),
+            None,
+            cp.cuda.cufft.CUFFT_FORWARD,
+            overwrite_x=overwrite_x,
+            plan=plan,
+            out=out,
+            order='C',
         )
     else:
         if workers is None:
-            workers=CPU_COUNT//2
-        return scipy.fft.fft(x, axis=axis, workers=workers, overwrite_x=overwrite_x, plan=plan)
+            workers = CPU_COUNT // 2
+        return scipy.fft.fft(
+            x, axis=axis, workers=workers, overwrite_x=overwrite_x, plan=plan
+        )
 
 
 def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
@@ -35,16 +52,24 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         if out is not None:
             out = out.reshape(x.shape)
         import cupy as cp
+
         return cp.fft._fft._fftn(
-            x, (None,), (axis,), None, cp.cuda.cufft.CUFFT_INVERSE,
-            overwrite_x=overwrite_x, plan=plan, out=out, order='C'
+            x,
+            (None,),
+            (axis,),
+            None,
+            cp.cuda.cufft.CUFFT_INVERSE,
+            overwrite_x=overwrite_x,
+            plan=plan,
+            out=out,
+            order='C',
         )
     else:
         if workers is None:
-            workers=CPU_COUNT//2        
-        return scipy.fft.ifft(x, axis=axis, workers=workers, overwrite_x=overwrite_x, plan=plan)
-
-
+            workers = CPU_COUNT // 2
+        return scipy.fft.ifft(
+            x, axis=axis, workers=workers, overwrite_x=overwrite_x, plan=plan
+        )
 
 
 def zero_pad(x: Array, pad_amt: int) -> Array:
@@ -134,21 +159,27 @@ def _get_stft_axes(
     freqs = xp.fft.fftshift(xp.fft.fftfreq(fft_size, d=1 / fs))
     times = xp.arange(time_size) * ((1 - overlap_frac) * fft_size / fs)
 
-
     return freqs, times
 
 
-def _to_overlapping_windows(x: Array, window: Array, nperseg: int, noverlap: int, pad_mode='constant', axis=0, out=None) -> Array:
-    """ add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform.
+def _to_overlapping_windows(
+    x: Array,
+    window: Array,
+    nperseg: int,
+    noverlap: int,
+    pad_mode='wrap',
+    axis=0,
+    out=None,
+) -> Array:
+    """add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform.
 
     Compared to the underlying stft implementations in scipy and cupyx.scipy, this has been simplified
     to a reduced set of parameters for speed.
-    
+
     Args:
         x: the 1-D waveform (or N-D tensor of waveforms)
         axis: the waveform axis; stft will be evaluated across all other axes
     """
-    xp = array_namespace(x)
 
     fft_size = nperseg
     hop_size = nperseg - noverlap
@@ -159,21 +190,24 @@ def _to_overlapping_windows(x: Array, window: Array, nperseg: int, noverlap: int
 
     stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
 
-    # scaling correction based on the shape of the window where it intersects with its neighbor
-    cola_scale = 2*window[window.size//2-hop_size//2]
+    if (window.size - hop_size) % 2 == 0:
+        # scaling correction based on the shape of the window where it intersects with its neighbor
+        cola_scale = 2 * window[(window.size - hop_size) // 2]
+    else:
+        cola_scale = window[(window.size - hop_size) // 2] + window[(window.size - hop_size) // 2 + 1]
 
     if out is None:
         stride_windows = stride_windows.copy()
     else:
         out[:] = stride_windows
 
-    stride_windows *= broadcast_onto(window/cola_scale, stride_windows, axis=axis+1)
+    stride_windows *= broadcast_onto(window / cola_scale, stride_windows, axis=axis + 1)
 
     return stride_windows
 
 
-def _from_overlapping_windows(y: Array, noverlap: int, axis=0, out=None) -> Array:
-    """ reconstruct the time-domain waveform from the stft in y.
+def _from_overlapping_windows(y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0) -> Array:
+    """reconstruct the time-domain waveform from the stft in y.
 
     Compared to the underlying istft implementations in scipy and cupyx.scipy, this has been simplified
     to a reduced set of parameters for speed.
@@ -183,51 +217,67 @@ def _from_overlapping_windows(y: Array, noverlap: int, axis=0, out=None) -> Arra
         noverlap: the overlap size that was used to generate the STFT (see scipy.signal.stft)
         axis: the axis of the first dimension of the STFT (the second is at axis+1)
         out: if specified, the output array that will receive the result. it must have at least the same allocated size as y
+        extra: total number of extra samples to include at the edges 
     """
 
     xp = array_namespace(y)
 
-    nperseg = fft_size = y.shape[axis+1]
+    fft_size = nperseg
     hop_size = nperseg - noverlap
 
-    waveform_size = y.shape[axis]*y.shape[axis+1]*hop_size//fft_size + noverlap
-    target_shape = y.shape[:axis] + (waveform_size,) + y.shape[axis+2:]
+    waveform_size = y.shape[axis] * y.shape[axis + 1] * hop_size // fft_size + noverlap
+    target_shape = y.shape[:axis] + (waveform_size,) + y.shape[axis + 2 :]
 
     if out is None:
         xr = xp.zeros(target_shape, dtype=y.dtype)
     else:
-        xr = out.flatten()[:np.prod(target_shape)].reshape(target_shape)
+        xr = out.flatten()[: np.prod(target_shape)].reshape(target_shape)
         xr[:] = 0
 
     # for speed, sum up in groups of non-overlapping windows
-    for i in range(fft_size//hop_size):
-        yslice = axis_slice(y, start=i, step=fft_size//hop_size, axis=axis)
-        yslice = yslice.reshape(yslice.shape[:axis]+(yslice.shape[axis]*yslice.shape[axis+1],)+yslice.shape[axis+2:])
-        xr_slice = axis_slice(xr, start=i*hop_size, stop=i*hop_size+yslice.shape[axis], axis=axis)
-        xr_slice[...] += yslice
+    for offs in range(fft_size // hop_size):
+        yslice = axis_slice(y, start=offs, step=fft_size // hop_size, axis=axis)
+        yslice = yslice.reshape(
+            yslice.shape[:axis]
+            + (yslice.shape[axis] * yslice.shape[axis + 1],)
+            + yslice.shape[axis + 2 :]
+        )
+        xr_slice = axis_slice(
+            xr,
+            start=offs * hop_size,
+            stop=offs * hop_size + yslice.shape[axis], axis=axis
+        )
+        xr_slice += yslice
 
-    return xr
+    return axis_slice(xr, start=noverlap, stop=-noverlap+extra, axis=axis)
 
 
 @lru_cache
 def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
     s = np.arange(3, max, 2)
 
-    for m in range(3, int(np.sqrt(max)+1), 2):
-        if s[(m-3)//2]:
-            s[(m*m-3)//2::m]=0
+    for m in range(3, int(np.sqrt(max) + 1), 2):
+        if s[(m - 3) // 2]:
+            s[(m * m - 3) // 2 :: m] = 0
 
-    return s[(s>min)]
+    return s[(s > min)]
 
 
 @lru_cache
-def design_cola_frequency_shift(fs_base: float, fs_target: float, bw: float, bw_lo: float = 500e3, shift='left', avoid_primes=True) -> (float,float, dict):
-    """ designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
-    
+def design_cola_frequency_shift(
+    fs_base: float,
+    fs_target: float,
+    bw: float,
+    bw_lo: float = 100e3,
+    shift='left',
+    avoid_primes=True,
+) -> (float, float, dict):
+    """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
+
     The result includes the integer-divided SDR sample rate to request from the SDR, the LO frequency offset,
     and the keyword arguments needed to realize resampling with `ola_filter`.
 
-    Args: 
+    Args:
         fs_base: the base clock rate (sometimes known as master clock rate, MCR) of the receiver
         fs_target: the desired sample rate after resampling
         bw: the analysis bandwidth to protect from LO leakage
@@ -239,15 +289,15 @@ def design_cola_frequency_shift(fs_base: float, fs_target: float, bw: float, bw_
         (SDR sample rate, RF LO frequency offset in Hz, ola_filter_kws)
 
     """
-    fs_sdr_min = fs_target + bw/2 + bw_lo/2
-    decimation = int(np.floor(fs_base/fs_sdr_min))
+    fs_sdr_min = fs_target + bw / 2 + bw_lo / 2
+    decimation = int(np.floor(fs_base / fs_sdr_min))
 
-    fs_sdr = fs_base/decimation
+    fs_sdr = fs_base / decimation
 
-    resample_ratio = fs_sdr/fs_target
+    resample_ratio = fs_sdr / fs_target
 
     # the following returns the modula closest to either 0 or 1, accommodating downward rounding errors (e.g., 0.999)
-    trial_noverlap = resample_ratio * np.arange(1,OLA_MAX_FFT_SIZE+1)
+    trial_noverlap = resample_ratio * np.arange(1, OLA_MAX_FFT_SIZE + 1)
     check_mods = power_analysis.isroundmod(trial_noverlap, 1)
 
     # all valid noverlap size candidates
@@ -256,32 +306,49 @@ def design_cola_frequency_shift(fs_base: float, fs_target: float, bw: float, bw_
         reject = _prime_fft_sizes(100)
         valid_noverlap_out = np.setdiff1d(valid_noverlap_out, reject, True)
     if len(valid_noverlap_out) == 0:
-        raise ValueError(f'no rational FFT sizes found that satisfy maximum FFT size and non-primeness constraints')
+        raise ValueError(
+            f'no rational FFT sizes found that satisfy maximum FFT size and non-primeness constraints'
+        )
 
-    noverlap_out = valid_noverlap_out[0]
-    noverlap_in = int(np.rint(resample_ratio*noverlap_out))
+    nfft_out = valid_noverlap_out[0]
+    nfft_in = int(np.rint(resample_ratio * nfft_out))
 
     # the following LO shift arguments assume that a hamming COLA window is used
     if shift == 'left':
-        sign = +1
-    elif shift == 'right':
         sign = -1
+    elif shift == 'right':
+        sign = +1
     else:
         raise ValueError('shift argument must be "left" or "right"')
-    
-    lo_offset = sign*fs_sdr/noverlap_in*(noverlap_in-noverlap_out)
+
+    lo_offset = sign * fs_sdr / nfft_in * (nfft_in - nfft_out)
 
     ola_resample_kws = {
-        'window': 'hamming', 'noverlap': noverlap_in,
-        'noverlap_out': noverlap_out, 'frequency_shift': shift,
-        'fs': fs_sdr
+        'window': 'hamming',
+        'fft_size': nfft_in,
+        'fft_size_out': nfft_out,
+        'frequency_shift': shift,
+        'passband': (lo_offset-bw/2, lo_offset+bw/2),
+        'fs': fs_sdr,
     }
 
     return fs_sdr, lo_offset, ola_resample_kws
 
 
-def ola_filter(x: Array, *, fs: float, noverlap: int, window: str|tuple='hamming', passband=(None,None), noverlap_out: int = None, frequency_shift=False, axis=0, out=None):
-    """ apply a bandpass filter implemented through STFT overlap-and-add.
+def ola_filter(
+    x: Array,
+    *,
+    fs: float,
+    fft_size: int,
+    window: str | tuple = 'hamming',
+    passband=(None, None),
+    fft_size_out: int = None,
+    frequency_shift=False,
+    axis=0,
+    out=None,
+    extend=False
+):
+    """apply a bandpass filter implemented through STFT overlap-and-add.
 
     Args:
         x: the input waveform
@@ -292,59 +359,98 @@ def ola_filter(x: Array, *, fs: float, noverlap: int, window: str|tuple='hamming
         noverlap_out: implement downsampling by adjusting the size of overlap between adjacent FFT windows
         frequency_shift: the direction to shift the downsampled frequencies ('left' or 'right', or False to center)
         axis: the axis of `x` along which to compute the filter
+        extend: if True, allow use of zero-padded samples at the edges to accommodate a non-integer number of overlapping windows in x
 
     Returns:
         an Array of the same shape as X
 
     """
-    if window == 'hamming':
-        segscale = 2
-    elif window == 'blackman':
-        if noverlap % 2 != 0:
-            raise ValueError("blackman window requires noverlap % 2 == 0")
-        segscale = 3/2
-    elif window == 'blackmanharris':
-        if noverlap % 4 != 0:
-            raise ValueError("blackmanharris window requires noverlap % 4 == 0")
-        segscale = 5/4
-    else:
-        raise TypeError('ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")')
-
-    nperseg = int(np.rint(segscale*noverlap))
-
     xp = array_namespace(x)
 
-    freqs, times, X = stft(x, fs=fs, window=window, nperseg=nperseg, noverlap=noverlap, axis=0)
+    if fft_size_out is None:
+        fft_size_out = fft_size
 
-    if noverlap_out is not None:
-        newsize = noverlap_out*segscale
-        if frequency_shift == 'left':
-            span = slice(None, newsize)
-        elif frequency_shift == 'right':
-            span = slice(-newsize, None)
-        elif frequency_shift is False:
-            # TODO: test this
-            span = slice(newsize//2,-newsize//2 + (noverlap_out%2))
+    if window == 'hamming':
+        if fft_size_out % 2 != 0:
+            raise ValueError('blackman window COLA requires output fft_size_out % 2 == 0')
+        overlap_scale = 1 / 2
+    elif window == 'blackman':
+        if fft_size_out % 3 != 0:
+            raise ValueError('blackman window COLA requires output fft_size_out % 3 == 0')
+        overlap_scale = 2 / 3
+    elif window == 'blackmanharris':
+        if fft_size_out % 5 != 0:
+            raise ValueError('blackmanharris window requires output fft_size_out % 5 == 0')
+        overlap_scale = 4 / 5
+    else:
+        raise TypeError(
+            'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
+        )
+
+    noverlap = round(fft_size_out*overlap_scale)
+
+    if x.size % noverlap != 0:
+        print(x.size % noverlap)
+        if extend:
+            pad_out = x.size % noverlap
         else:
-            raise ValueError('noverlap_out must be "left", "right", or False')
-        X = X[:,span]
-        freqs = freqs[span]
+            raise ValueError('x.size must be an integer multiple of noverlap')
+    else:
+        pad_out = 0
 
-    if passband[0] is not None:
-        X[:,freqs < passband[0]] = 0
-    if passband[1] is not None:
-        X[:,freqs > passband[1]] = 0
+    freqs, times, X = stft(
+        x, fs=fs, window=window, nperseg=fft_size, noverlap=round(fft_size*overlap_scale), axis=0, truncate=False
+    )
 
-    x_windows = ifft(xp.fft.fftshift(X, axes=axis+1), axis=axis+1, overwrite_x=True, out=X)
-    
+    passband = list(passband)
+    if passband[0] is None:
+        passband[0] = freqs[0]
+    if passband[1] is None:
+        passband[1] = freqs[-1]
+
+    if fft_size_out == fft_size or not frequency_shift:
+        if passband[0] is not None:
+            X[:, freqs < passband[0]] = 0
+        if passband[1] is not None:
+            X[:, freqs > passband[1]] = 0
+    else:
+        ilo = np.where(freqs >= passband[0])[0][0]
+        ihi = np.where(freqs <= passband[1])[0][-1]+1
+
+        pass_size = ihi-ilo
+        pad_size = fft_size_out - pass_size
+
+        if ihi - ilo >= fft_size_out:
+            if frequency_shift == 'left':
+                X = X[:,-fft_size_out:]
+            if frequency_shift == 'right':
+                X = X[:,:fft_size_out]
+            else:
+                raise ValueError('frequency_shift must be "left" or "right"')       
+        else:
+            ioutlo = pad_size//2
+            iouthi = fft_size_out-pad_size//2+pad_size%2
+
+            X[:,ioutlo:iouthi] = X[:,ilo:ihi]
+            X = X[:,:fft_size_out]
+            X[:,:ioutlo] = 0
+            X[:,iouthi:] = 0
+
+    x_windows = ifft(
+        xp.fft.fftshift(X, axes=axis + 1),
+        axis=axis + 1,
+        overwrite_x=True,
+        out=X
+    )
+
+    print(x_windows.shape)
+
     if out is None:
-        out = X
+        out=X
 
-    if noverlap_out is None:
-        noverlap_out = noverlap
-    ret = _from_overlapping_windows(x_windows, noverlap=noverlap_out, axis=axis, out=out)
-    trim_out = ret.shape[axis] - round(x.size*(noverlap_out/noverlap))
-    return axis_slice(ret, start=trim_out//2, stop=-trim_out//2+(trim_out%2), axis=axis)
+    return _from_overlapping_windows(
+        x_windows, noverlap=noverlap, nperseg=fft_size_out, axis=axis, out=out, extra=pad_out
+    )
 
 
 def stft(
@@ -357,7 +463,7 @@ def stft(
     axis: int = 0,
     truncate: bool = True,
     norm: str | None = None,
-    out=None
+    out=None,
 ):
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
     some overhead that comes with its generality and allow use of the generic
@@ -417,6 +523,7 @@ def stft(
         w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=should_norm)
         if is_torch_array(w):
             import torch
+
             w = torch.asarray(w, dtype=x.dtype, device=x.device)
     else:
         w = xp.array(window)
@@ -424,21 +531,23 @@ def stft(
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
 
-        x = x*broadcast_onto(w / fft_size, x, axis=axis+1)
-        X = fft(x, axis=axis+1, overwrite_x=True, out=out)
-        X = xp.fft.fftshift(X, axes=axis+1)
+        x = x * broadcast_onto(w / fft_size, x, axis=axis + 1)
+        X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
+        X = xp.fft.fftshift(X, axes=axis + 1)
 
     else:
-        assert fft_size % (fft_size-noverlap) == 0
+        # assert fft_size % (fft_size - noverlap) == 0
 
-        x_ol = _to_overlapping_windows(x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out)
+        x_ol = _to_overlapping_windows(
+            x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out
+        )
 
-        X = fft(x_ol, axis=axis+1, overwrite_x=True, out=out)
+        X = fft(x_ol, axis=axis + 1, overwrite_x=True, out=out)
 
         # interleave the overlaps in time
-        #X = X.reshape(X.shape[:-2] + (X.shape[-2]*X.shape[-1],))
-        X = xp.fft.fftshift(X, axes=axis+1)
-        #X = X.swapaxes(-2, -1)
+        # X = X.reshape(X.shape[:-2] + (X.shape[-2]*X.shape[-1],))
+        X = xp.fft.fftshift(X, axes=axis + 1)
+        # X = X.swapaxes(-2, -1)
 
     freqs, times = _get_stft_axes(
         fs,
@@ -466,6 +575,7 @@ def spectrogram(
 
     if is_cupy_array(x):
         from . import cuda
+
         cuda.build()
 
         with cuda.apply_abs2_in_fft:

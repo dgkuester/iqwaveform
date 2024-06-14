@@ -115,7 +115,7 @@ def envtopow(x: ArrayOrPandas) -> Any:
     if xp in (None, np):
         # numpy, pandas
         values = ne.evaluate('abs(x)**2', local_dict=dict(x=x))
-        
+
         if np.iscomplexobj(values):
             values = values.real
 
@@ -124,7 +124,6 @@ def envtopow(x: ArrayOrPandas) -> Any:
         # TODO: CUDA kernel evaluation here
         values = xp.abs(x)
         values *= values
-
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
@@ -289,7 +288,9 @@ def iq_to_cyclic_power(
 
     power = {d: x.reshape(shape_by_cycle) for d, x in power.items()}
 
-    cycle_stat_ufunc = {kind: stat_ufunc_from_shorthand(kind, xp=xp) for kind in cycle_stats}
+    cycle_stat_ufunc = {
+        kind: stat_ufunc_from_shorthand(kind, xp=xp) for kind in cycle_stats
+    }
 
     # apply the cyclic statistic
 
