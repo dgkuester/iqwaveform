@@ -270,7 +270,6 @@ def design_cola_frequency_shift(
     bw: float,
     bw_lo: float = 100e3,
     shift='left',
-    window='hamming',
     avoid_primes=True,
 ) -> (float, float, dict):
     """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
@@ -306,17 +305,6 @@ def design_cola_frequency_shift(
     if avoid_primes:
         reject = _prime_fft_sizes(100)
         valid_noverlap_out = np.setdiff1d(valid_noverlap_out, reject, True)
-    if window == 'hamming':
-        require_denom = 2
-    elif window == 'blackman':
-        require_denom = 3
-    elif window == 'blackmanharris':
-        require_denom = 5
-    else:
-        raise ValueError('invalid window name')
-
-    valid_noverlap_out = valid_noverlap_out[np.where((valid_noverlap_out % require_denom) == 0)[0]]
-
     if len(valid_noverlap_out) == 0:
         raise ValueError(
             f'no rational FFT sizes found that satisfy maximum FFT size and non-primeness constraints'
@@ -333,7 +321,7 @@ def design_cola_frequency_shift(
     else:
         raise ValueError('shift argument must be "left" or "right"')
 
-    lo_offset = sign * 0.5 / _overlap_scale(window, nfft_out) * fs_sdr / nfft_in * (nfft_in - nfft_out)
+    lo_offset = sign * fs_sdr / nfft_in * (nfft_in - nfft_out)
 
     ola_resample_kws = {
         'window': 'hamming',
@@ -346,23 +334,6 @@ def design_cola_frequency_shift(
 
     return fs_sdr, lo_offset, ola_resample_kws
 
-def _overlap_scale(window, fft_size):
-    if window == 'hamming':
-        if fft_size % 2 != 0:
-            raise ValueError('blackman window COLA requires output fft_size % 2 == 0')
-        return 1 / 2
-    elif window == 'blackman':
-        if fft_size % 3 != 0:
-            raise ValueError('blackman window COLA requires output fft_size % 3 == 0')
-        return 2 / 3
-    elif window == 'blackmanharris':
-        if fft_size % 5 != 0:
-            raise ValueError('blackmanharris window requires output fft_size % 5 == 0')
-        return 4 / 5
-    else:
-        raise TypeError(
-            'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
-        )
 
 def ola_filter(
     x: Array,
@@ -398,8 +369,23 @@ def ola_filter(
 
     if fft_size_out is None:
         fft_size_out = fft_size
-   
-    overlap_scale = _overlap_scale(window, fft_size_out)
+
+    if window == 'hamming':
+        if fft_size_out % 2 != 0:
+            raise ValueError('blackman window COLA requires output fft_size_out % 2 == 0')
+        overlap_scale = 1 / 2
+    elif window == 'blackman':
+        if fft_size_out % 3 != 0:
+            raise ValueError('blackman window COLA requires output fft_size_out % 3 == 0')
+        overlap_scale = 2 / 3
+    elif window == 'blackmanharris':
+        if fft_size_out % 5 != 0:
+            raise ValueError('blackmanharris window requires output fft_size_out % 5 == 0')
+        overlap_scale = 4 / 5
+    else:
+        raise TypeError(
+            'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
+        )
 
     noverlap = round(fft_size_out*overlap_scale)
 
@@ -456,8 +442,6 @@ def ola_filter(
         overwrite_x=True,
         out=X
     )
-
-    print(x_windows.shape)
 
     if out is None:
         out=X
