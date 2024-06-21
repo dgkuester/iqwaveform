@@ -196,14 +196,14 @@ def iq_to_bin_power(
 
     xp = array_namespace(iq)
 
-    if not truncate and not isroundmod(Tbin, Ts):
+    if truncate or isroundmod(Tbin, Ts):
+        N = round(Tbin / Ts)
+    else:
         raise ValueError(
             f'bin period ({Tbin} s) must be multiple of waveform sample period ({Ts})'
         )
 
     detector = stat_ufunc_from_shorthand(kind, xp=xp)
-
-    N = int(Tbin / Ts)
 
     # instantaneous power, reshaped into bins
     if randomize:
@@ -220,18 +220,19 @@ def iq_to_bin_power(
         shape2 = iq.shape[1:2] if iq.ndim == 2 else tuple()
         power_bins = envtopow(iq).reshape(shape01 + shape2)
 
-    return detector(power_bins, axis=1)
+    dtype = xp.finfo(iq.dtype).dtype
+    return detector(power_bins, axis=1).astype(dtype)
 
 
 def iq_to_cyclic_power(
-    iq: np.ndarray,
+    iq: Array,
     Ts: float,
     detector_period: float,
     cyclic_period: float,
     truncate=False,
     detectors=('rms', 'peak'),
     cycle_stats=('min', 'mean', 'max'),
-) -> dict[str, dict[str, np.array]]:
+) -> dict[str, dict[str, Array]]:
     """computes a time series of periodic frame power statistics.
 
     The time axis on the cyclic time lag [0, cyclic_period) is binned with step size
@@ -256,19 +257,19 @@ def iq_to_cyclic_power(
 
     # apply the detector statistic
     xp = array_namespace(iq)
+    dtype = xp.finfo(iq.dtype).dtype
 
     power = {
         d: iq_to_bin_power(iq, Ts, detector_period, kind=d, truncate=truncate)
         for d in detectors
     }
 
-    if not isroundmod(cyclic_period, detector_period, atol=1e-6):
+    if isroundmod(cyclic_period, detector_period, atol=1e-6):
+        cyclic_detector_bins = round(cyclic_period / detector_period)
+    else:
         raise ValueError(
             'cyclic period must be positive integer multiple of the detector period'
         )
-
-    # bin by cyclic period
-    cyclic_detector_bins = int(np.rint(cyclic_period / detector_period))
 
     power_shape = power[detectors[0]].shape
     if power_shape[0] % cyclic_detector_bins != 0:
