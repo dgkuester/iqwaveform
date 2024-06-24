@@ -2,6 +2,38 @@ import array_api_compat
 from array_api_strict._typing import Array
 from array_api_compat import is_cupy_array
 import numpy as np
+from contextlib import contextmanager
+from enum import Enum
+
+
+__all__ = [
+    'Domain', 'set_input_domain', 'get_input_domain', 'NonStreamContext', 'array_stream', 'pad_along_axis', 'array_namespace', 'sliding_window_view', 'float_dtype_like'
+]
+
+
+_input_domain = []
+
+
+class Domain(Enum):
+    TIME = 'time'
+    FREQUENCY = 'frequency'
+    TIME_BINNED_POWER = 'time_binned_power'
+
+
+@contextmanager
+def set_input_domain(domain: str|Domain):
+    """set the current domain from input arrays of DSP calls"""
+    i = len(_input_domain)
+    _input_domain.append(Domain(domain))
+    yield
+    del _input_domain[i]
+
+
+def get_input_domain(default=Domain.TIME):
+    if len(_input_domain) > 0:
+        return _input_domain[-1]
+    else:
+        return default
 
 
 class NonStreamContext:
@@ -178,3 +210,13 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
         x_shape_trimmed[ax] -= dim - 1
     out_shape = tuple(x_shape_trimmed) + window_shape
     return _cupy.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
+
+
+def float_dtype_like(x: Array):
+    """returns a floating-point dtype corresponding to x.
+    
+    Returns:
+    * If x.dtype is float16/float32/float64: x.dtype.
+    * If x.dtype is complex64/complex128: float32/float64
+    """
+    return np.finfo(x.dtype).dtype

@@ -6,7 +6,7 @@ import numexpr as ne
 import warnings
 from numbers import Number
 from functools import partial, lru_cache
-from .util import array_namespace
+from .util import array_namespace, get_input_domain, Domain, float_dtype_like
 from array_api_strict._typing import Array
 from typing import Union, Any
 import array_api_compat
@@ -220,12 +220,11 @@ def iq_to_bin_power(
         shape2 = iq.shape[1:2] if iq.ndim == 2 else tuple()
         power_bins = envtopow(iq).reshape(shape01 + shape2)
 
-    dtype = xp.finfo(iq.dtype).dtype
-    return detector(power_bins, axis=1).astype(dtype)
+    return detector(power_bins, axis=1).astype(float_dtype_like(iq))
 
 
 def iq_to_cyclic_power(
-    iq: Array,
+    x: Array,
     Ts: float,
     detector_period: float,
     cyclic_period: float,
@@ -256,13 +255,29 @@ def iq_to_cyclic_power(
     """
 
     # apply the detector statistic
-    xp = array_namespace(iq)
-    dtype = xp.finfo(iq.dtype).dtype
+    xp = array_namespace(x)
+    dtype = float_dtype_like(x)
+    domain = get_input_domain(x)
+    
+    if domain == Domain.TIME:
+        # compute the binned power ourselves
+        if detectors is None:
+            raise ValueError('supply detectors argument to evaluate binned power from time domain IQ')
+        
+        power = {
+            d: iq_to_bin_power(x, Ts, detector_period, kind=d, truncate=truncate)
+            for d in detectors
+        }
 
-    power = {
-        d: iq_to_bin_power(iq, Ts, detector_period, kind=d, truncate=truncate)
-        for d in detectors
-    }
+    elif domain == Domain.TIME_BINNED_POWER:
+        # precalculated binned power
+        power = x
+        if not isinstance(power, dict):
+            raise TypeError('in time-binned power domain, expected dict input keyed by detector')
+        if detectors is None:
+            detectors = tuple(x.keys())
+        elif set(x.keys()) != set(detectors):
+            raise ValueError('input data keys do not match supplied ')
 
     if isroundmod(cyclic_period, detector_period, atol=1e-6):
         cyclic_detector_bins = round(cyclic_period / detector_period)
@@ -284,7 +299,7 @@ def iq_to_cyclic_power(
     shape_by_cycle = (
         power_shape[0] // cyclic_detector_bins,
         cyclic_detector_bins,
-        *([iq.shape[1]] if iq.ndim == 2 else []),
+        *([x.shape[1]] if x.ndim == 2 else []),
     )
 
     power = {d: x.reshape(shape_by_cycle) for d, x in power.items()}

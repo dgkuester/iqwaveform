@@ -12,6 +12,9 @@ from .util import (
     array_namespace,
     pad_along_axis,
     sliding_window_view,
+    get_input_domain,
+    Domain,
+    float_dtype_like
 )
 from array_api_compat import is_cupy_array, is_torch_array
 from scipy.signal._arraytools import axis_slice
@@ -271,7 +274,7 @@ def design_cola_frequency_shift(
     bw_lo: float = 100e3,
     shift='left',
     avoid_primes=True,
-) -> (float, float, dict):
+) -> tuple[float, float, dict]:
     """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
 
     The result includes the integer-divided SDR sample rate to request from the SDR, the LO frequency offset,
@@ -306,9 +309,7 @@ def design_cola_frequency_shift(
         reject = _prime_fft_sizes(100)
         valid_noverlap_out = np.setdiff1d(valid_noverlap_out, reject, True)
     if len(valid_noverlap_out) == 0:
-        raise ValueError(
-            f'no rational FFT sizes found that satisfy maximum FFT size and non-primeness constraints'
-        )
+        raise ValueError('no rational FFT sizes satisfied design constraints')
 
     nfft_out = valid_noverlap_out[0]
     nfft_in = int(np.rint(resample_ratio * nfft_out))
@@ -335,38 +336,8 @@ def design_cola_frequency_shift(
     return fs_sdr, lo_offset, ola_resample_kws
 
 
-def ola_filter(
-    x: Array,
-    *,
-    fs: float,
-    fft_size: int,
-    window: str | tuple = 'hamming',
-    passband=(None, None),
-    fft_size_out: int = None,
-    frequency_shift=False,
-    axis=0,
-    out=None,
-    extend=False
-):
-    """apply a bandpass filter implemented through STFT overlap-and-add.
-
-    Args:
-        x: the input waveform
-        fs: the sample rate of the input waveform, in Hz
-        noverlap: the size of overlap between adjacent FFT windows, in samples
-        window: the type of COLA window to apply, 'hamming', 'blackman', or 'blackmanharris'
-        passband: a tuple of low-pass cutoff and high-pass cutoff frequency (or None to skip either)
-        noverlap_out: implement downsampling by adjusting the size of overlap between adjacent FFT windows
-        frequency_shift: the direction to shift the downsampled frequencies ('left' or 'right', or False to center)
-        axis: the axis of `x` along which to compute the filter
-        extend: if True, allow use of zero-padded samples at the edges to accommodate a non-integer number of overlapping windows in x
-
-    Returns:
-        an Array of the same shape as X
-
-    """
-    xp = array_namespace(x)
-
+@lru_cache
+def _ola_filter_parameters(array_size: int, *, window, fft_size_out, fft_size, extend) -> tuple:
     if fft_size_out is None:
         fft_size_out = fft_size
 
@@ -389,18 +360,87 @@ def ola_filter(
 
     noverlap = round(fft_size_out*overlap_scale)
 
-    if x.size % noverlap != 0:
-        print(x.size % noverlap)
+    if array_size % noverlap != 0:
+        print(array_size % noverlap)
         if extend:
-            pad_out = x.size % noverlap
+            pad_out = array_size % noverlap
         else:
             raise ValueError('x.size must be an integer multiple of noverlap')
     else:
         pad_out = 0
 
-    freqs, times, X = stft(
-        x, fs=fs, window=window, nperseg=fft_size, noverlap=round(fft_size*overlap_scale), axis=0, truncate=False
+    return fft_size_out, noverlap, overlap_scale, pad_out
+
+
+def ola_filter(
+    x: Array,
+    *,
+    fs: float,
+    fft_size: int,
+    window: str | tuple = 'hamming',
+    passband=(None, None),
+    fft_size_out: int = None,
+    frequency_shift=False,
+    axis=0,
+    out=None,
+    extend=False
+):
+    """apply a bandpass filter implemented through STFT overlap-and-add.
+
+    Input domain support via `set_input_domain`:
+        'time', 'frequency'
+
+    Args:
+        x: the input waveform
+        fs: the sample rate of the input waveform, in Hz
+        noverlap: the size of overlap between adjacent FFT windows, in samples
+        window: the type of COLA window to apply, 'hamming', 'blackman', or 'blackmanharris'
+        passband: a tuple of low-pass cutoff and high-pass cutoff frequency (or None to skip either)
+        noverlap_out: implement downsampling by adjusting the size of overlap between adjacent FFT windows
+        frequency_shift: the direction to shift the downsampled frequencies ('left' or 'right', or False to center)
+        axis: the axis of `x` along which to compute the filter
+        extend: if True, allow use of zero-padded samples at the edges to accommodate a non-integer number of overlapping windows in x
+
+    Returns:
+        an Array of the same shape as X
+
+    """
+    xp = array_namespace(x)
+
+    fft_size_out, noverlap, overlap_scale, pad_out = (
+        _ola_filter_parameters(
+            x.size,
+            window=window,
+            fft_size_out=fft_size_out,
+            fft_size=fft_size,
+            extend=extend
+        )
     )
+
+    if get_input_domain() == Domain.TIME:
+        freqs, _, X = stft(
+            x,
+            fs=fs,
+            window=window,
+            nperseg=fft_size,
+            noverlap=round(fft_size*overlap_scale),
+            axis=axis,
+            truncate=False
+        )
+
+    elif get_input_domain() == Domain.FREQUENCY:
+        X = x
+        freqs, _ = _get_stft_axes(
+            fs=fs,
+            fft_size=fft_size,
+            time_size=X.shape[axis],
+            overlap_frac=noverlap / fft_size,
+            xp=xp,
+        )
+
+    else:
+        domain = get_input_domain()
+        raise ValueError(f'{domain} is not supported by ola_filter')
 
     passband = list(passband)
     if passband[0] is None:
@@ -585,6 +625,73 @@ def spectrogram(
         spg = power_analysis.envtopow(X)
 
     return freqs, times, spg
+
+
+def persistence_spectrum(
+    x: Array,
+    *,
+    fs: float,
+    bandwidth=None,
+    window,
+    resolution: float,
+    fractional_overlap=0,
+    quantiles: list[float],
+    truncate=True,
+    dB=True,
+    axis=0
+) -> Array:
+    # TODO: support other persistence statistics, such as mean
+
+    if power_analysis.isroundmod(fs, resolution):
+        fft_size = round(fs / resolution)
+        noverlap = round(fractional_overlap * fft_size)
+    else:
+        # need sample_rate_Hz/resolution to give us a counting number
+        raise ValueError('sample_rate_Hz/resolution must be a counting number')
+
+    xp = array_namespace(x)
+    domain = get_input_domain()
+    dtype = float_dtype_like(x)
+
+    if domain == Domain.TIME:
+        freqs, _, X = spectrogram(
+            x, window=window, fs=fs, nperseg=fft_size, noverlap=noverlap, axis=axis
+        )
+    elif domain == Domain.FREQUENCY:
+        X = x
+        freqs, _ = _get_stft_axes(
+            fs=fs,
+            fft_size=fft_size,
+            time_size=X.shape[axis],
+            overlap_frac=noverlap / fft_size,
+            xp=xp,
+        )
+    else:
+        raise ValueError('unsupported persistence spectrum domain "{domain}')
+
+    if truncate:
+        which_freqs = np.abs(freqs) <= bandwidth / 2
+        X = X[:, which_freqs]
+
+    if domain == Domain.TIME and dB:
+        # already power
+        spg = X
+        spg[:] = power_analysis.powtodB(X, eps=1e-25)
+    elif domain == Domain.FREQUENCY and dB:
+        # here X is complex-valued; use the first-half of its buffer
+        spg = X[:X.size//2].view(dtype)
+        spg[:] = power_analysis.envtodB(X, eps=1e-25)  
+    elif domain == Domain.FREQUENCY and not dB:          
+        spg = X[:X.size//2].view(dtype)
+        spg[:] = power_analysis.envtopow(X, eps=1e-25)  
+
+    # TODO: access the proper axis of spg in the output buffer
+    return xp.quantile(
+        spg,
+        xp.asarray(quantiles),
+        axis=axis,
+        out=spg[:len(quantiles)]
+    ).astype(dtype)
 
 
 def low_pass_filter(
