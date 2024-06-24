@@ -383,7 +383,8 @@ def ola_filter(
     frequency_shift=False,
     axis=0,
     out=None,
-    extend=False
+    extend=False,
+    return_stft=False
 ):
     """apply a bandpass filter implemented through STFT overlap-and-add.
 
@@ -480,15 +481,20 @@ def ola_filter(
         xp.fft.fftshift(X, axes=axis + 1),
         axis=axis + 1,
         overwrite_x=True,
-        out=X
+        out=X if not return_stft else None
     )
 
-    if out is None:
+    if out is None and not return_stft:
         out=X
 
-    return _from_overlapping_windows(
+    xout = _from_overlapping_windows(
         x_windows, noverlap=noverlap, nperseg=fft_size_out, axis=axis, out=out, extra=pad_out
     )
+
+    if return_stft:
+        return xout, X
+    else:
+        return xout
 
 
 def stft(

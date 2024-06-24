@@ -1,3 +1,4 @@
+from __future__ import annotations
 import array_api_compat
 from array_api_strict._typing import Array
 from array_api_compat import is_cupy_array
@@ -30,6 +31,9 @@ def set_input_domain(domain: str|Domain):
 
 
 def get_input_domain(default=Domain.TIME):
+    # validate the domain
+    Domain(default)
+
     if len(_input_domain) > 0:
         return _input_domain[-1]
     else:

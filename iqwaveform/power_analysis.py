@@ -257,7 +257,7 @@ def iq_to_cyclic_power(
     # apply the detector statistic
     xp = array_namespace(x)
     dtype = float_dtype_like(x)
-    domain = get_input_domain(x)
+    domain = get_input_domain()
     
     if domain == Domain.TIME:
         # compute the binned power ourselves
