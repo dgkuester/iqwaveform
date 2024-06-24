@@ -65,7 +65,7 @@ def dBtopow(x: ArrayOrPandas) -> Any:
         return values
 
 
-def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0) -> Any:
+def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0, out=None) -> Any:
     """compute `10*log10(abs(x) + eps)` or `10*log10(x + eps)` with speed optimizations"""
 
     # TODO: add support for CUDA evaluation as well
@@ -77,24 +77,27 @@ def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0) -> Any:
         # pandas
         xp = None
 
+    if xp is not None and out is None:
+        out = xp.zeros(x.shape, dtype=float_dtype_like(x))
+
     if xp not in (None, np):
         # cuda, mlx, etc
         # TODO: CUDA kernel evaluation here
         if abs:
-            values = xp.abs(x)
+            values = xp.abs(x, out=out)
         else:
             values = x
         if eps != 0:
             values += eps
-        values = xp.log10(values)
+        values = xp.log10(values, out=values)
         values *= 10
 
     elif abs:
         values = ne.evaluate(
-            f'10*log10(abs(x){eps_str})', local_dict=dict(x=x, eps=eps)
+            f'real(10*log10(abs(x){eps_str}))', local_dict=dict(x=x, eps=eps), out=out, casting='unsafe'
         )
     else:
-        values = ne.evaluate(f'10*log10(x+eps){eps_str}', local_dict=dict(x=x, eps=eps))
+        values = ne.evaluate(f'real(10*log10(x+eps){eps_str})', local_dict=dict(x=x, eps=eps), out=out, casting='unsafe')
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
@@ -104,7 +107,7 @@ def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0) -> Any:
         return values
 
 
-def envtopow(x: ArrayOrPandas) -> Any:
+def envtopow(x: ArrayOrPandas, out=None) -> Any:
     """Computes abs(x)**2 with speed optimizations"""
 
     try:
@@ -112,9 +115,12 @@ def envtopow(x: ArrayOrPandas) -> Any:
     except TypeError:
         xp = None
 
+    if xp is not None and out is None:
+        out = xp.zeros(x.shape, dtype=float_dtype_like(x))
+
     if xp in (None, np):
         # numpy, pandas
-        values = ne.evaluate('abs(x)**2', local_dict=dict(x=x))
+        values = ne.evaluate('real(abs(x)**2)', local_dict=dict(x=x), out=out, casting='unsafe')
 
         if np.iscomplexobj(values):
             values = values.real
@@ -133,7 +139,7 @@ def envtopow(x: ArrayOrPandas) -> Any:
         return values
 
 
-def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0) -> np.ndarray:
+def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0, out=None) -> np.ndarray:
     """compute `20*log10(abs(x) + eps)` or `20*log10(x + eps)` with speed optimization"""
 
     # TODO: add support for CUDA evaluation as well
@@ -144,28 +150,34 @@ def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0) -> np.ndarray:
     except TypeError:
         xp = None
 
+    if xp is not None and out is None:
+        out = xp.zeros(x.shape, dtype=float_dtype_like(x))
+
     if xp not in (None, np):
         # cuda, mlx, etc
         # TODO: CUDA kernel evaluation here
         if abs:
-            values = xp.abs(x)
+            values = xp.abs(x, out=out)
         else:
             values = x
         if eps != 0:
             values += eps
-        values = xp.log10(values)
+        values = xp.log10(values, out=out)
         values *= 20
 
     elif abs:
         values = ne.evaluate(
-            f'20*log10(abs(x){eps_str})', local_dict=dict(x=x, eps=eps)
+            f'real(20*log10(abs(x){eps_str}))',
+            local_dict=dict(x=x, eps=eps),
+            out=out,
+            casting='unsafe'
         )
 
-        if np.iscomplexobj(values):
-            values = values.real
-
     else:
-        values = ne.evaluate(f'20*log10(x+eps){eps_str}', local_dict=dict(x=x, eps=eps))
+        values = ne.evaluate(
+            f'20*log10(x+eps){eps_str}', local_dict=dict(x=x, eps=eps),
+            out=out,casting='unsafe'
+        )
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)

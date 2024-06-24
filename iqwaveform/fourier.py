@@ -384,7 +384,7 @@ def ola_filter(
     axis=0,
     out=None,
     extend=False,
-    return_stft=False
+    cache=None
 ):
     """apply a bandpass filter implemented through STFT overlap-and-add.
 
@@ -481,20 +481,17 @@ def ola_filter(
         xp.fft.fftshift(X, axes=axis + 1),
         axis=axis + 1,
         overwrite_x=True,
-        out=X if not return_stft else None
+        out=X if cache is None else None
     )
 
-    if out is None and not return_stft:
+    if cache is not None:
+        cache['stft'] = X
+    elif out is None:
         out=X
 
-    xout = _from_overlapping_windows(
+    return _from_overlapping_windows(
         x_windows, noverlap=noverlap, nperseg=fft_size_out, axis=axis, out=out, extra=pad_out
     )
-
-    if return_stft:
-        return xout, X
-    else:
-        return xout
 
 
 def stft(
@@ -682,14 +679,12 @@ def persistence_spectrum(
     if domain == Domain.TIME and dB:
         # already power
         spg = X
-        spg[:] = power_analysis.powtodB(X, eps=1e-25)
+        spg[:] = power_analysis.powtodB(X, eps=1e-25, out=X)
     elif domain == Domain.FREQUENCY and dB:
         # here X is complex-valued; use the first-half of its buffer
-        spg = X[:X.size//2].view(dtype)
-        spg[:] = power_analysis.envtodB(X, eps=1e-25)  
+        spg = power_analysis.envtodB(X, eps=1e-25, out=X.real)  
     elif domain == Domain.FREQUENCY and not dB:          
-        spg = X[:X.size//2].view(dtype)
-        spg[:] = power_analysis.envtopow(X, eps=1e-25)  
+        spg = power_analysis.envtopow(X, eps=1e-25, out=X.real)  
 
     # TODO: access the proper axis of spg in the output buffer
     return xp.quantile(
