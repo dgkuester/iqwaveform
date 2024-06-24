@@ -200,13 +200,14 @@ def _to_overlapping_windows(
         cola_scale = window[(window.size - hop_size) // 2] + window[(window.size - hop_size) // 2 + 1]
 
     if out is None:
-        stride_windows = stride_windows.copy()
+        out = stride_windows.copy()
     else:
+        out = out.flatten()[:stride_windows.size].reshape(stride_windows.shape)
         out[:] = stride_windows
 
-    stride_windows *= broadcast_onto(window / cola_scale, stride_windows, axis=axis + 1)
+    out *= broadcast_onto(window / cola_scale, stride_windows, axis=axis + 1)
 
-    return stride_windows
+    return out
 
 
 def _from_overlapping_windows(y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0) -> Array:
@@ -426,7 +427,8 @@ def ola_filter(
             nperseg=fft_size,
             noverlap=round(fft_size*overlap_scale),
             axis=axis,
-            truncate=False
+            truncate=False,
+            out=out
         )
 
     elif get_input_domain() == Domain.FREQUENCY:
@@ -443,21 +445,12 @@ def ola_filter(
         domain = get_input_domain()
         raise ValueError(f'{domain} is not supported by ola_filter')
 
-    passband = list(passband)
-    if passband[0] is None:
-        passband[0] = freqs[0]
-    if passband[1] is None:
-        passband[1] = freqs[-1]
+    ilo, ihi = _freq_span_range(freqs[0], freqs[-1], freqs.size, *passband)
 
     if fft_size_out == fft_size or not frequency_shift:
-        if passband[0] is not None:
-            X[:, freqs < passband[0]] = 0
-        if passband[1] is not None:
-            X[:, freqs > passband[1]] = 0
+        X[:, :ilo] = 0
+        X[:, ihi:] = 0
     else:
-        ilo = np.where(freqs >= passband[0])[0][0]
-        ihi = np.where(freqs <= passband[1])[0][-1]+1
-
         pass_size = ihi-ilo
         pad_size = fft_size_out - pass_size
 
@@ -494,6 +487,15 @@ def ola_filter(
     )
 
 
+@lru_cache(8)
+def _freq_span_range(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
+    freq_inds = np.linspace(freq_min, freq_max, freq_count)
+    ilo = np.where(freq_inds >= cutoff_low)[0][0]
+    ihi = np.where(freq_inds <= cutoff_hi)[0][-1]+1
+
+    return ilo, ihi
+
+
 def stft(
     x: Array,
     *,
@@ -505,7 +507,7 @@ def stft(
     truncate: bool = True,
     norm: str | None = None,
     out=None,
-):
+) -> tuple[np.array, np.array, Array]:
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
     some overhead that comes with its generality and allow use of the generic
     python array-api for interchangable numpy/cupy support.
@@ -583,7 +585,7 @@ def stft(
             x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out
         )
 
-        X = fft(x_ol, axis=axis + 1, overwrite_x=True, out=out)
+        X = fft(x_ol, axis=axis + 1, overwrite_x=True, out=x_ol)
 
         # interleave the overlaps in time
         # X = X.reshape(X.shape[:-2] + (X.shape[-2]*X.shape[-1],))
@@ -595,7 +597,7 @@ def stft(
         fft_size=fft_size,
         time_size=X.shape[axis],
         overlap_frac=noverlap / fft_size,
-        xp=xp,
+        xp=np,
     )
 
     return freqs, times, X
@@ -611,6 +613,7 @@ def spectrogram(
     axis: int = 0,
     truncate: bool = True,
     norm: str | None = None,
+    out=None
 ):
     kws = dict(locals())
 
@@ -667,32 +670,31 @@ def persistence_spectrum(
             fft_size=fft_size,
             time_size=X.shape[axis],
             overlap_frac=noverlap / fft_size,
-            xp=xp,
+            xp=np,
         )
     else:
         raise ValueError('unsupported persistence spectrum domain "{domain}')
 
     if truncate:
-        which_freqs = np.abs(freqs) <= bandwidth / 2
-        X = X[:, which_freqs]
+        ilo, ihi = _freq_span_range(freqs[0], freqs[-1], freqs.size, -bandwidth/2, +bandwidth/2)
+        X = X[:,ilo:ihi]
 
     if domain == Domain.TIME and dB:
         # already power
-        spg = X
-        spg[:] = power_analysis.powtodB(X, eps=1e-25, out=X)
+        spg = power_analysis.powtodB(X, eps=1e-25, out=X)
     elif domain == Domain.FREQUENCY and dB:
         # here X is complex-valued; use the first-half of its buffer
-        spg = power_analysis.envtodB(X, eps=1e-25, out=X.real)  
+        spg = power_analysis.envtodB(X, eps=1e-25)  
     elif domain == Domain.FREQUENCY and not dB:          
-        spg = power_analysis.envtopow(X, eps=1e-25, out=X.real)  
+        spg = power_analysis.envtopow(X, eps=1e-25)  
 
     # TODO: access the proper axis of spg in the output buffer
     return xp.quantile(
         spg,
-        xp.asarray(quantiles),
+        xp.asarray(quantiles).astype('float32'),
         axis=axis,
         out=spg[:len(quantiles)]
-    ).astype(dtype)
+    )
 
 
 def low_pass_filter(
