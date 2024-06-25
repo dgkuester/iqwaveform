@@ -23,12 +23,46 @@ CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 64 * 1024
 
 
+def _is_shared_arg(arg):
+    if not isinstance(arg, str):
+        return False
+    
+    if arg == 'shared':
+        return True
+    else:
+        raise ValueError('"shared" is the only valid string argument for out')
+
+
+def _empty_shared(shape: tuple|int, dtype: np.dtype, xp=np):
+    import numba
+    import numba.cuda
+    x = numba.cuda.mapped_array(
+        shape,
+        dtype=dtype,
+        strides=None,
+        order='C',
+        stream=0,
+        portable=False,
+        wc=False,
+    )
+    return xp.array(x, copy=False)
+
+
+def _truncated_buffer(x: Array, shape):
+    return x.flatten()[: np.prod(shape)].reshape(shape)
+
+
 def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
     if is_cupy_array(x):
-        # TODO: see about upstream question on this
-        if out is not None:
-            out = out.reshape(x.shape)
         import cupy as cp
+
+        # TODO: see about upstream question on this
+        if out is None:
+            pass
+        elif _is_shared_arg(out):
+            out = _empty_shared(target_shape, dtype, xp=cp)
+        else:
+            out = out.reshape(x.shape)
 
         return cp.fft._fft._fftn(
             x,
@@ -51,10 +85,15 @@ def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
 
 def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
     if is_cupy_array(x):
-        # TODO: see about upstream question on this
-        if out is not None:
-            out = out.reshape(x.shape)
         import cupy as cp
+
+        # TODO: see about upstream question on this
+        if out is None:
+            pass
+        elif _is_shared_arg(out):
+            out = _empty_shared(target_shape, dtype, xp=cp)
+        else:
+            out = out.reshape(x.shape)
 
         return cp.fft._fft._fftn(
             x,
@@ -183,6 +222,7 @@ def _to_overlapping_windows(
         x: the 1-D waveform (or N-D tensor of waveforms)
         axis: the waveform axis; stft will be evaluated across all other axes
     """
+    xp = array_namespace(x)
 
     fft_size = nperseg
     hop_size = nperseg - noverlap
@@ -201,14 +241,16 @@ def _to_overlapping_windows(
 
     if out is None:
         out = stride_windows.copy()
+    elif _is_shared_arg(out):
+        out = _empty_shared(stride_windows.shape, stride_windows.dtype, xp=xp)
+        out[:] = stride_windows
     else:
-        out = out.flatten()[:stride_windows.size].reshape(stride_windows.shape)
+        out = _truncated_buffer(out, stride_windows.shape)
         out[:] = stride_windows
 
     out *= broadcast_onto(window / cola_scale, stride_windows, axis=axis + 1)
 
     return out
-
 
 def _from_overlapping_windows(y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0) -> Array:
     """reconstruct the time-domain waveform from the stft in y.
@@ -233,18 +275,21 @@ def _from_overlapping_windows(y: Array, noverlap: int, nperseg: int, axis=0, out
     target_shape = y.shape[:axis] + (waveform_size,) + y.shape[axis + 2 :]
 
     if out is None:
-        xr = xp.zeros(target_shape, dtype=y.dtype)
+        xr = xp.empty(target_shape, dtype=y.dtype)
+    elif _is_shared_arg(out):
+        xr = _empty_shared(target_shape, dtype, xp)
     else:
-        xr = out.flatten()[: np.prod(target_shape)].reshape(target_shape)
-        xr[:] = 0
+        xr = _truncated_buffer(out, target_shape)
+
+    xr[:] = 0
 
     # for speed, sum up in groups of non-overlapping windows
     for offs in range(fft_size // hop_size):
         yslice = axis_slice(y, start=offs, step=fft_size // hop_size, axis=axis)
+        yshape = yslice.shape
+
         yslice = yslice.reshape(
-            yslice.shape[:axis]
-            + (yslice.shape[axis] * yslice.shape[axis + 1],)
-            + yslice.shape[axis + 2 :]
+            yshape[:axis] + (yshape[axis] * yshape[axis + 1],) + yshape[axis + 2 :]
         )
         xr_slice = axis_slice(
             xr,
@@ -402,10 +447,10 @@ def ola_filter(
         frequency_shift: the direction to shift the downsampled frequencies ('left' or 'right', or False to center)
         axis: the axis of `x` along which to compute the filter
         extend: if True, allow use of zero-padded samples at the edges to accommodate a non-integer number of overlapping windows in x
+        out: None, 'shared', or an array object to receive the output data
 
     Returns:
         an Array of the same shape as X
-
     """
     xp = array_namespace(x)
 
@@ -479,7 +524,7 @@ def ola_filter(
 
     if cache is not None:
         cache['stft'] = X
-    elif out is None:
+    elif out in (None, 'shared'):
         out=X
 
     return _from_overlapping_windows(
@@ -574,7 +619,7 @@ def stft(
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
 
-        x = x * broadcast_onto(w / fft_size, x, axis=axis + 1)
+        x = x*broadcast_onto(w / fft_size, x, axis=axis + 1)
         X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
         X = xp.fft.fftshift(X, axes=axis + 1)
 
@@ -686,7 +731,7 @@ def persistence_spectrum(
         # here X is complex-valued; use the first-half of its buffer
         spg = power_analysis.envtodB(X, eps=1e-25)  
     elif domain == Domain.FREQUENCY and not dB:          
-        spg = power_analysis.envtopow(X, eps=1e-25)  
+        spg = power_analysis.envtopow(X, eps=1e-25)
 
     # TODO: access the proper axis of spg in the output buffer
     return xp.quantile(
