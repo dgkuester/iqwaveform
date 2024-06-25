@@ -3,6 +3,7 @@
 import numpy as np
 from scipy import special
 
+
 def _len_guards(M):
     """Handle small or incorrect window lengths"""
     if int(M) != M or M < 0:

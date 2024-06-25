@@ -5,11 +5,10 @@ import pandas as pd
 import numexpr as ne
 import warnings
 from numbers import Number
-from functools import partial, lru_cache
+from functools import partial
 from .util import array_namespace, get_input_domain, Domain, float_dtype_like
 from array_api_strict._typing import Array
 from typing import Union, Any
-import array_api_compat
 
 warnings.filterwarnings('ignore', message='.*divide by zero.*')
 warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
@@ -94,10 +93,18 @@ def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0, out=None) -> Any
 
     elif abs:
         values = ne.evaluate(
-            f'real(10*log10(abs(x){eps_str}))', local_dict=dict(x=x, eps=eps), out=out, casting='unsafe'
+            f'real(10*log10(abs(x){eps_str}))',
+            local_dict=dict(x=x, eps=eps),
+            out=out,
+            casting='unsafe',
         )
     else:
-        values = ne.evaluate(f'real(10*log10(x+eps){eps_str})', local_dict=dict(x=x, eps=eps), out=out, casting='unsafe')
+        values = ne.evaluate(
+            f'real(10*log10(x+eps){eps_str})',
+            local_dict=dict(x=x, eps=eps),
+            out=out,
+            casting='unsafe',
+        )
 
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
@@ -120,7 +127,9 @@ def envtopow(x: ArrayOrPandas, out=None) -> Any:
 
     if xp in (None, np):
         # numpy, pandas
-        values = ne.evaluate('real(abs(x)**2)', local_dict=dict(x=x), out=out, casting='unsafe')
+        values = ne.evaluate(
+            'real(abs(x)**2)', local_dict=dict(x=x), out=out, casting='unsafe'
+        )
 
         if np.iscomplexobj(values):
             values = values.real
@@ -170,13 +179,15 @@ def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0, out=None) -> np.nda
             f'real(20*log10(abs(x){eps_str}))',
             local_dict=dict(x=x, eps=eps),
             out=out,
-            casting='unsafe'
+            casting='unsafe',
         )
 
     else:
         values = ne.evaluate(
-            f'20*log10(x+eps){eps_str}', local_dict=dict(x=x, eps=eps),
-            out=out,casting='unsafe'
+            f'20*log10(x+eps){eps_str}',
+            local_dict=dict(x=x, eps=eps),
+            out=out,
+            casting='unsafe',
         )
 
     if isinstance(x, pd.Series):
@@ -268,14 +279,15 @@ def iq_to_cyclic_power(
 
     # apply the detector statistic
     xp = array_namespace(x)
-    dtype = float_dtype_like(x)
     domain = get_input_domain()
-    
+
     if domain == Domain.TIME:
         # compute the binned power ourselves
         if detectors is None:
-            raise ValueError('supply detectors argument to evaluate binned power from time domain IQ')
-        
+            raise ValueError(
+                'supply detectors argument to evaluate binned power from time domain IQ'
+            )
+
         power = {
             d: iq_to_bin_power(x, Ts, detector_period, kind=d, truncate=truncate)
             for d in detectors
@@ -285,7 +297,9 @@ def iq_to_cyclic_power(
         # precalculated binned power
         power = x
         if not isinstance(power, dict):
-            raise TypeError('in time-binned power domain, expected dict input keyed by detector')
+            raise TypeError(
+                'in time-binned power domain, expected dict input keyed by detector'
+            )
         if detectors is None:
             detectors = tuple(x.keys())
         elif set(x.keys()) != set(detectors):

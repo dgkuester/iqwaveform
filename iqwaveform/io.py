@@ -134,7 +134,7 @@ def waveform_to_frame(
     elif waveform.ndim == 1:
         obj = pd.Series(waveform)
     else:
-        raise TypeError(f'iq must have 1 or 2 dimensions')
+        raise TypeError('iq must have 1 or 2 dimensions')
 
     obj.index = pd.Index(
         np.linspace(0, Ts * waveform.shape[0], waveform.shape[0], endpoint=False),

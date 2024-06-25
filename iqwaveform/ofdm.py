@@ -1,6 +1,5 @@
 from __future__ import annotations
 import numpy as np
-import pandas as pd
 from datetime import datetime
 from scipy import signal
 from sklearn.linear_model import LinearRegression
@@ -531,8 +530,6 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         if len(input_chunks[-1]) != len(input_chunks[0]):
             input_chunks = input_chunks[:-1]
 
-        leftover = empty_complex64
-        tally = 0
         ret = [self._find_slot_start_offset(chunk) for chunk in input_chunks]
 
         return np.array(ret)

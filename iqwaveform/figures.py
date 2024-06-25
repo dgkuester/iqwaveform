@@ -3,8 +3,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
-from .power_analysis import powtodB, dBtopow, envtodB, envtopow, sample_ccdf
-from .fourier import to_blocks, iq_to_stft_spectrogram
+from .power_analysis import powtodB, dBtopow, envtodB, sample_ccdf, iq_to_bin_power
+from .fourier import iq_to_stft_spectrogram
+
 import math
 
 
@@ -249,7 +250,7 @@ def _has_tick_label_collision(ax, which: str, spacing_threshold=10):
         raise ValueError(f'"which" must be "x" or "y", but got "{repr(which)}"')
 
     boxen = [
-        l.get_tightbbox(fig.canvas.get_renderer()) for l in the_ax.get_ticklabels()
+        t.get_tightbbox(fig.canvas.get_renderer()) for t in the_ax.get_ticklabels()
     ]
 
     if which == 'x':
@@ -424,7 +425,7 @@ def plot_spectrogram_heatmap_from_iq(
     else:
         freq_res_name = f'{freq_res/1e9:0.1f} GHz'
 
-    cb = plt.colorbar(
+    plt.colorbar(
         c,
         cmap=cmap,
         ax=ax,
@@ -447,11 +448,6 @@ def plot_spectrogram_heatmap(
     colorbar=True,
     rasterized=True,
 ) -> tuple((plt.Axes, pd.DataFrame)):
-    index_span = (
-        None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
-        None if time_span[1] is None else int(np.rint(time_span[1] / Ts)),
-    )
-
     if cmap is None:
         cmap = mpl.cm.get_cmap('magma')
 
@@ -494,7 +490,7 @@ def plot_spectrogram_heatmap(
         freq_res_name = f'{freq_res/1e9:0.1f} GHz'
 
     if colorbar:
-        cb = plt.colorbar(
+        plt.colorbar(
             c,
             cmap=cmap,
             ax=ax,
@@ -503,9 +499,6 @@ def plot_spectrogram_heatmap(
         )
 
     return ax, spg
-
-
-debug = {}
 
 
 def plot_power_histogram_heatmap(
@@ -539,7 +532,7 @@ def plot_power_histogram_heatmap(
     else:
         try:
             fig = ax.get_figure()
-        except:
+        except BaseException:
             raise ValueError(str(locals()))
 
     if rolling_histogram.shape[0] == 0:
@@ -612,10 +605,6 @@ def plot_power_histogram_heatmap(
             rolling_histogram.values, index=t, columns=rolling_histogram.columns
         )
 
-        # debug['rolling_histogram'] = rolling_histogram
-        debug['hist_sub'] = hist_sub
-        # debug['t'] = t
-
         c = pcolormesh_df(hist_sub.T, **pc_kws)
         # c = pcolormesh_df(rolling_histogram.T, **pc_kws)
 
@@ -680,7 +669,6 @@ def plot_power_histogram_heatmap(
             + list(np.linspace(cb._values[0], cb._values[1], cb._values.size - 1))
         )
 
-        debug['cb'] = cb
         cb._do_extends(cb._get_extension_lengths(extension_length, True, True))
 
         cb.ax.text(
@@ -733,9 +721,6 @@ def plot_power_histogram_heatmap(
         #     label.set_visible(False)
 
     return ax, c
-
-
-from .power_analysis import iq_to_bin_power
 
 
 def plot_power_ccdf(

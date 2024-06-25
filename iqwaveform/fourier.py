@@ -1,20 +1,18 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from scipy import signal, special
+from scipy import signal
 from . import power_analysis
 import scipy
 from multiprocessing import cpu_count
-from functools import partial, lru_cache
+from functools import lru_cache
 from .util import (
     Array,
-    array_stream,
     array_namespace,
     pad_along_axis,
     sliding_window_view,
     get_input_domain,
     Domain,
-    float_dtype_like
 )
 from array_api_compat import is_cupy_array, is_torch_array
 from scipy.signal._arraytools import axis_slice
@@ -23,19 +21,22 @@ CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 64 * 1024
 
 
-def _is_shared_arg(arg):
-    if not isinstance(arg, str):
+def _out_is_shared(out):
+    """check whether the "out" buffer argument is the string 'shared'"""
+
+    if not isinstance(out, str):
         return False
-    
-    if arg == 'shared':
+
+    if out == 'shared':
         return True
     else:
         raise ValueError('"shared" is the only valid string argument for out')
 
 
-def _empty_shared(shape: tuple|int, dtype: np.dtype, xp=np):
+def _empty_shared(shape: tuple | int, dtype: np.dtype, xp=np):
     import numba
     import numba.cuda
+
     x = numba.cuda.mapped_array(
         shape,
         dtype=dtype,
@@ -59,8 +60,8 @@ def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         # TODO: see about upstream question on this
         if out is None:
             pass
-        elif _is_shared_arg(out):
-            out = _empty_shared(target_shape, dtype, xp=cp)
+        elif _out_is_shared(out):
+            out = _empty_shared(x.shape, x.dtype, xp=cp)
         else:
             out = out.reshape(x.shape)
 
@@ -90,8 +91,8 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         # TODO: see about upstream question on this
         if out is None:
             pass
-        elif _is_shared_arg(out):
-            out = _empty_shared(target_shape, dtype, xp=cp)
+        elif _out_is_shared(out):
+            out = _empty_shared(x.shape, x.dtype, xp=cp)
         else:
             out = out.reshape(x.shape)
 
@@ -231,11 +232,14 @@ def _waveform_to_overlap(
         # scaling correction based on the shape of the window where it intersects with its neighbor
         cola_scale = 2 * window[(window.size - hop_size) // 2]
     else:
-        cola_scale = window[(window.size - hop_size) // 2] + window[(window.size - hop_size) // 2 + 1]
+        cola_scale = (
+            window[(window.size - hop_size) // 2]
+            + window[(window.size - hop_size) // 2 + 1]
+        )
 
     if out is None:
         out = stride_windows.copy()
-    elif _is_shared_arg(out):
+    elif _out_is_shared(out):
         out = _empty_shared(stride_windows.shape, stride_windows.dtype, xp=xp)
         out[:] = stride_windows
     else:
@@ -247,7 +251,9 @@ def _waveform_to_overlap(
     return out
 
 
-def _overlap_to_waveform(y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0) -> Array:
+def _overlap_to_waveform(
+    y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0
+) -> Array:
     """reconstruct the time-domain waveform from the stft in y.
 
     Compared to the underlying istft implementations in scipy and cupyx.scipy, this has been simplified
@@ -258,7 +264,7 @@ def _overlap_to_waveform(y: Array, noverlap: int, nperseg: int, axis=0, out=None
         noverlap: the overlap size that was used to generate the STFT (see scipy.signal.stft)
         axis: the axis of the first dimension of the STFT (the second is at axis+1)
         out: if specified, the output array that will receive the result. it must have at least the same allocated size as y
-        extra: total number of extra samples to include at the edges 
+        extra: total number of extra samples to include at the edges
     """
 
     xp = array_namespace(y)
@@ -271,7 +277,7 @@ def _overlap_to_waveform(y: Array, noverlap: int, nperseg: int, axis=0, out=None
 
     if out is None:
         xr = xp.empty(target_shape, dtype=y.dtype)
-    elif _is_shared_arg(out):
+    elif _out_is_shared(out):
         xr = _empty_shared(target_shape, dtype=y.dtype, xp=xp)
     else:
         xr = _truncated_buffer(out, target_shape)
@@ -289,11 +295,12 @@ def _overlap_to_waveform(y: Array, noverlap: int, nperseg: int, axis=0, out=None
         xr_slice = axis_slice(
             xr,
             start=offs * hop_size,
-            stop=offs * hop_size + yslice.shape[axis], axis=axis
+            stop=offs * hop_size + yslice.shape[axis],
+            axis=axis,
         )
         xr_slice += yslice
 
-    return axis_slice(xr, start=noverlap, stop=-noverlap+extra, axis=axis)
+    return axis_slice(xr, start=noverlap, stop=-noverlap + extra, axis=axis)
 
 
 @lru_cache
@@ -370,7 +377,7 @@ def design_cola_frequency_shift(
         'fft_size': nfft_in,
         'fft_size_out': nfft_out,
         'frequency_shift': shift,
-        'passband': (lo_offset-bw/2, lo_offset+bw/2),
+        'passband': (lo_offset - bw / 2, lo_offset + bw / 2),
         'fs': fs_sdr,
     }
 
@@ -378,28 +385,36 @@ def design_cola_frequency_shift(
 
 
 @lru_cache
-def _ola_filter_parameters(array_size: int, *, window, fft_size_out, fft_size, extend) -> tuple:
+def _ola_filter_parameters(
+    array_size: int, *, window, fft_size_out, fft_size, extend
+) -> tuple:
     if fft_size_out is None:
         fft_size_out = fft_size
 
     if window == 'hamming':
         if fft_size_out % 2 != 0:
-            raise ValueError('blackman window COLA requires output fft_size_out % 2 == 0')
+            raise ValueError(
+                'blackman window COLA requires output fft_size_out % 2 == 0'
+            )
         overlap_scale = 1 / 2
     elif window == 'blackman':
         if fft_size_out % 3 != 0:
-            raise ValueError('blackman window COLA requires output fft_size_out % 3 == 0')
+            raise ValueError(
+                'blackman window COLA requires output fft_size_out % 3 == 0'
+            )
         overlap_scale = 2 / 3
     elif window == 'blackmanharris':
         if fft_size_out % 5 != 0:
-            raise ValueError('blackmanharris window requires output fft_size_out % 5 == 0')
+            raise ValueError(
+                'blackmanharris window requires output fft_size_out % 5 == 0'
+            )
         overlap_scale = 4 / 5
     else:
         raise TypeError(
             'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
         )
 
-    noverlap = round(fft_size_out*overlap_scale)
+    noverlap = round(fft_size_out * overlap_scale)
 
     if array_size % noverlap != 0:
         print(array_size % noverlap)
@@ -425,7 +440,7 @@ def ola_filter(
     axis=0,
     out=None,
     extend=False,
-    cache=None
+    cache=None,
 ):
     """apply a bandpass filter implemented through STFT overlap-and-add.
 
@@ -449,14 +464,12 @@ def ola_filter(
     """
     xp = array_namespace(x)
 
-    fft_size_out, noverlap, overlap_scale, pad_out = (
-        _ola_filter_parameters(
-            x.size,
-            window=window,
-            fft_size_out=fft_size_out,
-            fft_size=fft_size,
-            extend=extend
-        )
+    fft_size_out, noverlap, overlap_scale, pad_out = _ola_filter_parameters(
+        x.size,
+        window=window,
+        fft_size_out=fft_size_out,
+        fft_size=fft_size,
+        extend=extend,
     )
 
     if get_input_domain() == Domain.TIME:
@@ -465,10 +478,10 @@ def ola_filter(
             fs=fs,
             window=window,
             nperseg=fft_size,
-            noverlap=round(fft_size*overlap_scale),
+            noverlap=round(fft_size * overlap_scale),
             axis=axis,
             truncate=False,
-            out=out
+            out=out,
         )
 
     elif get_input_domain() == Domain.FREQUENCY:
@@ -491,39 +504,44 @@ def ola_filter(
         X[:, :ilo] = 0
         X[:, ihi:] = 0
     else:
-        pass_size = ihi-ilo
+        pass_size = ihi - ilo
         pad_size = fft_size_out - pass_size
 
         if ihi - ilo >= fft_size_out:
             if frequency_shift == 'left':
-                X = X[:,-fft_size_out:]
+                X = X[:, -fft_size_out:]
             if frequency_shift == 'right':
-                X = X[:,:fft_size_out]
+                X = X[:, :fft_size_out]
             else:
-                raise ValueError('frequency_shift must be "left" or "right"')       
+                raise ValueError('frequency_shift must be "left" or "right"')
         else:
-            ioutlo = pad_size//2
-            iouthi = fft_size_out-pad_size//2+pad_size%2
+            ioutlo = pad_size // 2
+            iouthi = fft_size_out - pad_size // 2 + pad_size % 2
 
-            X[:,ioutlo:iouthi] = X[:,ilo:ihi]
-            X = X[:,:fft_size_out]
-            X[:,:ioutlo] = 0
-            X[:,iouthi:] = 0
+            X[:, ioutlo:iouthi] = X[:, ilo:ihi]
+            X = X[:, :fft_size_out]
+            X[:, :ioutlo] = 0
+            X[:, iouthi:] = 0
 
     x_windows = ifft(
         xp.fft.fftshift(X, axes=axis + 1),
         axis=axis + 1,
         overwrite_x=True,
-        out=X if cache is None else None
+        out=X if cache is None else None,
     )
 
     if cache is not None:
         cache['stft'] = X
     elif out in (None, 'shared'):
-        out=X
+        out = X
 
     return _overlap_to_waveform(
-        x_windows, noverlap=noverlap, nperseg=fft_size_out, axis=axis, out=out, extra=pad_out
+        x_windows,
+        noverlap=noverlap,
+        nperseg=fft_size_out,
+        axis=axis,
+        out=out,
+        extra=pad_out,
     )
 
 
@@ -531,7 +549,7 @@ def ola_filter(
 def _freq_span_range(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
     freq_inds = np.linspace(freq_min, freq_max, freq_count)
     ilo = np.where(freq_inds >= cutoff_low)[0][0]
-    ihi = np.where(freq_inds <= cutoff_hi)[0][-1]+1
+    ihi = np.where(freq_inds <= cutoff_hi)[0][-1] + 1
 
     return ilo, ihi
 
@@ -614,7 +632,7 @@ def stft(
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
 
-        x = x*broadcast_onto(w / fft_size, x, axis=axis + 1)
+        x = x * broadcast_onto(w / fft_size, x, axis=axis + 1)
         X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
         X = xp.fft.fftshift(X, axes=axis + 1)
 
@@ -653,7 +671,7 @@ def spectrogram(
     axis: int = 0,
     truncate: bool = True,
     norm: str | None = None,
-    out=None
+    out=None,
 ):
     kws = dict(locals())
 
@@ -684,7 +702,7 @@ def persistence_spectrum(
     quantiles: list[float],
     truncate=True,
     dB=True,
-    axis=0
+    axis=0,
 ) -> Array:
     # TODO: support other persistence statistics, such as mean
 
@@ -697,7 +715,6 @@ def persistence_spectrum(
 
     xp = array_namespace(x)
     domain = get_input_domain()
-    dtype = float_dtype_like(x)
 
     if domain == Domain.TIME:
         freqs, _, X = spectrogram(
@@ -716,16 +733,18 @@ def persistence_spectrum(
         raise ValueError('unsupported persistence spectrum domain "{domain}')
 
     if truncate:
-        ilo, ihi = _freq_span_range(freqs[0], freqs[-1], freqs.size, -bandwidth/2, +bandwidth/2)
-        X = X[:,ilo:ihi]
+        ilo, ihi = _freq_span_range(
+            freqs[0], freqs[-1], freqs.size, -bandwidth / 2, +bandwidth / 2
+        )
+        X = X[:, ilo:ihi]
 
     if domain == Domain.TIME and dB:
         # already power
         spg = power_analysis.powtodB(X, eps=1e-25, out=X)
     elif domain == Domain.FREQUENCY and dB:
         # here X is complex-valued; use the first-half of its buffer
-        spg = power_analysis.envtodB(X, eps=1e-25)  
-    elif domain == Domain.FREQUENCY and not dB:          
+        spg = power_analysis.envtodB(X, eps=1e-25)
+    elif domain == Domain.FREQUENCY and not dB:
         spg = power_analysis.envtopow(X, eps=1e-25)
 
     # TODO: access the proper axis of spg in the output buffer
@@ -733,7 +752,7 @@ def persistence_spectrum(
         spg,
         xp.asarray(quantiles).astype('float32'),
         axis=axis,
-        out=spg[:len(quantiles)]
+        out=spg[: len(quantiles)],
     )
 
 
@@ -765,7 +784,7 @@ def low_pass_filter(
     if window is None:
         if axis != 0 or len(iq.shape) != 2:
             raise NotImplementedError(
-                f'in current implementation, `window` can only be used when axis=0 and iq has 2 axes'
+                'in current implementation, `window` can only be used when axis=0 and iq has 2 axes'
             )
         window = xp.array([1])
 
@@ -905,9 +924,7 @@ def channelize_power(
         raise NotImplementedError('sorry, only axis=0 implemented for now')
 
     if analysis_bins_per_channel > fft_size_per_channel:
-        raise ValueError(f'the number of analysis bins cannot be greater than FFT size')
-
-    xp = array_namespace(iq)
+        raise ValueError('the number of analysis bins cannot be greater than FFT size')
 
     freqs, times, X = stft(
         iq,

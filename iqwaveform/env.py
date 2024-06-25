@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import IPython
 import IPython.display
 from IPython.display import display, HTML, set_matplotlib_formats
-from IPython.core.pylabtools import figsize, getfigs
 
 import datetime
 import functools
@@ -18,7 +17,6 @@ import functools
 _captions = {}
 
 from matplotlib.backends import backend_svg
-import functools
 
 
 @functools.wraps(backend_svg.FigureCanvasSVG.print_svg)
@@ -36,7 +34,7 @@ def print_svg(self, *a, **k):
 
     def title_to_label(title_):
         """replace 1 or more non-alphanumeric characters with '-'"""
-        import re, string
+        import re
 
         pattern = re.compile(r'[\W_]+')
         return pattern.sub('-', title_).lower()
@@ -84,7 +82,7 @@ def set_matplotlib_formats(formats, *args, **kws):
 
     def title_to_label(title_):
         """replace 1 or more non-alphanumeric characters with '-'"""
-        import re, string
+        import re
 
         pattern = re.compile(r'[\W_]+')
         return pattern.sub('-', title_).lower()

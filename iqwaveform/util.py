@@ -8,7 +8,15 @@ from enum import Enum
 
 
 __all__ = [
-    'Domain', 'set_input_domain', 'get_input_domain', 'NonStreamContext', 'array_stream', 'pad_along_axis', 'array_namespace', 'sliding_window_view', 'float_dtype_like'
+    'Domain',
+    'set_input_domain',
+    'get_input_domain',
+    'NonStreamContext',
+    'array_stream',
+    'pad_along_axis',
+    'array_namespace',
+    'sliding_window_view',
+    'float_dtype_like',
 ]
 
 
@@ -22,7 +30,7 @@ class Domain(Enum):
 
 
 @contextmanager
-def set_input_domain(domain: str|Domain):
+def set_input_domain(domain: str | Domain):
     """set the current domain from input arrays of DSP calls"""
     i = len(_input_domain)
     _input_domain.append(Domain(domain))
@@ -218,7 +226,7 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
 
 def float_dtype_like(x: Array):
     """returns a floating-point dtype corresponding to x.
-    
+
     Returns:
     * If x.dtype is float16/float32/float64: x.dtype.
     * If x.dtype is complex64/complex128: float32/float64
