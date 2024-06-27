@@ -1,8 +1,8 @@
 from __future__ import annotations
+from sklearn.linear_model import LinearRegression
 import numpy as np
 from datetime import datetime
 from scipy import signal
-from sklearn.linear_model import LinearRegression
 from pylab import plot
 from numbers import Number
 import methodtools
