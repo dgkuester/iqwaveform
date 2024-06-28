@@ -1,13 +1,13 @@
 from __future__ import annotations
 import array_api_compat
-from array_api_strict._typing import Array
 from array_api_compat import is_cupy_array
+import array_api_compat.numpy, array_api_compat.cupy
 import numpy as np
 from contextlib import contextmanager
 from enum import Enum
 
-
 __all__ = [
+    'Array',
     'Domain',
     'set_input_domain',
     'get_input_domain',
@@ -18,6 +18,10 @@ __all__ = [
     'sliding_window_view',
     'float_dtype_like',
 ]
+
+
+# union of supported array types
+Array = array_api_compat.numpy.ndarray | array_api_compat.cupy.ndarray
 
 
 _input_domain = []
