@@ -218,12 +218,12 @@ def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
 
 
 @lru_cache
-def design_cola_frequency_shift(
+def design_cola_resampler(
     fs_base: float,
     fs_target: float,
     bw: float,
     bw_lo: float = 100e3,
-    shift='left',
+    shift=False,
     avoid_primes=True,
 ) -> tuple[float, float, dict]:
     """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
@@ -243,6 +243,11 @@ def design_cola_frequency_shift(
         (SDR sample rate, RF LO frequency offset in Hz, ola_filter_kws)
 
     """
+
+    if not shift:
+        # don't pad bandwidth to move the LO if there's no shift
+        bw = bw_lo = 0
+
     fs_sdr_min = fs_target + bw / 2 + bw_lo / 2
     decimation = int(np.floor(fs_base / fs_sdr_min))
 
@@ -270,6 +275,8 @@ def design_cola_frequency_shift(
         sign = -1
     elif shift == 'right':
         sign = +1
+    elif not shift:
+        sign = 0
     else:
         raise ValueError('shift argument must be "left" or "right"')
 
