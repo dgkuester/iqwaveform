@@ -5,6 +5,7 @@ import array_api_compat.numpy, array_api_compat.cupy
 import numpy as np
 from contextlib import contextmanager
 from enum import Enum
+import typing
 
 __all__ = [
     'Array',
@@ -21,7 +22,7 @@ __all__ = [
 
 
 # union of supported array types
-Array = array_api_compat.numpy.ndarray | array_api_compat.cupy.ndarray
+Array = typing.Union[array_api_compat.numpy.ndarray,array_api_compat.cupy.ndarray]
 
 
 _input_domain = []
