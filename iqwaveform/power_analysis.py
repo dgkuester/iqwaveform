@@ -6,8 +6,7 @@ import numexpr as ne
 import warnings
 from numbers import Number
 from functools import partial
-from .util import array_namespace, get_input_domain, Domain, float_dtype_like
-from array_api_strict._typing import Array
+from .util import Array, array_namespace, get_input_domain, Domain, float_dtype_like
 from typing import Union, Any
 
 warnings.filterwarnings('ignore', message='.*divide by zero.*')
