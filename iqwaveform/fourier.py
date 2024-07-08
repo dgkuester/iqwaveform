@@ -222,7 +222,7 @@ def design_cola_resampler(
     fs_base: float,
     fs_target: float,
     bw: float,
-    bw_lo: float = 100e3,
+    bw_lo: float = 250e3,
     shift=False,
     avoid_primes=True,
 ) -> tuple[float, float, dict]:
@@ -244,11 +244,11 @@ def design_cola_resampler(
 
     """
 
-    if not shift:
-        # don't pad bandwidth to move the LO if there's no shift
-        bw = bw_lo = 0
-
-    fs_sdr_min = fs_target + bw / 2 + bw_lo / 2
+    if shift:
+        fs_sdr_min = fs_target + bw / 2 + bw_lo / 2
+    else:
+        fs_sdr_min = fs_target
+        
     decimation = int(np.floor(fs_base / fs_sdr_min))
 
     fs_sdr = fs_base / decimation
@@ -328,6 +328,7 @@ def _to_overlapping_windows(
         cola_scale = 2 * window[(window.size - hop_size) // 2]
     else:
         cola_scale = window[(window.size - hop_size) // 2] + window[(window.size - hop_size) // 2 + 1]
+    cola_scale = cola_scale.real
 
     if out is None:
         out = stride_windows.copy()
@@ -386,7 +387,8 @@ def _from_overlapping_windows(y: Array, noverlap: int, nperseg: int, axis=0, out
             start=offs * hop_size,
             stop=offs * hop_size + yslice.shape[axis], axis=axis
         )
-        xr_slice += yslice
+
+        xr_slice += yslice[:xr_slice.size]
 
     return xr#axis_slice(xr, start=noverlap-extra//2, stop=(-noverlap+extra//2) or None, axis=axis)
 
@@ -482,7 +484,7 @@ def ola_filter(
             noverlap=round(fft_size*overlap_scale),
             axis=axis,
             truncate=False,
-            out=out
+            # out=out
         )
 
     elif get_input_domain() == Domain.FREQUENCY:
@@ -529,8 +531,10 @@ def ola_filter(
         xp.fft.fftshift(X, axes=axis + 1),
         axis=axis + 1,
         overwrite_x=True,
-        out=X if cache is None else None
+        # out=X if cache is None else None
     )
+
+    # globals()['debug'] = x_windows
 
     if cache is not None:
         cache['stft'] = X
@@ -538,8 +542,9 @@ def ola_filter(
         out=X
 
     y = _from_overlapping_windows(
-        x_windows, noverlap=noverlap, nperseg=fft_size_out, axis=axis, out=out
+        x_windows, noverlap=noverlap, nperseg=fft_size_out, axis=axis, #out=out
     )
+    # y = axis_slice(y, start=(fft_size-fft_size_out)//4, axis=axis)
     trim = (y.shape[axis] - round(x.shape[axis] * fft_size_out/fft_size))
     if trim > 0:
         y = axis_slice(y, start=trim//2, stop=(-trim//2) or None, axis=axis)
