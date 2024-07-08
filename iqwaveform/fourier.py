@@ -223,6 +223,8 @@ def design_cola_resampler(
     fs_target: float,
     bw: float,
     bw_lo: float = 250e3,
+    min_oversampling: float = 1.1,
+    min_fft_size = 1024,
     shift=False,
     avoid_primes=True,
 ) -> tuple[float, float, dict]:
@@ -241,23 +243,22 @@ def design_cola_resampler(
 
     Returns:
         (SDR sample rate, RF LO frequency offset in Hz, ola_filter_kws)
-
     """
 
     if shift:
-        fs_sdr_min = fs_target + bw / 2 + bw_lo / 2
+        fs_sdr_min = fs_target + min_oversampling*bw / 2 + bw_lo / 2
     else:
         fs_sdr_min = fs_target
-        
-    decimation = int(np.floor(fs_base / fs_sdr_min))
+
+    decimation = int(fs_base / fs_sdr_min)
 
     fs_sdr = fs_base / decimation
 
     resample_ratio = fs_sdr / fs_target
 
-    # the following returns the modula closest to either 0 or 1, accommodating downward rounding errors (e.g., 0.999)
+    # the following returns the modulos closest to either 0 or 1, accommodating downward rounding errors (e.g., 0.999)
     trial_noverlap = resample_ratio * np.arange(1, OLA_MAX_FFT_SIZE + 1)
-    check_mods = power_analysis.isroundmod(trial_noverlap, 1)
+    check_mods = power_analysis.isroundmod(trial_noverlap, 1) & (trial_noverlap>min_fft_size*resample_ratio)
 
     # all valid noverlap size candidates
     valid_noverlap_out = 1 + np.where(check_mods)[0]
@@ -266,6 +267,7 @@ def design_cola_resampler(
         valid_noverlap_out = np.setdiff1d(valid_noverlap_out, reject, True)
     if len(valid_noverlap_out) == 0:
         raise ValueError('no rational FFT sizes satisfied design constraints')
+
 
     nfft_out = valid_noverlap_out[0]
     nfft_in = int(np.rint(resample_ratio * nfft_out))
@@ -280,14 +282,19 @@ def design_cola_resampler(
     else:
         raise ValueError('shift argument must be "left" or "right"')
 
-    lo_offset = sign * fs_sdr / nfft_in * (nfft_in - nfft_out)
+    lo_offset = sign * (bw / 2 + bw_lo / 2)#fs_sdr / nfft_in * (nfft_in - nfft_out)
+
+    if bw is None:
+        passband = (None, None)
+    else:
+        passband = (lo_offset-bw/2, lo_offset+bw/2)
 
     ola_resample_kws = {
         'window': 'hamming',
         'fft_size': nfft_in,
         'fft_size_out': nfft_out,
         'frequency_shift': shift,
-        'passband': (lo_offset-bw/2, lo_offset+bw/2),
+        'passband': passband,
         'fs': fs_sdr,
     }
 
@@ -554,8 +561,16 @@ def ola_filter(
 @lru_cache(8)
 def _freq_span_range(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
     freq_inds = np.linspace(freq_min, freq_max, freq_count)
-    ilo = np.where(freq_inds >= cutoff_low)[0][0]
-    ihi = np.where(freq_inds <= cutoff_hi)[0][-1]+1
+
+    if cutoff_low is None:
+        ilo = None
+    else:
+        ilo = np.where(freq_inds >= cutoff_low)[0][0]
+
+    if cutoff_hi is None:
+        ihi = None
+    else:
+        ihi = np.where(freq_inds <= cutoff_hi)[0][-1]+1
 
     return ilo, ihi
 
@@ -740,7 +755,11 @@ def persistence_spectrum(
         raise ValueError('unsupported persistence spectrum domain "{domain}')
 
     if truncate:
-        ilo, ihi = _freq_span_range(freqs[0], freqs[-1], freqs.size, -bandwidth/2, +bandwidth/2)
+        if bandwidth is None:
+            bw_args = (None, None)
+        else:
+            bw_args = (-bandwidth/2, +bandwidth/2)
+        ilo, ihi = _freq_span_range(freqs[0], freqs[-1], freqs.size, *bw_args)
         X = X[:,ilo:ihi]
 
     if domain == Domain.TIME and dB:
