@@ -183,6 +183,13 @@ def _get_window(name_or_tuple, N, norm=True, dtype=None, xp=None):
         return w
 
 
+@lru_cache
+def equivalent_noise_bandwidth(window: str | tuple[str, float], N):
+    """return the equivalent noise bandwidth (ENBW) of a window, in bins"""
+    w = _get_window(window, N)
+    return len(w) * np.sum(w**2) / np.sum(w) ** 2
+
+
 def broadcast_onto(a: Array, other: Array, axis: int) -> Array:
     """broadcast a 1-D array onto a specified axis of `other`"""
     xp = array_namespace(a)
@@ -284,13 +291,17 @@ def design_cola_resampler(
 
     lo_offset = sign * (bw / 2 + bw_lo / 2)#fs_sdr / nfft_in * (nfft_in - nfft_out)
 
+    window = 'hamming'
+    enbw = (fs_target/nfft_out) * equivalent_noise_bandwidth(window, nfft_out)
+    print(enbw)
+
     if bw is None:
         passband = (None, None)
     else:
-        passband = (lo_offset-bw/2, lo_offset+bw/2)
+        passband = (lo_offset-(2*enbw+bw)/2, lo_offset+(2*enbw+bw)/2)
 
     ola_resample_kws = {
-        'window': 'hamming',
+        'window': window,
         'fft_size': nfft_in,
         'fft_size_out': nfft_out,
         'frequency_shift': shift,
@@ -306,7 +317,7 @@ def _to_overlapping_windows(
     window: Array,
     nperseg: int,
     noverlap: int,
-    pad_mode='wrap',
+    pad_mode='constant',
     axis=0,
     out=None,
 ) -> Array:
@@ -345,6 +356,7 @@ def _to_overlapping_windows(
     else:
         out = _truncated_buffer(out, stride_windows.shape)
         out[:] = stride_windows
+    print(stride_windows.shape, out.shape)
 
     out *= broadcast_onto(window / cola_scale, stride_windows, axis=axis + 1)
 
