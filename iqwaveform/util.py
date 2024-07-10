@@ -1,11 +1,12 @@
 from __future__ import annotations
 import array_api_compat
 from array_api_compat import is_cupy_array
-import array_api_compat.numpy, array_api_compat.cupy
 import numpy as np
+import typing
+
+
 from contextlib import contextmanager
 from enum import Enum
-import typing
 
 __all__ = [
     'Array',
@@ -20,9 +21,19 @@ __all__ = [
     'float_dtype_like',
 ]
 
+if typing.TYPE_CHECKING:
+    # bury this type checking in here to avoid lengthening the import time of iqwaveform 
+    # if cupy isn't installed
+    try:
+        import cupy as cp
+    except ModuleNotFoundError:
+        import numpy as cp
 
-# union of supported array types
-Array = typing.Union[array_api_compat.numpy.ndarray,array_api_compat.cupy.ndarray]
+    # union of supported array types
+    Array = typing.Union[np.ndarray,cp.ndarray]
+
+else:
+    Array = np.ndarray
 
 
 _input_domain = []
