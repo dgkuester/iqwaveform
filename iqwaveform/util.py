@@ -3,7 +3,7 @@ import array_api_compat
 from array_api_compat import is_cupy_array
 import numpy as np
 import typing
-
+from functools import lru_cache
 
 from contextlib import contextmanager
 from enum import Enum
@@ -59,6 +59,21 @@ def empty_shared(shape: tuple | int, dtype: np.dtype, xp=np):
         return x
     else:
         return xp.array(x, copy=False)
+
+
+@lru_cache
+def _whichfloats(seq: tuple[str|float, ...]) -> list[bool]:
+    """return a list to flag whether each element can be converted to float"""
+
+    ret = []
+    for s in seq:
+        try:
+            float(s)
+        except ValueError:
+            ret.append(False)
+        else:
+            ret.append(True)
+    return ret
 
 
 def isroundmod(value: float, div, atol=1e-6) -> bool:
