@@ -16,9 +16,12 @@ from .util import (
     Domain,
     float_dtype_like,
     empty_shared,
+    _whichfloats
 )
 from array_api_compat import is_cupy_array, is_torch_array
 from scipy.signal._arraytools import axis_slice
+from .power_analysis import stat_ufunc_from_shorthand
+
 
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 64 * 1024
@@ -738,7 +741,7 @@ def persistence_spectrum(
     window,
     resolution: float,
     fractional_overlap=0,
-    quantiles: list[float],
+    statistics: list[float],
     truncate=True,
     dB=True,
     axis=0,
@@ -789,14 +792,28 @@ def persistence_spectrum(
     elif domain == Domain.FREQUENCY and not dB:
         spg = power_analysis.envtopow(X, eps=1e-25)
 
+    isquantile = _whichfloats(tuple(statistics))
+
+    shape = list(spg.shape)
+    shape[axis] = len(statistics)
+    out = xp.empty(tuple(shape))
+
+    quantiles = list(np.asarray(statistics)[isquantile].astype('float32'))
+
     # TODO: access the proper axis of spg in the output buffer
-    return xp.quantile(
+    out[isquantile] = xp.quantile(
         spg,
-        xp.asarray(quantiles).astype('float32'),
+        xp.array(quantiles),
         axis=axis,
-        out=spg[: len(quantiles)],
+        out=out[isquantile]
     )
 
+    for i, isquantile in enumerate(isquantile):
+        if not isquantile:
+            ufunc = stat_ufunc_from_shorthand(statistics[i], xp=xp)
+            axis_slice(out, start=i, stop=i+1, axis=axis)[...] = ufunc(spg, axis=axis)
+
+    return out
 
 def low_pass_filter(
     iq: Array,
