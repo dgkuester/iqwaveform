@@ -22,7 +22,7 @@ __all__ = [
 ]
 
 if typing.TYPE_CHECKING:
-    # bury this type checking in here to avoid lengthening the import time of iqwaveform 
+    # bury this type checking in here to avoid lengthening the import time of iqwaveform
     # if cupy isn't installed
     try:
         import cupy as cp
@@ -30,13 +30,35 @@ if typing.TYPE_CHECKING:
         import numpy as cp
 
     # union of supported array types
-    Array = typing.Union[np.ndarray,cp.ndarray]
+    Array = typing.Union[np.ndarray, cp.ndarray]
 
 else:
     Array = np.ndarray
 
 
 _input_domain = []
+
+
+def empty_shared(shape: tuple | int, dtype: np.dtype, xp=np):
+    """allocate pinned CUDA memory that is shared between GPU/CPU on supported architectures"""
+
+    import numba
+    import numba.cuda
+
+    x = numba.cuda.mapped_array(
+        shape,
+        dtype=dtype,
+        strides=None,
+        order='C',
+        stream=0,
+        portable=False,
+        wc=False,
+    )
+    return xp.array(x, copy=False)
+
+
+def isroundmod(value: float, div, atol=1e-6) -> bool:
+    return np.abs(np.rint(value / div) - value / div) <= atol
 
 
 class Domain(Enum):

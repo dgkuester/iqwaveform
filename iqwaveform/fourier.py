@@ -14,7 +14,8 @@ from .util import (
     sliding_window_view,
     get_input_domain,
     Domain,
-    float_dtype_like
+    float_dtype_like,
+    empty_shared,
 )
 from array_api_compat import is_cupy_array, is_torch_array
 from scipy.signal._arraytools import axis_slice
@@ -26,26 +27,11 @@ OLA_MAX_FFT_SIZE = 64 * 1024
 def _is_shared_arg(arg):
     if not isinstance(arg, str):
         return False
-    
+
     if arg == 'shared':
         return True
     else:
         raise ValueError('"shared" is the only valid string argument for out')
-
-
-def _empty_shared(shape: tuple|int, dtype: np.dtype, xp=np):
-    import numba
-    import numba.cuda
-    x = numba.cuda.mapped_array(
-        shape,
-        dtype=dtype,
-        strides=None,
-        order='C',
-        stream=0,
-        portable=False,
-        wc=False,
-    )
-    return xp.array(x, copy=False)
 
 
 def _truncated_buffer(x: Array, shape):
@@ -60,7 +46,7 @@ def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         if out is None:
             pass
         elif _is_shared_arg(out):
-            out = _empty_shared(target_shape, dtype, xp=cp)
+            out = empty_shared(target_shape, dtype, xp=cp)
         else:
             out = out.reshape(x.shape)
 
@@ -91,7 +77,7 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         if out is None:
             pass
         elif _is_shared_arg(out):
-            out = _empty_shared(target_shape, dtype, xp=cp)
+            out = empty_shared(target_shape, dtype, xp=cp)
         else:
             out = out.reshape(x.shape)
 
@@ -211,8 +197,6 @@ def _get_stft_axes(
     return freqs, times
 
 
-
-
 @lru_cache
 def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
     s = np.arange(3, max, 2)
@@ -231,7 +215,7 @@ def design_cola_resampler(
     bw: float,
     bw_lo: float = 250e3,
     min_oversampling: float = 1.1,
-    min_fft_size = 1024,
+    min_fft_size=1024,
     shift=False,
     avoid_primes=True,
 ) -> tuple[float, float, dict]:
@@ -253,7 +237,7 @@ def design_cola_resampler(
     """
 
     if shift:
-        fs_sdr_min = fs_target + min_oversampling*bw / 2 + bw_lo / 2
+        fs_sdr_min = fs_target + min_oversampling * bw / 2 + bw_lo / 2
     else:
         fs_sdr_min = fs_target
 
@@ -265,7 +249,9 @@ def design_cola_resampler(
 
     # the following returns the modulos closest to either 0 or 1, accommodating downward rounding errors (e.g., 0.999)
     trial_noverlap = resample_ratio * np.arange(1, OLA_MAX_FFT_SIZE + 1)
-    check_mods = power_analysis.isroundmod(trial_noverlap, 1) & (trial_noverlap>min_fft_size*resample_ratio)
+    check_mods = power_analysis.isroundmod(trial_noverlap, 1) & (
+        trial_noverlap > min_fft_size * resample_ratio
+    )
 
     # all valid noverlap size candidates
     valid_noverlap_out = 1 + np.where(check_mods)[0]
@@ -274,7 +260,6 @@ def design_cola_resampler(
         valid_noverlap_out = np.setdiff1d(valid_noverlap_out, reject, True)
     if len(valid_noverlap_out) == 0:
         raise ValueError('no rational FFT sizes satisfied design constraints')
-
 
     nfft_out = valid_noverlap_out[0]
     nfft_in = int(np.rint(resample_ratio * nfft_out))
@@ -289,16 +274,16 @@ def design_cola_resampler(
     else:
         raise ValueError('shift argument must be "left" or "right"')
 
-    lo_offset = sign * (bw / 2 + bw_lo / 2)#fs_sdr / nfft_in * (nfft_in - nfft_out)
+    lo_offset = sign * (bw / 2 + bw_lo / 2)  # fs_sdr / nfft_in * (nfft_in - nfft_out)
 
     window = 'hamming'
-    enbw = (fs_target/nfft_out) * equivalent_noise_bandwidth(window, nfft_out)
+    enbw = (fs_target / nfft_out) * equivalent_noise_bandwidth(window, nfft_out)
     print(enbw)
 
     if bw is None:
         passband = (None, None)
     else:
-        passband = (lo_offset-(2*enbw+bw)/2, lo_offset+(2*enbw+bw)/2)
+        passband = (lo_offset - (2 * enbw + bw) / 2, lo_offset + (2 * enbw + bw) / 2)
 
     ola_resample_kws = {
         'window': window,
@@ -345,13 +330,16 @@ def _to_overlapping_windows(
         # scaling correction based on the shape of the window where it intersects with its neighbor
         cola_scale = 2 * window[(window.size - hop_size) // 2]
     else:
-        cola_scale = window[(window.size - hop_size) // 2] + window[(window.size - hop_size) // 2 + 1]
+        cola_scale = (
+            window[(window.size - hop_size) // 2]
+            + window[(window.size - hop_size) // 2 + 1]
+        )
     cola_scale = cola_scale.real
 
     if out is None:
         out = stride_windows.copy()
     elif _is_shared_arg(out):
-        out = _empty_shared(stride_windows.shape, stride_windows.dtype, xp=xp)
+        out = empty_shared(stride_windows.shape, stride_windows.dtype, xp=xp)
         out[:] = stride_windows
     else:
         out = _truncated_buffer(out, stride_windows.shape)
@@ -362,7 +350,10 @@ def _to_overlapping_windows(
 
     return out
 
-def _from_overlapping_windows(y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0) -> Array:
+
+def _from_overlapping_windows(
+    y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0
+) -> Array:
     """reconstruct the time-domain waveform from the stft in y.
 
     Compared to the underlying istft implementations in scipy and cupyx.scipy, this has been simplified
@@ -373,7 +364,7 @@ def _from_overlapping_windows(y: Array, noverlap: int, nperseg: int, axis=0, out
         noverlap: the overlap size that was used to generate the STFT (see scipy.signal.stft)
         axis: the axis of the first dimension of the STFT (the second is at axis+1)
         out: if specified, the output array that will receive the result. it must have at least the same allocated size as y
-        extra: total number of extra samples to include at the edges 
+        extra: total number of extra samples to include at the edges
     """
 
     xp = array_namespace(y)
@@ -387,7 +378,7 @@ def _from_overlapping_windows(y: Array, noverlap: int, nperseg: int, axis=0, out
     if out is None:
         xr = xp.empty(target_shape, dtype=y.dtype)
     elif _is_shared_arg(out):
-        xr = _empty_shared(target_shape, dtype, xp)
+        xr = empty_shared(target_shape, dtype, xp)
     else:
         xr = _truncated_buffer(out, target_shape)
 
@@ -404,44 +395,55 @@ def _from_overlapping_windows(y: Array, noverlap: int, nperseg: int, axis=0, out
         xr_slice = axis_slice(
             xr,
             start=offs * hop_size,
-            stop=offs * hop_size + yslice.shape[axis], axis=axis
+            stop=offs * hop_size + yslice.shape[axis],
+            axis=axis,
         )
 
-        xr_slice += yslice[:xr_slice.size]
+        xr_slice += yslice[: xr_slice.size]
 
-    return xr#axis_slice(xr, start=noverlap-extra//2, stop=(-noverlap+extra//2) or None, axis=axis)
+    return xr  # axis_slice(xr, start=noverlap-extra//2, stop=(-noverlap+extra//2) or None, axis=axis)
 
 
 @lru_cache
-def _ola_filter_parameters(array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool) -> tuple:
+def _ola_filter_parameters(
+    array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool
+) -> tuple:
     if fft_size_out is None:
         fft_size_out = fft_size
 
     if window == 'hamming':
         if fft_size_out % 2 != 0:
-            raise ValueError('blackman window COLA requires output fft_size_out % 2 == 0')
+            raise ValueError(
+                'blackman window COLA requires output fft_size_out % 2 == 0'
+            )
         overlap_scale = 1 / 2
     elif window == 'blackman':
         if fft_size_out % 3 != 0:
-            raise ValueError('blackman window COLA requires output fft_size_out % 3 == 0')
+            raise ValueError(
+                'blackman window COLA requires output fft_size_out % 3 == 0'
+            )
         overlap_scale = 2 / 3
     elif window == 'blackmanharris':
         if fft_size_out % 5 != 0:
-            raise ValueError('blackmanharris window requires output fft_size_out % 5 == 0')
+            raise ValueError(
+                'blackmanharris window requires output fft_size_out % 5 == 0'
+            )
         overlap_scale = 4 / 5
     else:
         raise TypeError(
             'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
         )
 
-    noverlap = round(fft_size_out*overlap_scale)
+    noverlap = round(fft_size_out * overlap_scale)
 
     if array_size % noverlap != 0:
         print(array_size % noverlap)
         if extend:
             pad_out = array_size % noverlap
         else:
-            raise ValueError(f'x.size ({array_size}) is not an integer multiple of noverlap ({noverlap})')
+            raise ValueError(
+                f'x.size ({array_size}) is not an integer multiple of noverlap ({noverlap})'
+            )
     else:
         pad_out = 0
 
@@ -484,14 +486,12 @@ def ola_filter(
     """
     xp = array_namespace(x)
 
-    fft_size_out, noverlap, overlap_scale, _ = (
-        _ola_filter_parameters(
-            x.size,
-            window=window,
-            fft_size_out=fft_size_out,
-            fft_size=fft_size,
-            extend=extend
-        )
+    fft_size_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
+        x.size,
+        window=window,
+        fft_size_out=fft_size_out,
+        fft_size=fft_size,
+        extend=extend,
     )
 
     if get_input_domain() == Domain.TIME:
@@ -500,7 +500,7 @@ def ola_filter(
             fs=fs,
             window=window,
             nperseg=fft_size,
-            noverlap=round(fft_size*overlap_scale),
+            noverlap=round(fft_size * overlap_scale),
             axis=axis,
             truncate=False,
             # out=out
@@ -520,31 +520,32 @@ def ola_filter(
         domain = get_input_domain()
         raise ValueError(f'{domain} is not supported by ola_filter')
 
-    ilo, ihi = _freq_span_range(freqs[0], freqs[-1], freqs.size, passband[0], passband[1])
+    ilo, ihi = _freq_span_range(
+        freqs[0], freqs[-1], freqs.size, passband[0], passband[1]
+    )
 
     if fft_size_out == fft_size or not frequency_shift:
         X[:, :ilo] = 0
         X[:, ihi:] = 0
     else:
-        pass_size = ihi-ilo
+        pass_size = ihi - ilo
         pad_size = fft_size_out - pass_size
 
         if ihi - ilo >= fft_size_out:
             if frequency_shift == 'left':
-                X = X[:,-fft_size_out:]
+                X = X[:, -fft_size_out:]
             if frequency_shift == 'right':
-                X = X[:,:fft_size_out]
+                X = X[:, :fft_size_out]
             else:
-                raise ValueError('frequency_shift must be "left" or "right"')       
+                raise ValueError('frequency_shift must be "left" or "right"')
         else:
-            ioutlo = pad_size//2
-            iouthi = fft_size_out-pad_size//2-pad_size%2
+            ioutlo = pad_size // 2
+            iouthi = fft_size_out - pad_size // 2 - pad_size % 2
 
-
-            X[:,ioutlo:iouthi] = X[:,ilo:ihi]
-            X = X[:,:fft_size_out]
-            X[:,:ioutlo] = 0
-            X[:,iouthi:] = 0
+            X[:, ioutlo:iouthi] = X[:, ilo:ihi]
+            X = X[:, :fft_size_out]
+            X[:, :ioutlo] = 0
+            X[:, iouthi:] = 0
 
     x_windows = ifft(
         xp.fft.fftshift(X, axes=axis + 1),
@@ -558,15 +559,18 @@ def ola_filter(
     if cache is not None:
         cache['stft'] = X
     elif out in (None, 'shared'):
-        out=X
+        out = X
 
     y = _from_overlapping_windows(
-        x_windows, noverlap=noverlap, nperseg=fft_size_out, axis=axis, #out=out
+        x_windows,
+        noverlap=noverlap,
+        nperseg=fft_size_out,
+        axis=axis,  # out=out
     )
     # y = axis_slice(y, start=(fft_size-fft_size_out)//4, axis=axis)
-    trim = (y.shape[axis] - round(x.shape[axis] * fft_size_out/fft_size))
+    trim = y.shape[axis] - round(x.shape[axis] * fft_size_out / fft_size)
     if trim > 0:
-        y = axis_slice(y, start=trim//2, stop=(-trim//2) or None, axis=axis)
+        y = axis_slice(y, start=trim // 2, stop=(-trim // 2) or None, axis=axis)
     return y
 
 
@@ -582,7 +586,7 @@ def _freq_span_range(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
     if cutoff_hi is None:
         ihi = None
     else:
-        ihi = np.where(freq_inds <= cutoff_hi)[0][-1]+1
+        ihi = np.where(freq_inds <= cutoff_hi)[0][-1] + 1
 
     return ilo, ihi
 
@@ -665,7 +669,7 @@ def stft(
     if noverlap == 0:
         x = to_blocks(x, fft_size, truncate=truncate)
 
-        x = x*broadcast_onto(w / fft_size, x, axis=axis + 1)
+        x = x * broadcast_onto(w / fft_size, x, axis=axis + 1)
         X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
         X = xp.fft.fftshift(X, axes=axis + 1)
 
@@ -704,7 +708,7 @@ def spectrogram(
     axis: int = 0,
     truncate: bool = True,
     norm: str | None = None,
-    out=None
+    out=None,
 ):
     kws = dict(locals())
 
@@ -735,7 +739,7 @@ def persistence_spectrum(
     quantiles: list[float],
     truncate=True,
     dB=True,
-    axis=0
+    axis=0,
 ) -> Array:
     # TODO: support other persistence statistics, such as mean
 
@@ -770,17 +774,17 @@ def persistence_spectrum(
         if bandwidth is None:
             bw_args = (None, None)
         else:
-            bw_args = (-bandwidth/2, +bandwidth/2)
+            bw_args = (-bandwidth / 2, +bandwidth / 2)
         ilo, ihi = _freq_span_range(freqs[0], freqs[-1], freqs.size, *bw_args)
-        X = X[:,ilo:ihi]
+        X = X[:, ilo:ihi]
 
     if domain == Domain.TIME and dB:
         # already power
         spg = power_analysis.powtodB(X, eps=1e-25, out=X)
     elif domain == Domain.FREQUENCY and dB:
         # here X is complex-valued; use the first-half of its buffer
-        spg = power_analysis.envtodB(X, eps=1e-25)  
-    elif domain == Domain.FREQUENCY and not dB:          
+        spg = power_analysis.envtodB(X, eps=1e-25)
+    elif domain == Domain.FREQUENCY and not dB:
         spg = power_analysis.envtopow(X, eps=1e-25)
 
     # TODO: access the proper axis of spg in the output buffer
@@ -788,7 +792,7 @@ def persistence_spectrum(
         spg,
         xp.asarray(quantiles).astype('float32'),
         axis=axis,
-        out=spg[:len(quantiles)]
+        out=spg[: len(quantiles)],
     )
 
 

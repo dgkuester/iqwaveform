@@ -6,7 +6,14 @@ import numexpr as ne
 import warnings
 from numbers import Number
 from functools import partial
-from .util import Array, array_namespace, get_input_domain, Domain, float_dtype_like
+from .util import (
+    Array,
+    array_namespace,
+    get_input_domain,
+    Domain,
+    float_dtype_like,
+    isroundmod,
+)
 from typing import Union, Any
 
 warnings.filterwarnings('ignore', message='.*divide by zero.*')
@@ -43,10 +50,6 @@ def stat_ufunc_from_shorthand(kind, xp=np):
         raise ValueError(f'invalid statistic ufunc "{kind}"')
 
     return ufunc
-
-
-def isroundmod(value: float, div, atol=1e-6) -> bool:
-    return np.abs(np.rint(value / div) - value / div) <= atol
 
 
 def dBtopow(x: ArrayOrPandas) -> Any:
