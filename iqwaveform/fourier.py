@@ -278,7 +278,6 @@ def design_cola_resampler(
 
     window = 'hamming'
     enbw = (fs_target / nfft_out) * equivalent_noise_bandwidth(window, nfft_out)
-    print(enbw)
 
     if bw is None:
         passband = (None, None)
@@ -344,7 +343,6 @@ def _to_overlapping_windows(
     else:
         out = _truncated_buffer(out, stride_windows.shape)
         out[:] = stride_windows
-    print(stride_windows.shape, out.shape)
 
     out *= broadcast_onto(window / cola_scale, stride_windows, axis=axis + 1)
 
@@ -437,7 +435,6 @@ def _ola_filter_parameters(
     noverlap = round(fft_size_out * overlap_scale)
 
     if array_size % noverlap != 0:
-        print(array_size % noverlap)
         if extend:
             pad_out = array_size % noverlap
         else:
@@ -448,6 +445,12 @@ def _ola_filter_parameters(
         pad_out = 0
 
     return fft_size_out, noverlap, overlap_scale, pad_out
+
+
+def _ola_filter_buffer_size(array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool):
+    fft_size_out, noverlap, overlap_scale, pad_out = _ola_filter_parameters(**locals())
+    N = round(np.ceil(((array_size+pad_out)/fft_size+2)/overlap_scale)*fft_size)
+    return N
 
 
 def ola_filter(
@@ -503,7 +506,7 @@ def ola_filter(
             noverlap=round(fft_size * overlap_scale),
             axis=axis,
             truncate=False,
-            # out=out
+            out=out
         )
 
     elif get_input_domain() == Domain.FREQUENCY:
@@ -551,10 +554,8 @@ def ola_filter(
         xp.fft.fftshift(X, axes=axis + 1),
         axis=axis + 1,
         overwrite_x=True,
-        # out=X if cache is None else None
+        out=X if cache is None else None
     )
-
-    # globals()['debug'] = x_windows
 
     if cache is not None:
         cache['stft'] = X
@@ -565,7 +566,8 @@ def ola_filter(
         x_windows,
         noverlap=noverlap,
         nperseg=fft_size_out,
-        axis=axis,  # out=out
+        axis=axis,
+        out=out
     )
     # y = axis_slice(y, start=(fft_size-fft_size_out)//4, axis=axis)
     trim = y.shape[axis] - round(x.shape[axis] * fft_size_out / fft_size)
