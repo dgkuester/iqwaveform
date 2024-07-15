@@ -558,7 +558,7 @@ def ola_filter(
 
     if cache is not None:
         cache['stft'] = X
-    elif out in (None, 'shared'):
+    elif out is None or isinstance(out, str) and out == 'shared':
         out = X
 
     y = _from_overlapping_windows(
