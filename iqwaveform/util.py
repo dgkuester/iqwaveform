@@ -54,7 +54,11 @@ def empty_shared(shape: tuple | int, dtype: np.dtype, xp=np):
         portable=False,
         wc=False,
     )
-    return xp.array(x, copy=False)
+
+    if xp == np:
+        return x
+    else:
+        return xp.array(x, copy=False)
 
 
 def isroundmod(value: float, div, atol=1e-6) -> bool:
