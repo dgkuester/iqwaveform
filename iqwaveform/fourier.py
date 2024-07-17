@@ -25,7 +25,7 @@ from .power_analysis import stat_ufunc_from_shorthand
 
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 64 * 1024
-PAD_WINDOWS = 2
+PAD_WINDOWS = 3
 
 
 def _is_shared_arg(arg):
@@ -387,8 +387,6 @@ def _from_overlapping_windows(
     else:
         xr = _truncated_buffer(out, target_shape)
 
-    xr[:] = 0
-
     # for speed, sum up in groups of non-overlapping windows
     for offs in range(fft_size // hop_size):
         yslice = axis_slice(y, start=offs, step=fft_size // hop_size, axis=axis)
@@ -404,7 +402,10 @@ def _from_overlapping_windows(
             axis=axis,
         )
 
-        xr_slice += yslice[: xr_slice.size]
+        if offs == 0:
+            xr_slice[:] = yslice[: xr_slice.size]
+        else:
+            xr_slice += yslice[: xr_slice.size]
 
     return xr  # axis_slice(xr, start=noverlap-extra//2, stop=(-noverlap+extra//2) or None, axis=axis)
 
