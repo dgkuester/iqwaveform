@@ -25,6 +25,7 @@ from .power_analysis import stat_ufunc_from_shorthand
 
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 64 * 1024
+PAD_WINDOWS = 2
 
 
 def _is_shared_arg(arg):
@@ -218,7 +219,7 @@ def design_cola_resampler(
     bw: float,
     bw_lo: float = 250e3,
     min_oversampling: float = 1.1,
-    min_fft_size=1024,
+    min_fft_size=2*4096,
     shift=False,
     avoid_primes=True,
 ) -> tuple[float, float, dict]:
@@ -272,10 +273,10 @@ def design_cola_resampler(
         sign = -1
     elif shift == 'right':
         sign = +1
-    elif not shift:
+    elif shift in ('none', False, None):
         sign = 0
     else:
-        raise ValueError('shift argument must be "left" or "right"')
+        raise ValueError(f'shift argument must be "left" or "right", not {repr(shift)}')
 
     lo_offset = sign * (bw / 2 + bw_lo / 2)  # fs_sdr / nfft_in * (nfft_in - nfft_out)
 
@@ -299,12 +300,23 @@ def design_cola_resampler(
     return fs_sdr, lo_offset, ola_resample_kws
 
 
+def _cola_scale(window, hop_size):
+    if (window.size - hop_size) % 2 == 0:
+        # scaling correction based on the shape of the window where it intersects with its neighbor
+        cola_scale = 2 * window[(window.size - hop_size) // 2]
+    else:
+        cola_scale = (
+            window[(window.size - hop_size) // 2]
+            + window[(window.size - hop_size) // 2 + 1]
+        )
+    return cola_scale.real
+
 def _to_overlapping_windows(
     x: Array,
     window: Array,
     nperseg: int,
     noverlap: int,
-    pad_mode='constant',
+    pad_mode='wrap',
     axis=0,
     out=None,
 ) -> Array:
@@ -322,21 +334,13 @@ def _to_overlapping_windows(
     fft_size = nperseg
     hop_size = nperseg - noverlap
 
-    x = pad_along_axis(x, [noverlap, noverlap], mode=pad_mode, axis=axis)
+    x = pad_along_axis(x, [PAD_WINDOWS*noverlap, PAD_WINDOWS*noverlap], mode=pad_mode, axis=axis)
 
     strided = sliding_window_view(x, fft_size, axis=axis)
 
     stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
 
-    if (window.size - hop_size) % 2 == 0:
-        # scaling correction based on the shape of the window where it intersects with its neighbor
-        cola_scale = 2 * window[(window.size - hop_size) // 2]
-    else:
-        cola_scale = (
-            window[(window.size - hop_size) // 2]
-            + window[(window.size - hop_size) // 2 + 1]
-        )
-    cola_scale = cola_scale.real
+    cola_scale = _cola_scale(window, hop_size)
 
     if out is None:
         out = stride_windows.copy()
@@ -409,8 +413,12 @@ def _from_overlapping_windows(
 def _ola_filter_parameters(
     array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool
 ) -> tuple:
+    
     if fft_size_out is None:
         fft_size_out = fft_size
+
+    if fft_size < fft_size_out:
+        raise ValueError('only downsampling is supported')
 
     if window == 'hamming':
         if fft_size_out % 2 != 0:
@@ -452,7 +460,7 @@ def _ola_filter_parameters(
 
 def _ola_filter_buffer_size(array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool):
     fft_size_out, noverlap, overlap_scale, pad_out = _ola_filter_parameters(**locals())
-    N = round(np.ceil(((array_size+pad_out)/fft_size+2)/overlap_scale)*fft_size)
+    N = round(np.ceil(((array_size+pad_out)/fft_size+2*PAD_WINDOWS)/overlap_scale)*fft_size)
     return N
 
 
@@ -530,28 +538,24 @@ def ola_filter(
         freqs[0], freqs[-1], freqs.size, passband[0], passband[1]
     )
 
-    if fft_size_out == fft_size or not frequency_shift:
+    hop_size = fft_size - round(fft_size * overlap_scale)
+    w = _get_window(window, fft_size)
+
+    if fft_size_out == fft_size and not frequency_shift:
         X[:, :ilo] = 0
         X[:, ihi:] = 0
     else:
         pass_size = ihi - ilo
         pad_size = fft_size_out - pass_size
 
-        if ihi - ilo >= fft_size_out:
-            if frequency_shift == 'left':
-                X = X[:, -fft_size_out:]
-            if frequency_shift == 'right':
-                X = X[:, :fft_size_out]
-            else:
-                raise ValueError('frequency_shift must be "left" or "right"')
-        else:
-            ioutlo = pad_size // 2
-            iouthi = fft_size_out - pad_size // 2 - pad_size % 2
+        ioutlo = pad_size // 2
+        iouthi = fft_size_out - pad_size // 2 - pad_size % 2
 
-            X[:, ioutlo:iouthi] = X[:, ilo:ihi]
-            X = X[:, :fft_size_out]
-            X[:, :ioutlo] = 0
-            X[:, iouthi:] = 0
+        X[:, ioutlo:iouthi] = X[:, ilo:ihi]
+        X = X[:, :fft_size_out]
+        X[:, :ioutlo] = 0
+        X[:, iouthi:] = 0
+
 
     x_windows = ifft(
         xp.fft.fftshift(X, axes=axis + 1),
