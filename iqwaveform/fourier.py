@@ -387,6 +387,22 @@ def _from_overlapping_windows(
     else:
         xr = _truncated_buffer(out, target_shape)
 
+    xr_slice = axis_slice(
+        xr,
+        start=0,
+        stop=noverlap,
+        axis=axis,
+    )
+    xr_slice[:] = 0
+
+    xr_slice = axis_slice(
+        xr,
+        start=-noverlap,
+        stop=None,
+        axis=axis,
+    )
+    xr_slice[:] = 0
+
     # for speed, sum up in groups of non-overlapping windows
     for offs in range(fft_size // hop_size):
         yslice = axis_slice(y, start=offs, step=fft_size // hop_size, axis=axis)
@@ -518,7 +534,7 @@ def ola_filter(
             noverlap=round(fft_size * overlap_scale),
             axis=axis,
             truncate=False,
-            out=out
+            # out=out
         )
 
     elif get_input_domain() == Domain.FREQUENCY:
@@ -562,7 +578,7 @@ def ola_filter(
         xp.fft.fftshift(X, axes=axis + 1),
         axis=axis + 1,
         overwrite_x=True,
-        out=X if cache is None else None
+        # out=X if cache is None else None
     )
 
     if cache is not None:
