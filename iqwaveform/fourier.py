@@ -281,12 +281,7 @@ def design_cola_resampler(
     lo_offset = sign * (bw / 2 + bw_lo / 2)  # fs_sdr / nfft_in * (nfft_in - nfft_out)
 
     window = 'hamming'
-    # enbw = (fs_target / nfft_out) * equivalent_noise_bandwidth(window, nfft_out)
-
-    # if bw is None:
-    #     passband = (None, None)
-    # else:
-    passband = (lo_offset - (bw-enbw) / 2, lo_offset + (bw-enbw) / 2)
+    passband = (lo_offset - bw / 2, lo_offset + bw / 2)
 
     ola_resample_kws = {
         'window': window,
