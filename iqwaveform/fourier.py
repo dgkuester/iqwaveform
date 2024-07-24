@@ -16,7 +16,7 @@ from .util import (
     Domain,
     float_dtype_like,
     empty_shared,
-    _whichfloats
+    _whichfloats,
 )
 from array_api_compat import is_cupy_array, is_torch_array
 from scipy.signal._arraytools import axis_slice
@@ -156,10 +156,10 @@ def to_blocks(y: Array, size: int, truncate=False, axis=0) -> Array:
     return y.reshape(newshape)
 
 
-@lru_cache(8)
-def _get_window(name_or_tuple, N, norm=True, dtype=None, xp=None):
+@lru_cache(64)
+def _get_window(name_or_tuple, N, fftbins=True, norm=True, dtype=None, xp=None):
     if xp is None:
-        w = signal.windows.get_window(name_or_tuple, N)
+        w = signal.windows.get_window(name_or_tuple, N, fftbins=fftbins)
 
         if norm:
             w /= np.sqrt(np.mean(np.abs(w) ** 2))
@@ -219,7 +219,7 @@ def design_cola_resampler(
     bw: float,
     bw_lo: float = 250e3,
     min_oversampling: float = 1.1,
-    min_fft_size=2*4096,
+    min_fft_size=2 * 4096,
     shift=False,
     avoid_primes=True,
 ) -> tuple[float, float, dict]:
@@ -281,12 +281,7 @@ def design_cola_resampler(
     lo_offset = sign * (bw / 2 + bw_lo / 2)  # fs_sdr / nfft_in * (nfft_in - nfft_out)
 
     window = 'hamming'
-    enbw = (fs_target / nfft_out) * equivalent_noise_bandwidth(window, nfft_out)
-
-    if bw is None:
-        passband = (None, None)
-    else:
-        passband = (lo_offset - (2 * enbw + bw) / 2, lo_offset + (2 * enbw + bw) / 2)
+    passband = (lo_offset - bw / 2, lo_offset + bw / 2)
 
     ola_resample_kws = {
         'window': window,
@@ -311,12 +306,13 @@ def _cola_scale(window, hop_size):
         )
     return cola_scale.real
 
-def _to_overlapping_windows(
+
+def _stack_stft_windows(
     x: Array,
     window: Array,
     nperseg: int,
     noverlap: int,
-    pad_mode='wrap',
+    pad_mode='constant',
     axis=0,
     out=None,
 ) -> Array:
@@ -334,7 +330,9 @@ def _to_overlapping_windows(
     fft_size = nperseg
     hop_size = nperseg - noverlap
 
-    x = pad_along_axis(x, [PAD_WINDOWS*noverlap, PAD_WINDOWS*noverlap], mode=pad_mode, axis=axis)
+    x = pad_along_axis(
+        x, [PAD_WINDOWS * noverlap, PAD_WINDOWS * noverlap], mode=pad_mode, axis=axis
+    )
 
     strided = sliding_window_view(x, fft_size, axis=axis)
 
@@ -356,13 +354,13 @@ def _to_overlapping_windows(
     return out
 
 
-def _from_overlapping_windows(
+def _unstack_stft_windows(
     y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0
 ) -> Array:
     """reconstruct the time-domain waveform from the stft in y.
 
     Compared to the underlying istft implementations in scipy and cupyx.scipy, this has been simplified
-    to a reduced set of parameters for speed.
+    for speed at the expense of memory consumption.
 
     Args:
         y: the stft output, containing at least 2 dimensions
@@ -430,7 +428,6 @@ def _from_overlapping_windows(
 def _ola_filter_parameters(
     array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool
 ) -> tuple:
-    
     if fft_size_out is None:
         fft_size_out = fft_size
 
@@ -475,146 +472,72 @@ def _ola_filter_parameters(
     return fft_size_out, noverlap, overlap_scale, pad_out
 
 
-def _ola_filter_buffer_size(array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool):
+def _istft_buffer_size(
+    array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool
+):
     fft_size_out, noverlap, overlap_scale, pad_out = _ola_filter_parameters(**locals())
-    N = round(np.ceil(((array_size+pad_out)/fft_size+2*PAD_WINDOWS)/overlap_scale)*fft_size)
+    N = round(
+        np.ceil(((array_size + pad_out) / fft_size + 2 * PAD_WINDOWS) / overlap_scale)
+        * fft_size
+    )
     return N
 
 
-def ola_filter(
-    x: Array,
+def zero_stft_by_freq(
+    freqs: Array, xstft: Array, *, passband: tuple[float, float], axis=0
+) -> Array:
+    """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
+
+    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
+    axis_slice(xstft, start=0, stop=ilo, axis=axis + 1)[:] = 0
+    axis_slice(xstft, start=ihi, stop=None, axis=axis + 1)[:] = 0
+    return xstft
+
+
+def downsample_stft(
+    freqs: Array,
+    xstft: Array,
+    fft_size_out: int,
     *,
-    fs: float,
-    fft_size: int,
-    window: str | tuple = 'hamming',
-    passband=(None, None),
-    fft_size_out: int = None,
-    frequency_shift=False,
+    passband: tuple[float, float],
     axis=0,
-    extend=False,
-    cache=None,
     out=None,
-):
-    """apply a bandpass filter implemented through STFT overlap-and-add.
+) -> tuple[Array, Array]:
+    """downsample and filter an STFT representation of a filter in the frequency domain.
 
-    Input domain support via `set_input_domain`:
-        'time', 'frequency'
-
-    Args:
-        x: the input waveform
-        fs: the sample rate of the input waveform, in Hz
-        noverlap: the size of overlap between adjacent FFT windows, in samples
-        window: the type of COLA window to apply, 'hamming', 'blackman', or 'blackmanharris'
-        passband: a tuple of low-pass cutoff and high-pass cutoff frequency (or None to skip either)
-        fft_size_out: implement downsampling by adjusting the size of overlap between adjacent FFT windows
-        frequency_shift: the direction to shift the downsampled frequencies ('left' or 'right', or False to center)
-        axis: the axis of `x` along which to compute the filter
-        extend: if True, allow use of zero-padded samples at the edges to accommodate a non-integer number of overlapping windows in x
-        out: None, 'shared', or an array object to receive the output data
+    * This is rational downsampling by a factor of `nout/xstft.shape[axis+1]`,
+      shifted if necessary to center the passband.
+    * One approach to selecting `fft_size_out` for this purpose is the use
+      of `design_ola_filter`.
 
     Returns:
-        an Array of the same shape as X
+        A tuple containing the new `freqs` range and trimmed `xstft`
     """
-    xp = array_namespace(x)
+    xp = array_namespace(xstft)
 
-    fft_size_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
-        x.size,
-        window=window,
-        fft_size_out=fft_size_out,
-        fft_size=fft_size,
-        extend=extend,
-    )
+    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
+    pass_size = ihi - ilo
+    pad_size = fft_size_out - pass_size
 
-    if get_input_domain() == Domain.TIME:
-        freqs, _, X = stft(
-            x,
-            fs=fs,
-            window=window,
-            nperseg=fft_size,
-            noverlap=round(fft_size * overlap_scale),
-            axis=axis,
-            truncate=False,
-            # out=out
-        )
+    ioutlo = pad_size // 2
+    iouthi = fft_size_out - pad_size // 2 - pad_size % 2
 
-    elif get_input_domain() == Domain.FREQUENCY:
-        X = x
-        freqs, _ = _get_stft_axes(
-            fs=fs,
-            fft_size=fft_size,
-            time_size=X.shape[axis],
-            overlap_frac=noverlap / fft_size,
-            xp=xp,
-        )
-
+    if out is None:
+        shape = list(xstft.shape)
+        shape[axis + 1] = fft_size_out
+        xout = xp.empty(shape)
     else:
-        domain = get_input_domain()
-        raise ValueError(f'{domain} is not supported by ola_filter')
+        xout = out
 
-    ilo, ihi = _freq_span_range(
-        freqs[0], freqs[-1], freqs.size, passband[0], passband[1]
+    # truncate to the specified range of frequency bins
+    freqs_out = freqs[ioutlo:iouthi][:fft_size_out]
+
+    axis_slice(xout, ioutlo, iouthi, axis=axis + 1)[:] = axis_slice(
+        xout, ilo, ihi, axis=axis + 1
     )
+    xout = axis_slice(xout, 0, fft_size_out, axis=axis + 1)
 
-    hop_size = fft_size - round(fft_size * overlap_scale)
-    w = _get_window(window, fft_size)
-
-    if fft_size_out == fft_size and not frequency_shift:
-        X[:, :ilo] = 0
-        X[:, ihi:] = 0
-    else:
-        pass_size = ihi - ilo
-        pad_size = fft_size_out - pass_size
-
-        ioutlo = pad_size // 2
-        iouthi = fft_size_out - pad_size // 2 - pad_size % 2
-
-        X[:, ioutlo:iouthi] = X[:, ilo:ihi]
-        X = X[:, :fft_size_out]
-        X[:, :ioutlo] = 0
-        X[:, iouthi:] = 0
-
-
-    x_windows = ifft(
-        xp.fft.fftshift(X, axes=axis + 1),
-        axis=axis + 1,
-        overwrite_x=True,
-        # out=X if cache is None else None
-    )
-
-    if cache is not None:
-        cache['stft'] = X
-    elif out is None or isinstance(out, str) and out == 'shared':
-        out = X
-
-    y = _from_overlapping_windows(
-        x_windows,
-        noverlap=noverlap,
-        nperseg=fft_size_out,
-        axis=axis,
-        out=out
-    )
-    # y = axis_slice(y, start=(fft_size-fft_size_out)//4, axis=axis)
-    trim = y.shape[axis] - round(x.shape[axis] * fft_size_out / fft_size)
-    if trim > 0:
-        y = axis_slice(y, start=trim // 2, stop=(-trim // 2) or None, axis=axis)
-    return y
-
-
-@lru_cache(8)
-def _freq_span_range(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
-    freq_inds = np.linspace(freq_min, freq_max, freq_count)
-
-    if cutoff_low is None:
-        ilo = None
-    else:
-        ilo = np.where(freq_inds >= cutoff_low)[0][0]
-
-    if cutoff_hi is None:
-        ihi = None
-    else:
-        ihi = np.where(freq_inds <= cutoff_hi)[0][-1] + 1
-
-    return ilo, ihi
+    return freqs_out, xout
 
 
 def stft(
@@ -662,7 +585,7 @@ def stft(
 
     xp = array_namespace(x)
 
-    # # This is probably the same
+    # # For reference: this is probably the same
     # freqs, times, X = signal.spectral._spectral_helper(
     #     x,
     #     x,
@@ -702,7 +625,7 @@ def stft(
     else:
         # assert fft_size % (fft_size - noverlap) == 0
 
-        x_ol = _to_overlapping_windows(
+        x_ol = _stack_stft_windows(
             x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out
         )
 
@@ -722,6 +645,126 @@ def stft(
     )
 
     return freqs, times, X
+
+
+def istft(
+    xstft: Array, size=None, *, fft_size: int, noverlap: int, out=None, cache=None, axis=0
+) -> Array:
+    """reconstruct and return a waveform given its STFT and associated parameters"""
+
+    xp = array_namespace(xstft)
+
+    x_windows = ifft(
+        xp.fft.fftshift(xstft, axes=axis + 1),
+        axis=axis + 1,
+        overwrite_x=True,
+        # out=X if cache is None else None
+    )
+
+    if cache is not None:
+        cache['stft'] = xstft
+    elif out is None or isinstance(out, str) and out == 'shared':
+        out = xstft
+
+    y = _unstack_stft_windows(
+        x_windows, noverlap=noverlap, nperseg=fft_size, axis=axis, out=out
+    )
+
+    if size is not None:
+        trim = y.shape[axis] - size
+        if trim > 0:
+            y = axis_slice(y, start=trim // 2, stop=-trim // 2, axis=axis)
+
+    return y
+
+
+def ola_filter(
+    x: Array,
+    *,
+    fs: float,
+    fft_size: int,
+    window: str | tuple = 'hamming',
+    passband: tuple[float, float],
+    fft_size_out: int = None,
+    frequency_shift=False,
+    axis=0,
+    extend=False,
+    out=None,
+):
+    """apply a bandpass filter implemented through STFT overlap-and-add.
+
+    Args:
+        x: the input waveform
+        fs: the sample rate of the input waveform, in Hz
+        noverlap: the size of overlap between adjacent FFT windows, in samples
+        window: the type of COLA window to apply, 'hamming', 'blackman', or 'blackmanharris'
+        passband: a tuple of low-pass cutoff and high-pass cutoff frequency (or None to skip either)
+        fft_size_out: implement downsampling by adjusting the size of overlap between adjacent FFT windows
+        frequency_shift: the direction to shift the downsampled frequencies ('left' or 'right', or False to center)
+        axis: the axis of `x` along which to compute the filter
+        extend: if True, allow use of zero-padded samples at the edges to accommodate a non-integer number of overlapping windows in x
+        out: None, 'shared', or an array object to receive the output data
+
+    Returns:
+        an Array of the same shape as X
+    """
+    xp = array_namespace(x)
+
+    fft_size_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
+        x.size,
+        window=window,
+        fft_size_out=fft_size_out,
+        fft_size=fft_size,
+        extend=extend,
+    )
+
+    enbw = equivalent_noise_bandwidth(window, fft_size_out)
+
+    w = _get_window(window, fft_size, fftbins=False, xp=xp)
+
+    freqs, _, xstft = stft(
+        x,
+        fs=fs,
+        window=w,
+        nperseg=fft_size,
+        noverlap=round(fft_size * overlap_scale),
+        axis=axis,
+        truncate=False,
+        out=out
+    )
+
+    zero_stft_by_freq(freqs, xstft, passband=(passband[0] + enbw, passband[1] - enbw), axis=axis)    
+
+    if fft_size_out != fft_size or frequency_shift:
+        freqs, xstft = downsample_stft(
+            freqs, xstft, fft_size_out=fft_size_out, passband=passband, axis=axis, out=xstft
+        )
+
+    return istft(
+        xstft,
+        round(x.shape[axis] * fft_size_out/fft_size),
+        fft_size=fft_size_out,
+        noverlap=noverlap,
+        out=xstft,
+        axis=axis,
+    )
+
+
+@lru_cache(8)
+def _freq_band_edges(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
+    freq_inds = np.linspace(freq_min, freq_max, freq_count)
+
+    if cutoff_low is None:
+        ilo = None
+    else:
+        ilo = np.where(freq_inds >= cutoff_low)[0][0]
+
+    if cutoff_hi is None:
+        ihi = None
+    else:
+        ihi = np.where(freq_inds <= cutoff_hi)[0][-1] + 1
+
+    return ilo, ihi
 
 
 def spectrogram(
@@ -801,7 +844,7 @@ def persistence_spectrum(
             bw_args = (None, None)
         else:
             bw_args = (-bandwidth / 2, +bandwidth / 2)
-        ilo, ihi = _freq_span_range(freqs[0], freqs[-1], freqs.size, *bw_args)
+        ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *bw_args)
         X = X[:, ilo:ihi]
 
     if domain == Domain.TIME and dB:
@@ -823,18 +866,16 @@ def persistence_spectrum(
 
     # TODO: access the proper axis of spg in the output buffer
     out[isquantile] = xp.quantile(
-        spg,
-        xp.array(quantiles),
-        axis=axis,
-        out=out[isquantile]
+        spg, xp.array(quantiles), axis=axis, out=out[isquantile]
     )
 
     for i, isquantile in enumerate(isquantile):
         if not isquantile:
             ufunc = stat_ufunc_from_shorthand(statistics[i], xp=xp)
-            axis_slice(out, start=i, stop=i+1, axis=axis)[...] = ufunc(spg, axis=axis)
+            axis_slice(out, start=i, stop=i + 1, axis=axis)[...] = ufunc(spg, axis=axis)
 
     return out
+
 
 def low_pass_filter(
     iq: Array,
@@ -1097,184 +1138,3 @@ def time_to_frequency(iq, Ts, window=None, axis=0):
     )
     fftfreqs = xp.fft.fftshift(xp.fft.fftfreq(X.shape[0], Ts))
     return fftfreqs, X
-
-
-def _len_guards(M):
-    """Handle small or incorrect window lengths"""
-    if int(M) != M or M < 0:
-        raise ValueError('Window length M must be a non-negative integer')
-    return M <= 1
-
-
-def _extend(M, sym):
-    """Extend window by 1 sample if needed for DFT-even symmetry"""
-    if not sym:
-        return M + 1, True
-    else:
-        return M, False
-
-
-def _truncate(w, needed):
-    """Truncate window by 1 sample if needed for DFT-even symmetry"""
-    if needed:
-        return w[:-1]
-    else:
-        return w
-
-
-def taylor(M: int, nbar: int = 4, sll: float = 30, norm=True, sym=True) -> np.ndarray:
-    """
-    Return a Taylor window.
-    The Taylor window taper function approximates the Dolph-Chebyshev window's
-    constant sidelobe level for a parameterized number of near-in sidelobes,
-    but then allows a taper beyond [2]_.
-    The SAR (synthetic aperature radar) community commonly uses Taylor
-    weighting for image formation processing because it provides strong,
-    selectable sidelobe suppression with minimum broadening of the
-    mainlobe [1]_.
-    Parameters
-    ----------
-    M : int
-        Number of points in the output window. If zero or less, an
-        empty array is returned.
-    nbar : int, optional
-        Number of nearly constant level sidelobes adjacent to the mainlobe.
-    sll : float, optional
-        Desired suppression of sidelobe level in decibels (dB) relative to the
-        DC gain of the mainlobe. This should be a positive number.
-    norm : bool, optional
-        When True (default), divides the window by the largest (middle) value
-        for odd-length windows or the value that would occur between the two
-        repeated middle values for even-length windows such that all values
-        are less than or equal to 1. When False the DC gain will remain at 1
-        (0 dB) and the sidelobes will be `sll` dB down.
-    sym : bool, optional
-        When True (default), generates a symmetric window, for use in filter
-        design.
-        When False, generates a periodic window, for use in spectral analysis.
-    Returns
-    -------
-    out : array
-        The window. When `norm` is True (default), the maximum value is
-        normalized to 1 (though the value 1 does not appear if `M` is
-        even and `sym` is True).
-    See Also
-    --------
-    chebwin, kaiser, bartlett, blackman, hamming, hanning
-    References
-    ----------
-    .. [1] W. Carrara, R. Goodman, and R. Majewski, "Spotlight Synthetic
-           Aperture Radar: Signal Processing Algorithms" Pages 512-513,
-           July 1995.
-    .. [2] Armin Doerry, "Catalog of Window Taper Functions for
-           Sidelobe Control", 2017.
-           https://www.researchgate.net/profile/Armin_Doerry/publication/316281181_Catalog_of_Window_Taper_Functions_for_Sidelobe_Control/links/58f92cb2a6fdccb121c9d54d/Catalog-of-Window-Taper-Functions-for-Sidelobe-Control.pdf
-    Examples
-    --------
-    Plot the window and its frequency response:
-    >>> from scipy import signal
-    >>> from scipy.fft import fft, fftshift
-    >>> import matplotlib.pyplot as plt
-    >>> window = signal.windows.taylor(51, nbar=20, sll=100, norm=False)
-    >>> plt.plot(window)
-    >>> plt.title('Taylor window (100 dB)')
-    >>> plt.ylabel('Amplitude')
-    >>> plt.xlabel('Sample')
-    >>> plt.figure()
-    >>> A = fft(window, 2048) / (len(window) / 2.0)
-    >>> freq = np.linspace(-0.5, 0.5, len(A))
-    >>> response = 20 * np.log10(np.abs(fftshift(A / abs(A).max())))
-    >>> plt.plot(freq, response)
-    >>> plt.axis([-0.5, 0.5, -120, 0])
-    >>> plt.title('Frequency response of the Taylor window (100 dB)')
-    >>> plt.ylabel('Normalized magnitude [dB]')
-    >>> plt.xlabel('Normalized frequency [cycles per sample]')
-    """  # noqa: E501
-
-    if _len_guards(M):
-        return np.ones(M)
-    M, needs_trunc = _extend(M, sym)
-
-    # Original text uses a negative sidelobe level parameter and then negates
-    # it in the calculation of B. To keep consistent with other methods we
-    # assume the sidelobe level parameter to be positive.
-    B = 10 ** (sll / 20)
-    A = np.arccosh(B) / np.pi
-    s2 = nbar**2 / (A**2 + (nbar - 0.5) ** 2)
-    ma = np.arange(1, nbar)
-
-    Fm = np.empty(nbar - 1)
-    signs = np.empty_like(ma)
-    signs[::2] = 1
-    signs[1::2] = -1
-    m2 = ma * ma
-    for mi, m in enumerate(ma):
-        numer = signs[mi] * np.prod(1 - m2[mi] / s2 / (A**2 + (ma - 0.5) ** 2))
-        denom = 2 * np.prod(1 - m2[mi] / m2[:mi]) * np.prod(1 - m2[mi] / m2[mi + 1 :])
-        Fm[mi] = numer / denom
-
-    def W(n):
-        return 1 + 2 * np.dot(
-            Fm, np.cos(2 * np.pi * ma[:, np.newaxis] * (n - M / 2.0 + 0.5) / M)
-        )
-
-    w = W(np.arange(M))
-
-    # normalize (Note that this is not described in the original text [1])
-    if norm:
-        scale = 1.0 / W((M - 1) / 2)
-        w *= scale
-
-    return _truncate(w, needs_trunc)
-
-
-def knab(M: int, alpha, sym=True) -> np.ndarray:
-    if _len_guards(M):
-        return np.ones(M)
-    M, needs_trunc = _extend(M, sym)
-
-    t = np.linspace(-0.5, 0.5, M)
-
-    sqrt_term = np.sqrt(1 - (2 * t) ** 2)
-    w = np.sinh((np.pi * alpha) * sqrt_term) / (np.sinh(np.pi * alpha) * sqrt_term)
-
-    w[0] = w[-1] = np.pi * alpha / np.sinh(np.pi * alpha)
-    w /= np.sqrt(np.sum(w**2))
-
-    return _truncate(w, needs_trunc)
-
-
-def modified_bessel(M, alpha, sym=True):
-    if _len_guards(M):
-        return np.ones(M)
-    M, needs_trunc = _extend(M, sym)
-
-    t = np.linspace(-0.5, 0.5, M)
-
-    sqrt_term = np.sqrt(1 - (2 * t) ** 2)
-    w = special.i1((np.pi * alpha) * sqrt_term) / (
-        special.i1(np.pi * alpha) * sqrt_term
-    )
-
-    w[0] = w[-1] = 0  # np.pi*alpha/np.sinh(np.pi*alpha)
-
-    w /= np.sqrt(np.sum(w**2))
-
-    return _truncate(w, needs_trunc)
-
-
-def cosh(M: int, alpha, sym=True) -> np.ndarray:
-    if _len_guards(M):
-        return np.ones(M)
-    M, needs_trunc = _extend(M, sym)
-
-    t = np.linspace(-0.5, 0.5, M)
-
-    sqrt_term = np.sqrt(1 - (2 * t) ** 2)
-    w = np.cosh((np.pi * alpha) * sqrt_term) / (np.cosh(np.pi * alpha) * sqrt_term)
-
-    w[0] = w[-1] = 1 / np.cosh(np.pi * alpha)
-
-    w /= np.sqrt(np.sum(w**2))
-
-    return _truncate(w, needs_trunc)
