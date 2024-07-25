@@ -25,7 +25,7 @@ from .power_analysis import stat_ufunc_from_shorthand
 
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 64 * 1024
-PAD_WINDOWS = 3
+PAD_WINDOWS = 1
 
 
 def _is_shared_arg(arg):
@@ -174,9 +174,9 @@ def _get_window(name_or_tuple, N, fftbins=True, norm=True, dtype=None, xp=None):
 
 
 @lru_cache
-def equivalent_noise_bandwidth(window: str | tuple[str, float], N):
+def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True):
     """return the equivalent noise bandwidth (ENBW) of a window, in bins"""
-    w = _get_window(window, N)
+    w = _get_window(window, N, fftbins=fftbins)
     return len(w) * np.sum(w**2) / np.sum(w) ** 2
 
 
@@ -357,7 +357,7 @@ def _stack_stft_windows(
 def _unstack_stft_windows(
     y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0
 ) -> Array:
-    """reconstruct the time-domain waveform from the stft in y.
+    """reconstruct the time-domain waveform from its STFT representation.
 
     Compared to the underlying istft implementations in scipy and cupyx.scipy, this has been simplified
     for speed at the expense of memory consumption.
@@ -514,28 +514,30 @@ def downsample_stft(
         A tuple containing the new `freqs` range and trimmed `xstft`
     """
     xp = array_namespace(xstft)
+    ax = axis + 1
 
-    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
-    pass_size = ihi - ilo
-    pad_size = fft_size_out - pass_size
-
-    ioutlo = pad_size // 2
-    iouthi = fft_size_out - pad_size // 2 - pad_size % 2
+    shape = list(xstft.shape)
+    shape[ax] = fft_size_out
 
     if out is None:
-        shape = list(xstft.shape)
-        shape[axis + 1] = fft_size_out
-        xout = xp.empty(shape)
+        xout = xp.empty(shape, dtype=xstft.dtype)
     else:
-        xout = out
+        xout = _truncated_buffer(out, shape)
 
-    # truncate to the specified range of frequency bins
-    freqs_out = freqs[ioutlo:iouthi][:fft_size_out]
+    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
 
-    axis_slice(xout, ioutlo, iouthi, axis=axis + 1)[:] = axis_slice(
-        xout, ilo, ihi, axis=axis + 1
-    )
-    xout = axis_slice(xout, 0, fft_size_out, axis=axis + 1)
+    # evaluate the index offsets of the passband that center within the downsampled array
+    passband_size = ihi - ilo
+    stopband_size = fft_size_out - passband_size
+    ioutlo = stopband_size // 2
+    iouthi = fft_size_out - stopband_size // 2 - stopband_size % 2
+
+    # truncate to the range of frequency bins, centered within the new sampling bandwidth
+    freqs_out = freqs[ilo:ihi] - freqs[(ilo+ihi)//2]
+
+    axis_slice(xout, ioutlo, iouthi, axis=ax)[:] = axis_slice(xstft, ilo, ihi, axis=ax)
+    axis_slice(xout, 0, ioutlo, axis=ax)[:] = 0
+    axis_slice(xout, iouthi, None, axis=ax)[:] = 0
 
     return freqs_out, xout
 
@@ -648,7 +650,7 @@ def stft(
 
 
 def istft(
-    xstft: Array, size=None, *, fft_size: int, noverlap: int, out=None, cache=None, axis=0
+    xstft: Array, size=None, *, fft_size: int, noverlap: int, out=None, axis=0
 ) -> Array:
     """reconstruct and return a waveform given its STFT and associated parameters"""
 
@@ -658,13 +660,8 @@ def istft(
         xp.fft.fftshift(xstft, axes=axis + 1),
         axis=axis + 1,
         overwrite_x=True,
-        # out=X if cache is None else None
+        out=None if out is None else _truncated_buffer(out, xstft.shape)
     )
-
-    if cache is not None:
-        cache['stft'] = xstft
-    elif out is None or isinstance(out, str) and out == 'shared':
-        out = xstft
 
     y = _unstack_stft_windows(
         x_windows, noverlap=noverlap, nperseg=fft_size, axis=axis, out=out
@@ -718,7 +715,7 @@ def ola_filter(
         extend=extend,
     )
 
-    enbw = equivalent_noise_bandwidth(window, fft_size_out)
+    enbw = equivalent_noise_bandwidth(window, fft_size_out, fftbins=False)
 
     w = _get_window(window, fft_size, fftbins=False, xp=xp)
 
@@ -745,12 +742,12 @@ def ola_filter(
         round(x.shape[axis] * fft_size_out/fft_size),
         fft_size=fft_size_out,
         noverlap=noverlap,
-        out=xstft,
+        out=out,
         axis=axis,
     )
 
 
-@lru_cache(8)
+@lru_cache
 def _freq_band_edges(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
     freq_inds = np.linspace(freq_min, freq_max, freq_count)
 
@@ -860,7 +857,7 @@ def persistence_spectrum(
 
     shape = list(spg.shape)
     shape[axis] = len(statistics)
-    out = xp.empty(tuple(shape))
+    out = xp.empty(tuple(shape), dtype='float32')
 
     quantiles = list(np.asarray(statistics)[isquantile].astype('float32'))
 
