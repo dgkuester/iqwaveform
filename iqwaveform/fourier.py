@@ -25,7 +25,6 @@ from .power_analysis import stat_ufunc_from_shorthand
 
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 64 * 1024
-PAD_WINDOWS = 1
 
 
 def _is_shared_arg(arg):
@@ -49,8 +48,6 @@ def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         # TODO: see about upstream question on this
         if out is None:
             pass
-        elif _is_shared_arg(out):
-            out = empty_shared(target_shape, dtype, xp=cp)
         else:
             out = out.reshape(x.shape)
 
@@ -330,14 +327,9 @@ def _stack_stft_windows(
     fft_size = nperseg
     hop_size = nperseg - noverlap
 
-    x = pad_along_axis(
-        x, [PAD_WINDOWS * noverlap, PAD_WINDOWS * noverlap], mode=pad_mode, axis=axis
-    )
-
     strided = sliding_window_view(x, fft_size, axis=axis)
 
     stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
-
     cola_scale = _cola_scale(window, hop_size)
 
     if out is None:
@@ -477,7 +469,7 @@ def _istft_buffer_size(
 ):
     fft_size_out, noverlap, overlap_scale, pad_out = _ola_filter_parameters(**locals())
     N = round(
-        np.ceil(((array_size + pad_out) / fft_size + 2 * PAD_WINDOWS) / overlap_scale)
+        np.ceil(((array_size + pad_out) / fft_size) / overlap_scale)
         * fft_size
     )
     return N
@@ -625,18 +617,14 @@ def stft(
         X = xp.fft.fftshift(X, axes=axis + 1)
 
     else:
-        # assert fft_size % (fft_size - noverlap) == 0
-
         x_ol = _stack_stft_windows(
             x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out
         )
 
-        X = fft(x_ol, axis=axis + 1, overwrite_x=True, out=x_ol)
+        X = fft(x_ol, axis=axis + 1, overwrite_x=True, out=None if out is None else _truncated_buffer(out, x_ol.shape))
 
         # interleave the overlaps in time
-        # X = X.reshape(X.shape[:-2] + (X.shape[-2]*X.shape[-1],))
         X = xp.fft.fftshift(X, axes=axis + 1)
-        # X = X.swapaxes(-2, -1)
 
     freqs, times = _get_stft_axes(
         fs,
