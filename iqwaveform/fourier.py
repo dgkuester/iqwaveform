@@ -242,9 +242,14 @@ def design_cola_resampler(
     else:
         fs_sdr_min = fs_target
 
-    decimation = int(fs_base / fs_sdr_min)
+    if fs_base > fs_target:
+        decimation = int(fs_base / fs_sdr_min)
+        fs_sdr = fs_base / decimation
+    else:
+        fs_sdr = fs_base
 
-    fs_sdr = fs_base / decimation
+    if bw > fs_base:
+        raise ValueError('passband bandwidth exceeds Nyquist bandwidth at master clock rate')
 
     resample_ratio = fs_sdr / fs_target
 
@@ -279,11 +284,11 @@ def design_cola_resampler(
         raise ValueError('a passband bandwidth must be set to design a LO shift')
 
     if bw is None:
-        passband = (None, None)
         lo_offset = 0
+        passband = (None, None)
     else:
-        passband = (lo_offset - bw / 2, lo_offset + bw / 2)
         lo_offset = sign * (bw / 2 + bw_lo / 2)  # fs_sdr / nfft_in * (nfft_in - nfft_out)
+        passband = (lo_offset - bw / 2, lo_offset + bw / 2)
 
     window = 'hamming'
 
