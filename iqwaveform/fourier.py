@@ -216,7 +216,7 @@ def design_cola_resampler(
     bw: float=None,
     bw_lo: float = 0,
     min_oversampling: float = 1.1,
-    min_fft_size=2 * 4096,
+    min_fft_size=2 * 4096 - 1,
     shift=False,
     avoid_primes=True,
 ) -> tuple[float, float, dict]:
@@ -248,7 +248,7 @@ def design_cola_resampler(
     else:
         fs_sdr = fs_base
 
-    if bw > fs_base:
+    if bw is not None and bw > fs_base:
         raise ValueError('passband bandwidth exceeds Nyquist bandwidth at master clock rate')
 
     resample_ratio = fs_sdr / fs_target
