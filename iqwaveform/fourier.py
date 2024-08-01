@@ -213,8 +213,8 @@ def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
 def design_cola_resampler(
     fs_base: float,
     fs_target: float,
-    bw: float,
-    bw_lo: float = 250e3,
+    bw: float=None,
+    bw_lo: float = 0,
     min_oversampling: float = 1.1,
     min_fft_size=2 * 4096,
     shift=False,
@@ -275,10 +275,17 @@ def design_cola_resampler(
     else:
         raise ValueError(f'shift argument must be "left" or "right", not {repr(shift)}')
 
-    lo_offset = sign * (bw / 2 + bw_lo / 2)  # fs_sdr / nfft_in * (nfft_in - nfft_out)
+    if sign != 0 and bw is None:
+        raise ValueError('a passband bandwidth must be set to design a LO shift')
+
+    if bw is None:
+        passband = (None, None)
+        lo_offset = 0
+    else:
+        passband = (lo_offset - bw / 2, lo_offset + bw / 2)
+        lo_offset = sign * (bw / 2 + bw_lo / 2)  # fs_sdr / nfft_in * (nfft_in - nfft_out)
 
     window = 'hamming'
-    passband = (lo_offset - bw / 2, lo_offset + bw / 2)
 
     ola_resample_kws = {
         'window': window,
