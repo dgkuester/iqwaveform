@@ -1,12 +1,13 @@
 from __future__ import annotations
-from sklearn.linear_model import LinearRegression
+from .util import lazy_import
+
 import numpy as np
 from datetime import datetime
-from scipy import signal
-from pylab import plot
 from numbers import Number
 import methodtools
 
+signal = lazy_import('scipy.signal')
+pylab = lazy_import('matplotlib.pylab')
 
 def correlate_along_axis(a, b, axis=0):
     """cross-correlate `a` and `b` along the specified axis.
@@ -540,6 +541,8 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         all synchronization windows.
         """
 
+        from sklearn import linear_model
+
         offsets, weights, noise = self._offset_by_sync_period(x).T
         t_sync = (self.sync_size / self.phy.sample_rate) * np.arange(offsets.size)
 
@@ -565,7 +568,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         print('tsync shape:' + str(t_sync.shape))
         print('offsets shape:' + str(offsets.shape))
         print('weights shape:' + str(weights.shape))
-        fit = LinearRegression().fit(
+        fit = linear_model.LinearRegression().fit(
             t_sync.reshape(-1, 1), offsets.reshape(-1, 1), weights
         )
         print('LinearRegression.fit() finished')
@@ -586,8 +589,8 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
     def plot_offset_with_fit(self, x):
         slope, intercept = self._estimate_clock_mismatch(x)
         t, offsets, weights = self._regression_info['inputs']
-        plot(t, offsets, '.')
-        plot(t, t * self._regression_info['slope'] + self._regression_info['intercept'])
+        pylab.plot(t, offsets, '.')
+        pylab.plot(t, t * self._regression_info['slope'] + self._regression_info['intercept'])
 
     def __call__(
         self, x, subsample_offset_correction=True, max_passes=10, on_fail='except'

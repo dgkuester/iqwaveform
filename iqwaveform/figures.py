@@ -1,12 +1,17 @@
-import pandas as pd
-import matplotlib as mpl
-import matplotlib.pyplot as plt
+from __future__ import annotations
+import math
 import numpy as np
-from scipy import stats
+
 from .power_analysis import powtodB, dBtopow, envtodB, sample_ccdf, iq_to_bin_power
 from .fourier import iq_to_stft_spectrogram
+from . import type_stubs
+from .util import lazy_import
 
-import math
+mpl = lazy_import('matplotlib')
+plt = lazy_import('matplotlib.pyplot')
+stats = lazy_import('scipy.stats')
+pd = lazy_import('pandas')
+
 
 
 def _show_xarray_units_in_parentheses():
@@ -390,7 +395,7 @@ def plot_spectrogram_heatmap_from_iq(
     vmin: float = None,
     cmap=None,
     time_span=(None, None),
-) -> tuple((plt.Axes, pd.DataFrame)):
+) -> tuple[type_stubs.AxesType, type_stubs.DataFrameType]:
     index_span = (
         None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
         None if time_span[1] is None else int(np.rint(time_span[1] / Ts)),
@@ -437,7 +442,7 @@ def plot_spectrogram_heatmap_from_iq(
 
 
 def plot_spectrogram_heatmap(
-    spg: pd.DataFrame,
+    spg: type_stubs.DataFrameType,
     Ts: float,
     ax=None,
     vmin: float = None,
@@ -447,7 +452,7 @@ def plot_spectrogram_heatmap(
     transpose=False,
     colorbar=True,
     rasterized=True,
-) -> tuple((plt.Axes, pd.DataFrame)):
+) -> tuple[type_stubs.AxesType, type_stubs.DataFrameType]:
     if cmap is None:
         cmap = mpl.cm.get_cmap('magma')
 
@@ -502,7 +507,7 @@ def plot_spectrogram_heatmap(
 
 
 def plot_power_histogram_heatmap(
-    rolling_histogram: pd.DataFrame,
+    rolling_histogram: type_stubs.DataFrameType,
     contiguous_threshold=None,
     log_counts=True,
     title: str = None,

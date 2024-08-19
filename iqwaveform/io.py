@@ -1,10 +1,13 @@
 # routines for reading spectrum monitoring data files
 
 import numpy as np
-import pandas as pd
 import json
-from scipy import signal
 from pathlib import Path
+from .util import lazy_import
+from . import type_stubs
+
+signal = lazy_import('scipy.signal')
+pd = lazy_import('pandas')
 
 
 def extract_ntia_calibration_metadata(metadata: dict) -> dict:
@@ -29,12 +32,7 @@ def extract_ntia_calibration_metadata(metadata: dict) -> dict:
     }
 
 
-def read_sigmf_metadata(metadata_fn, ntia=False) -> tuple(
-    (
-        pd.DataFrame,
-        float,
-    )
-):
+def read_sigmf_metadata(metadata_fn, ntia=False) -> tuple[type_stubs.DataFrameType, float]:
     with open(metadata_fn, 'r') as fd:
         metadata = json.load(fd)
 
@@ -107,8 +105,8 @@ def read_sigmf_to_df(
 
 
 def waveform_to_frame(
-    waveform: np.array, Ts: float, columns: pd.Index = None, column_name=None
-) -> tuple((pd.Series, pd.DataFrame)):
+    waveform: np.array, Ts: float, columns: type_stubs.IndexType = None, column_name=None
+) -> tuple[type_stubs.SeriesType, type_stubs.DataFrameType]:
     """packs IQ data into a pandas Series or DataFrame object.
 
     The input waveform `iq` may have shape (N,) or (N,M), representing a single

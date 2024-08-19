@@ -1,25 +1,27 @@
 """Transformations and statistical tools for power time series"""
 
-import array_api_compat.numpy as np
-import pandas as pd
-import numexpr as ne
-import warnings
-from numbers import Number
-from functools import partial
 from .util import (
-    Array,
+    lazy_import,
     array_namespace,
     get_input_domain,
     Domain,
     float_dtype_like,
     isroundmod,
 )
+
+import array_api_compat.numpy as np
+import warnings
+from numbers import Number
+from functools import partial
 from typing import Union, Any
+from . import type_stubs
+
+signal = lazy_import('scipy.signal')
+pd = lazy_import('pandas')
+ne = lazy_import('numexpr')
 
 warnings.filterwarnings('ignore', message='.*divide by zero.*')
 warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
-
-ArrayOrPandas = Union[Array, pd.Series, pd.DataFrame]
 
 
 def stat_ufunc_from_shorthand(kind, xp=np):
@@ -52,7 +54,7 @@ def stat_ufunc_from_shorthand(kind, xp=np):
     return ufunc
 
 
-def dBtopow(x: ArrayOrPandas) -> Any:
+def dBtopow(x: Union[type_stubs.Array, type_stubs.SeriesType, type_stubs.DataFrameType]) -> Any:
     """Computes `10**(x/10.)` with speed optimizations"""
 
     # TODO: add support for CUDA evaluation as well
@@ -66,7 +68,7 @@ def dBtopow(x: ArrayOrPandas) -> Any:
         return values
 
 
-def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0, out=None) -> Any:
+def powtodB(x: type_stubs.ArrayOrPandas, abs: bool = True, eps: float = 0, out=None) -> Any:
     """compute `10*log10(abs(x) + eps)` or `10*log10(x + eps)` with speed optimizations"""
 
     # TODO: add support for CUDA evaluation as well
@@ -116,7 +118,7 @@ def powtodB(x: ArrayOrPandas, abs: bool = True, eps: float = 0, out=None) -> Any
         return values
 
 
-def envtopow(x: ArrayOrPandas, out=None) -> Any:
+def envtopow(x: type_stubs.ArrayOrPandas, out=None) -> Any:
     """Computes abs(x)**2 with speed optimizations"""
 
     try:
@@ -201,7 +203,7 @@ def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0, out=None) -> np.nda
 
 
 def iq_to_bin_power(
-    iq: Array,
+    iq: type_stubs.Array,
     Ts: float,
     Tbin: float,
     randomize: bool = False,
@@ -249,14 +251,14 @@ def iq_to_bin_power(
 
 
 def iq_to_cyclic_power(
-    x: Array,
+    x: type_stubs.Array,
     Ts: float,
     detector_period: float,
     cyclic_period: float,
     truncate=False,
     detectors=('rms', 'peak'),
     cycle_stats=('min', 'mean', 'max'),
-) -> dict[str, dict[str, Array]]:
+) -> dict[str, dict[str, type_stubs.Array]]:
     """computes a time series of periodic frame power statistics.
 
     The time axis on the cyclic time lag [0, cyclic_period) is binned with step size
@@ -366,8 +368,8 @@ def iq_to_frame_power(
 
 
 def unstack_series_to_bins(
-    pvt: pd.Series, Tbin: float, truncate: bool = False
-) -> pd.DataFrame:
+    pvt: type_stubs.SeriesType, Tbin: float, truncate: bool = False
+) -> type_stubs.DataFrameType:
     """unstack time series of power vs time (time axis) `pvt` into
     a pd.DataFrame in which row consists of time series of time duration `Twindow`.
 
@@ -474,14 +476,14 @@ def hist_laxis(x: np.ndarray, n_bins: int, range_limits: tuple) -> np.ndarray:
 
 
 def power_histogram_along_axis(
-    pvt: pd.DataFrame,
-    bounds: tuple((float, float)),
+    pvt: type_stubs.DataFrameType,
+    bounds: tuple[float,float],
     resolution_db: float,
     resolution_axis: int = 1,
     truncate: bin = True,
     dtype='uint32',
     axis=0,
-) -> pd.DataFrame:
+) -> type_stubs.DataFrameType:
     """Computes a histogram along the index of a pd.Series time series of power readings.
 
     Args:

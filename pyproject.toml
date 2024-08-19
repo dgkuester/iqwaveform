@@ -1,6 +1,6 @@
 [project]
 name = "iqwaveform"
-version = "0.25.0"
+version = "0.26.0"
 description = "tools for IQ waveform analysis and visualization"
 authors = [
     {name = "Dan Kuester", email = "daniel.kuester@nist.gov"},
@@ -10,12 +10,13 @@ dependencies = [
     "scipy>=1.9.2",
     "seaborn>=0.12",
     "numpy>=1.21",
-    "matplotlib>=3.6",
+    "matplotlib>=3.7",
     "numexpr>=2.7",
     "scikit-learn>=1.1,<2.0",
     "methodtools",
     "xarray",
-    "array-api-compat>=1.6"
+    "array-api-compat>=1.6",
+    "typing-extensions"
 ]
 requires-python = ">=3.9"
 readme = "README.md"

@@ -1,27 +1,25 @@
 from __future__ import annotations
 import numpy as np
-import pandas as pd
-from scipy import signal, special
-from . import power_analysis
-import scipy
 from multiprocessing import cpu_count
-from functools import partial, lru_cache
+from functools import lru_cache
+from array_api_compat import is_cupy_array, is_torch_array
+
+from . import power_analysis, type_stubs
+from .power_analysis import stat_ufunc_from_shorthand
 from .util import (
-    Array,
-    array_stream,
     array_namespace,
-    pad_along_axis,
     sliding_window_view,
     get_input_domain,
     Domain,
     float_dtype_like,
     empty_shared,
     _whichfloats,
+    lazy_import
 )
-from array_api_compat import is_cupy_array, is_torch_array
-from scipy.signal._arraytools import axis_slice
-from .power_analysis import stat_ufunc_from_shorthand
 
+scipy = lazy_import('scipy')
+special = lazy_import('scipy.special')
+signal = lazy_import('scipy.signal')
 
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 64 * 1024
@@ -37,7 +35,7 @@ def _is_shared_arg(arg):
         raise ValueError('"shared" is the only valid string argument for out')
 
 
-def _truncated_buffer(x: Array, shape):
+def _truncated_buffer(x: type_stubs.Array, shape):
     return x.flatten()[: np.prod(shape)].reshape(shape)
 
 
@@ -101,20 +99,20 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         )
 
 
-def zero_pad(x: Array, pad_amt: int) -> Array:
+def zero_pad(x: type_stubs.Array, pad_amt: int) -> Array:
     """shortcut for e.g. np.pad(x, pad_amt, mode="constant", constant_values=0)"""
     xp = array_namespace(x)
 
     return xp.pad(x, pad_amt, mode='constant', constant_values=0)
 
 
-def tile_axis0(x: Array, N) -> Array:
+def tile_axis0(x: type_stubs.Array, N) -> Array:
     """returns N copies of x along axis 0"""
     xp = array_namespace(x)
     return xp.tile(x.T, N).T
 
 
-def to_blocks(y: Array, size: int, truncate=False, axis=0) -> Array:
+def to_blocks(y: type_stubs.Array, size: int, truncate=False, axis=0) -> Array:
     """Returns a view on y reshaped into blocks along axis `axis`.
 
     Args:
@@ -177,7 +175,7 @@ def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True)
     return len(w) * np.sum(w**2) / np.sum(w) ** 2
 
 
-def broadcast_onto(a: Array, other: Array, axis: int) -> Array:
+def broadcast_onto(a: type_stubs.Array, other: type_stubs.Array, axis: int) -> Array:
     """broadcast a 1-D array onto a specified axis of `other`"""
     xp = array_namespace(a)
 
@@ -317,8 +315,8 @@ def _cola_scale(window, hop_size):
 
 
 def _stack_stft_windows(
-    x: Array,
-    window: Array,
+    x: type_stubs.Array,
+    window: type_stubs.Array,
     nperseg: int,
     noverlap: int,
     pad_mode='constant',
@@ -335,6 +333,7 @@ def _stack_stft_windows(
         axis: the waveform axis; stft will be evaluated across all other axes
     """
     xp = array_namespace(x)
+    axis_slice = signal._arraytools.axis_slice
 
     fft_size = nperseg
     hop_size = nperseg - noverlap
@@ -359,7 +358,7 @@ def _stack_stft_windows(
 
 
 def _unstack_stft_windows(
-    y: Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0
+    y: type_stubs.Array, noverlap: int, nperseg: int, axis=0, out=None, extra=0
 ) -> Array:
     """reconstruct the time-domain waveform from its STFT representation.
 
@@ -375,6 +374,7 @@ def _unstack_stft_windows(
     """
 
     xp = array_namespace(y)
+    axis_slice = signal._arraytools.axis_slice
 
     fft_size = nperseg
     hop_size = nperseg - noverlap
@@ -488,9 +488,10 @@ def _istft_buffer_size(
 
 
 def zero_stft_by_freq(
-    freqs: Array, xstft: Array, *, passband: tuple[float, float], axis=0
+    freqs: type_stubs.Array, xstft: type_stubs.Array, *, passband: tuple[float, float], axis=0
 ) -> Array:
     """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
+    axis_slice = signal._arraytools.axis_slice
 
     ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
     axis_slice(xstft, start=0, stop=ilo, axis=axis + 1)[:] = 0
@@ -499,8 +500,8 @@ def zero_stft_by_freq(
 
 
 def downsample_stft(
-    freqs: Array,
-    xstft: Array,
+    freqs: type_stubs.Array,
+    xstft: type_stubs.Array,
     fft_size_out: int,
     *,
     passband: tuple[float, float],
@@ -518,6 +519,7 @@ def downsample_stft(
         A tuple containing the new `freqs` range and trimmed `xstft`
     """
     xp = array_namespace(xstft)
+    axis_slice = signal._arraytools.axis_slice
     ax = axis + 1
 
     shape = list(xstft.shape)
@@ -547,10 +549,10 @@ def downsample_stft(
 
 
 def stft(
-    x: Array,
+    x: type_stubs.Array,
     *,
     fs: float,
-    window: Array | str | tuple[str, float],
+    window: type_stubs.Array | str | tuple[str, float],
     nperseg: int = 256,
     noverlap: int = 0,
     axis: int = 0,
@@ -650,11 +652,12 @@ def stft(
 
 
 def istft(
-    xstft: Array, size=None, *, fft_size: int, noverlap: int, out=None, axis=0
+    xstft: type_stubs.Array, size=None, *, fft_size: int, noverlap: int, out=None, axis=0
 ) -> Array:
     """reconstruct and return a waveform given its STFT and associated parameters"""
 
     xp = array_namespace(xstft)
+    axis_slice = signal._arraytools.axis_slice
 
     x_windows = ifft(
         xp.fft.fftshift(xstft, axes=axis + 1),
@@ -676,7 +679,7 @@ def istft(
 
 
 def ola_filter(
-    x: Array,
+    x: type_stubs.Array,
     *,
     fs: float,
     fft_size: int,
@@ -765,10 +768,10 @@ def _freq_band_edges(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
 
 
 def spectrogram(
-    x: Array,
+    x: type_stubs.Array,
     *,
     fs: float,
-    window: Array | str | tuple[str, float],
+    window: type_stubs.Array | str | tuple[str, float],
     nperseg: int = 256,
     noverlap: int = 0,
     axis: int = 0,
@@ -795,7 +798,7 @@ def spectrogram(
 
 
 def persistence_spectrum(
-    x: Array,
+    x: type_stubs.Array,
     *,
     fs: float,
     bandwidth=None,
@@ -817,6 +820,7 @@ def persistence_spectrum(
         raise ValueError('sample_rate_Hz/resolution must be a counting number')
 
     xp = array_namespace(x)
+    axis_slice = signal._arraytools.axis_slice
     domain = get_input_domain()
     dtype = float_dtype_like(x)
 
@@ -875,10 +879,10 @@ def persistence_spectrum(
 
 
 def low_pass_filter(
-    iq: Array,
+    iq: type_stubs.Array,
     Ts: float,
     bandwidth: float,
-    window: Array = None,
+    window: type_stubs.Array = None,
     fc_offset: float = 0,
     axis=0,
 ) -> Array:
@@ -937,7 +941,7 @@ def low_pass_filter(
     return x  # .astype('complex64')
 
 
-def upsample(iq: Array, factor: int, Ts: float = None, shift_bins=0, axis=0):
+def upsample(iq: type_stubs.Array, factor: int, Ts: float = None, shift_bins=0, axis=0):
     """Upsamples a signal by an integer factor, low-pass filtered so that the new higher frequencies are empty.
 
     Implementation is by zero-padding in the Fourier domain.
@@ -990,12 +994,12 @@ def upsample(iq: Array, factor: int, Ts: float = None, shift_bins=0, axis=0):
 
 
 def channelize_power(
-    iq: Array,
+    iq: type_stubs.Array,
     Ts: float,
     fft_size_per_channel: int,
     *,
     analysis_bins_per_channel: int,
-    window: Array,
+    window: type_stubs.Array,
     fft_overlap_per_channel=0,
     channel_count: int = 1,
     axis=0,
@@ -1080,8 +1084,8 @@ def channelize_power(
 
 
 def iq_to_stft_spectrogram(
-    iq: Array,
-    window: Array | str | tuple[str, float],
+    iq: type_stubs.Array,
+    window: type_stubs.Array | str | tuple[str, float],
     fft_size: int,
     Ts,
     overlap=True,

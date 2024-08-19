@@ -1,15 +1,16 @@
 from __future__ import annotations
+import importlib
+import sys
 import array_api_compat
 from array_api_compat import is_cupy_array
 import numpy as np
-import typing
 from functools import lru_cache
 
 from contextlib import contextmanager
 from enum import Enum
+from . import type_stubs
 
 __all__ = [
-    'Array',
     'Domain',
     'set_input_domain',
     'get_input_domain',
@@ -21,19 +22,28 @@ __all__ = [
     'float_dtype_like',
 ]
 
-if typing.TYPE_CHECKING:
-    # bury this type checking in here to avoid lengthening the import time of iqwaveform
-    # if cupy isn't installed
+def lazy_import(module_name: str):
+    """postponed import of the module with the specified name.
+
+    The import is not performed until the module is accessed in the code. This
+    reduces the total time to import labbench by waiting to import the module
+    until it is used.
+    """
+    # see https://docs.python.org/3/library/importlib.html#implementing-lazy-imports
     try:
-        import cupy as cp
-    except ModuleNotFoundError:
-        import numpy as cp
+        ret = sys.modules[module_name]
+        return ret
+    except KeyError:
+        pass
 
-    # union of supported array types
-    Array = typing.Union[np.ndarray, cp.ndarray]
-
-else:
-    Array = np.ndarray
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        raise ImportError(f'no module found named "{module_name}"')
+    spec.loader = importlib.util.LazyLoader(spec.loader)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 _input_domain = []
@@ -124,7 +134,7 @@ class NonStreamContext:
         pass
 
 
-def array_stream(obj: Array, null=False, non_blocking=False, ptds=False):
+def array_stream(obj: type_stubs.Array, null=False, non_blocking=False, ptds=False):
     """returns a cupy.Stream (or a do-nothing stand in) object as appropriate for obj"""
     if is_cupy_array(obj):
         import cupy
@@ -281,7 +291,7 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
     return _cupy.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
 
 
-def float_dtype_like(x: Array):
+def float_dtype_like(x: type_stubs.Array):
     """returns a floating-point dtype corresponding to x.
 
     Returns:

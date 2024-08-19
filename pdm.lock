@@ -3,9 +3,10 @@
 
 [metadata]
 groups = ["default", "lint", "dev"]
-strategy = ["cross_platform"]
-lock_version = "4.4.1"
-content_hash = "sha256:7a027643af1289557402f8c50dce2fda64e2bf77d6edf3425d681363ef6df8d5"
+cross_platform = true
+static_urls = false
+lock_version = "4.3"
+content_hash = "sha256:eaeebd26bed940c99f2c0f3f96f7f76e90f5e10c96e5e3a94f5d598f9922ca16"
 
 [[package]]
 name = "anyio"
@@ -84,19 +85,6 @@ summary = "A wrapper around NumPy and other array libraries to make them compati
 files = [
     {file = "array_api_compat-1.6-py3-none-any.whl", hash = "sha256:0f132e698952bcebccfa941b4fc02cbc754802474b13a564208cf6cdbffb51e1"},
     {file = "array_api_compat-1.6.tar.gz", hash = "sha256:74a1e355cdabb9cf6c48922a5d07976d9230025d65731bef17174151b64876af"},
-]
-
-[[package]]
-name = "array-api-strict"
-version = "1.1.1"
-requires_python = ">=3.9"
-summary = "A strict, minimal implementation of the Python array API standard."
-dependencies = [
-    "numpy",
-]
-files = [
-    {file = "array_api_strict-1.1.1-py3-none-any.whl", hash = "sha256:0a47de82414b6d4d3ccb1ff29017e5e09d569e6956fcc9ccf5efa78814e4368d"},
-    {file = "array_api_strict-1.1.1.tar.gz", hash = "sha256:d90429f26cf026fc5a1f69d9108fd7cfe43b91c1a0138dfef30d48d264b8012b"},
 ]
 
 [[package]]
