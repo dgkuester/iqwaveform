@@ -134,7 +134,7 @@ class NonStreamContext:
         pass
 
 
-def array_stream(obj: type_stubs.Array, null=False, non_blocking=False, ptds=False):
+def array_stream(obj: type_stubs.ArrayType, null=False, non_blocking=False, ptds=False):
     """returns a cupy.Stream (or a do-nothing stand in) object as appropriate for obj"""
     if is_cupy_array(obj):
         import cupy
@@ -291,7 +291,7 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
     return _cupy.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
 
 
-def float_dtype_like(x: type_stubs.Array):
+def float_dtype_like(x: type_stubs.ArrayType):
     """returns a floating-point dtype corresponding to x.
 
     Returns:

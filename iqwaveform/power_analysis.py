@@ -10,6 +10,7 @@ from .util import (
 )
 
 import array_api_compat.numpy as np
+import re
 import warnings
 from numbers import Number
 from functools import partial
@@ -19,9 +20,29 @@ from . import type_stubs
 signal = lazy_import('scipy.signal')
 pd = lazy_import('pandas')
 ne = lazy_import('numexpr')
+xr = lazy_import('xarray')
 
 warnings.filterwarnings('ignore', message='.*divide by zero.*')
 warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
+
+
+_DB_UNIT_MAPPING = {
+    'dBm': 'mW',
+    'dBW': 'W',
+    'dB': 'unitless'
+}
+
+
+def unit_dB_to_linear(s: str):
+    for db_unit, lin_unit in _DB_UNIT_MAPPING.items():
+        s, _ = re.subn('^' + db_unit, lin_unit, s, count=1)
+    return s
+
+
+def unit_linear_to_dB(s: str):
+    for db_unit, lin_unit in _DB_UNIT_MAPPING.items():
+        s, _ = re.subn('^' + lin_unit, db_unit, s, count=1)
+    return s
 
 
 def stat_ufunc_from_shorthand(kind, xp=np):
@@ -54,71 +75,102 @@ def stat_ufunc_from_shorthand(kind, xp=np):
     return ufunc
 
 
-def dBtopow(x: Union[type_stubs.Array, type_stubs.SeriesType, type_stubs.DataFrameType]) -> Any:
-    """Computes `10**(x/10.)` with speed optimizations"""
-
-    # TODO: add support for CUDA evaluation as well
-    values = ne.evaluate('10**(x/10.)', local_dict=dict(x=x))
-
-    if isinstance(x, pd.Series):
-        return pd.Series(values, index=x.index)
-    elif isinstance(x, pd.DataFrame):
-        return pd.DataFrame(values, index=x.index, columns=x.columns)
-    else:
-        return values
-
-
-def powtodB(x: type_stubs.ArrayOrPandas, abs: bool = True, eps: float = 0, out=None) -> Any:
+def powtodB(x: type_stubs.ArrayLike|Number, abs: bool = True, eps: float = 0, out=None) -> Any:
     """compute `10*log10(abs(x) + eps)` or `10*log10(x + eps)` with speed optimizations"""
 
-    # TODO: add support for CUDA evaluation as well
     eps_str = '' if eps == 0 else '+eps'
 
     try:
         xp = array_namespace(x)
+        values = x
     except TypeError:
-        # pandas
-        xp = None
+        # pandas.Series, pandas.DataFrame, xarray.DataArray
+        if not hasattr(x, 'values'):
+            raise TypeError(f'unsupported input type {type(x)}')
+        xp = array_namespace(x.values)
+        values = x.values
 
-    if xp is not None and out is None:
+    if out is None:
         out = xp.zeros(x.shape, dtype=float_dtype_like(x))
 
-    if xp not in (None, np):
-        # cuda, mlx, etc
+    if xp is np:
+        if abs:
+            expr = f'real(10*log10(abs(values){eps_str}))'
+        else:
+            expr = f'real(10*log10(values+eps){eps_str})'
+        values = ne.evaluate(expr, out=out, casting='unsafe')
+    else:
+        # cuda, mlx, etc array backends
         # TODO: CUDA kernel evaluation here
         if abs:
-            values = xp.abs(x, out=out)
-        else:
-            values = x
+            values = xp.abs(values, out=out)
         if eps != 0:
             values += eps
-        values = xp.log10(values, out=values)
+        values = xp.log10(values, out=out)
         values *= 10
 
-    elif abs:
-        values = ne.evaluate(
-            f'real(10*log10(abs(x){eps_str}))',
-            local_dict=dict(x=x, eps=eps),
-            out=out,
-            casting='unsafe',
-        )
-    else:
-        values = ne.evaluate(
-            f'real(10*log10(x+eps){eps_str})',
-            local_dict=dict(x=x, eps=eps),
-            out=out,
-            casting='unsafe',
-        )
-
+    # accessing each of these forces imports of each module.
+    # work through progressively more expensive imports
+    if not hasattr(x, 'values'):
+        return values
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
     elif isinstance(x, pd.DataFrame):
         return pd.DataFrame(values, index=x.index, columns=x.columns)
+    elif isinstance(x, xr.DataArray):
+        ret = x.copy(deep=False, data=out)
+        units = ret.attrs.get('units', None)
+        if units is not None:
+            ret.attrs = dict(units=unit_linear_to_dB(units))
+        return ret
     else:
+        raise TypeError(f'unrecognized input type {type(x)}')
+
+
+def dBtopow(x: type_stubs.ArrayLike|Number, abs: bool = True, eps: float = 0, out=None) -> Any:
+    """compute `10**(x/10)` with speed optimizations"""
+
+    try:
+        xp = array_namespace(x)
+        values = x
+    except TypeError:
+        # pandas.Series, pandas.DataFrame, xarray.DataArray
+        if not hasattr(x, 'values'):
+            raise TypeError(f'unsupported input type {type(x)}')
+        xp = array_namespace(x.values)
+        values = x.values
+
+    if out is None:
+        out = xp.zeros(x.shape, dtype=float_dtype_like(x))
+
+    if xp is np:
+        expr = '10**(values/10.)'
+        values = ne.evaluate(expr, out=out, casting='unsafe')
+    else:
+        # cuda, mlx, etc array backends
+        # TODO: CUDA kernel evaluation here
+        values = xp.divide(values, 10, out=out)
+        values = xp.power(10, values, out=out)
+
+    # accessing each of these forces imports of each module.
+    # work through progressively more expensive imports
+    if not hasattr(x, 'values'):
         return values
+    if isinstance(x, pd.Series):
+        return pd.Series(values, index=x.index)
+    elif isinstance(x, pd.DataFrame):
+        return pd.DataFrame(values, index=x.index, columns=x.columns)
+    elif isinstance(x, xr.DataArray):
+        ret = x.copy(deep=False, data=out)
+        units = ret.attrs.get('units', None)
+        if units is not None:
+            ret.attrs = dict(units=unit_dB_to_linear(units))
+        return ret
+    else:
+        raise TypeError(f'unrecognized input type {type(x)}')
 
 
-def envtopow(x: type_stubs.ArrayOrPandas, out=None) -> Any:
+def envtopow(x: type_stubs.ArrayLike|Number, out=None) -> Any:
     """Computes abs(x)**2 with speed optimizations"""
 
     try:
@@ -152,58 +204,60 @@ def envtopow(x: type_stubs.ArrayOrPandas, out=None) -> Any:
         return values
 
 
-def envtodB(x: np.ndarray, abs: bool = True, eps: float = 0, out=None) -> np.ndarray:
-    """compute `20*log10(abs(x) + eps)` or `20*log10(x + eps)` with speed optimization"""
+def envtodB(x: type_stubs.ArrayLike|Number, abs: bool = True, eps: float = 0, out=None) -> Any:
+    """compute `20*log10(abs(x) + eps)` or `20*log10(x + eps)` with speed optimizations"""
 
-    # TODO: add support for CUDA evaluation as well
     eps_str = '' if eps == 0 else '+eps'
 
     try:
         xp = array_namespace(x)
+        values = x
     except TypeError:
-        xp = None
+        # pandas.Series, pandas.DataFrame, xarray.DataArray
+        if not hasattr(x, 'values'):
+            raise TypeError(f'unsupported input type {type(x)}')
+        xp = array_namespace(x.values)
+        values = x.values
 
-    if xp is not None and out is None:
+    if out is None:
         out = xp.zeros(x.shape, dtype=float_dtype_like(x))
 
-    if xp not in (None, np):
-        # cuda, mlx, etc
+    if xp is np:
+        if abs:
+            expr = f'real(10*log10(abs(values){eps_str}))'
+        else:
+            expr = f'real(10*log10(values+eps){eps_str})'
+        values = ne.evaluate(expr, out=out, casting='unsafe')
+    else:
+        # cuda, mlx, etc array backends
         # TODO: CUDA kernel evaluation here
         if abs:
-            values = xp.abs(x, out=out)
-        else:
-            values = x
+            values = xp.abs(values, out=out)
         if eps != 0:
             values += eps
         values = xp.log10(values, out=out)
         values *= 20
 
-    elif abs:
-        values = ne.evaluate(
-            f'real(20*log10(abs(x){eps_str}))',
-            local_dict=dict(x=x, eps=eps),
-            out=out,
-            casting='unsafe',
-        )
-
-    else:
-        values = ne.evaluate(
-            f'20*log10(x+eps){eps_str}',
-            local_dict=dict(x=x, eps=eps),
-            out=out,
-            casting='unsafe',
-        )
-
+    # accessing each of these forces imports of each module.
+    # work through progressively more expensive imports
+    if not hasattr(x, 'values'):
+        return values
     if isinstance(x, pd.Series):
         return pd.Series(values, index=x.index)
     elif isinstance(x, pd.DataFrame):
         return pd.DataFrame(values, index=x.index, columns=x.columns)
+    elif isinstance(x, xr.DataArray):
+        ret = x.copy(deep=False, data=out)
+        units = ret.attrs.get('units', None)
+        if units is not None:
+            ret.attrs = dict(units=unit_linear_to_dB(units))
+        return ret
     else:
-        return values
+        raise TypeError(f'unrecognized input type {type(x)}')
 
 
 def iq_to_bin_power(
-    iq: type_stubs.Array,
+    iq: type_stubs.ArrayType,
     Ts: float,
     Tbin: float,
     randomize: bool = False,
@@ -251,14 +305,14 @@ def iq_to_bin_power(
 
 
 def iq_to_cyclic_power(
-    x: type_stubs.Array,
+    x: type_stubs.ArrayType,
     Ts: float,
     detector_period: float,
     cyclic_period: float,
     truncate=False,
     detectors=('rms', 'peak'),
     cycle_stats=('min', 'mean', 'max'),
-) -> dict[str, dict[str, type_stubs.Array]]:
+) -> dict[str, dict[str, type_stubs.ArrayType]]:
     """computes a time series of periodic frame power statistics.
 
     The time axis on the cyclic time lag [0, cyclic_period) is binned with step size

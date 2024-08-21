@@ -14,12 +14,23 @@ if typing.TYPE_CHECKING:
     import pandas as pd
     from matplotlib import axes
     import matplotlib as mpl
+    import xarray as xr
 
 # union of supported array types
-Array: TypeAlias = typing.Union['cp.ndarray','np.ndarray']
+ArrayType: TypeAlias = typing.Union['cp.ndarray','np.ndarray']
+
+# pandas types
 DataFrameType: TypeAlias = 'pd.DataFrame'
 SeriesType: TypeAlias = 'pd.Series'
 IndexType: TypeAlias = 'pd.Index'
+
+# xarray types
+DataArrayType: TypeAlias = 'xr.DataArray'
+DatasetType: TypeAlias = 'xr.Dataset'
+
+# Matplotlib types
 AxisType: TypeAlias = 'axes.Axes'
 LocatorType: TypeAlias = 'mpl.ticker.MaxNLocator'
-ArrayOrPandas: TypeAlias = typing.Union[Array, SeriesType, DataFrameType]
+
+# Union types
+ArrayLike: TypeAlias = typing.Union[ArrayType, SeriesType, DataFrameType, DataArrayType]
