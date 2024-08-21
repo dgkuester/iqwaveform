@@ -204,7 +204,7 @@ def envtopow(x: Union[type_stubs.ArrayLike,Number], out=None) -> Any:
         return values
 
 
-def envtodB(x: Union[type_stubs.ArrayLike|Number], abs: bool = True, eps: float = 0, out=None) -> Any:
+def envtodB(x: Union[type_stubs.ArrayLike,Number], abs: bool = True, eps: float = 0, out=None) -> Any:
     """compute `20*log10(abs(x) + eps)` or `20*log10(x + eps)` with speed optimizations"""
 
     eps_str = '' if eps == 0 else '+eps'
