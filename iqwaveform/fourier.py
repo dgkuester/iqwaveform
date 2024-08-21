@@ -12,7 +12,6 @@ from .util import (
     get_input_domain,
     Domain,
     float_dtype_like,
-    empty_shared,
     _whichfloats,
     lazy_import
 )
@@ -75,8 +74,6 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         # TODO: see about upstream question on this
         if out is None:
             pass
-        elif _is_shared_arg(out):
-            out = empty_shared(target_shape, dtype, xp=cp)
         else:
             out = out.reshape(x.shape)
 
@@ -345,9 +342,6 @@ def _stack_stft_windows(
 
     if out is None:
         out = stride_windows.copy()
-    elif _is_shared_arg(out):
-        out = empty_shared(stride_windows.shape, stride_windows.dtype, xp=xp)
-        out[:] = stride_windows
     else:
         out = _truncated_buffer(out, stride_windows.shape)
         out[:] = stride_windows
@@ -384,8 +378,6 @@ def _unstack_stft_windows(
 
     if out is None:
         xr = xp.empty(target_shape, dtype=y.dtype)
-    elif _is_shared_arg(out):
-        xr = empty_shared(target_shape, dtype, xp)
     else:
         xr = _truncated_buffer(out, target_shape)
 

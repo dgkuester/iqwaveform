@@ -8,10 +8,8 @@ from . import type_stubs
 from .util import lazy_import
 
 mpl = lazy_import('matplotlib')
-plt = lazy_import('matplotlib.pyplot')
 stats = lazy_import('scipy.stats')
 pd = lazy_import('pandas')
-
 
 
 def _show_xarray_units_in_parentheses():
@@ -269,6 +267,9 @@ def _has_tick_label_collision(ax, which: str, spacing_threshold=10):
 
 
 def rotate_ticklabels_on_collision(ax, which: str, angles: list, spacing_threshold=3):
+    # lazy import of submodules seems to cause problems for matplotlib
+    from matplotlib import pyplot as plt
+
     def set_rotation(the_ax, angle):
         for label in the_ax.get_ticklabels():
             label.set_rotation(angle)
@@ -304,6 +305,10 @@ def rotate_ticklabels_on_collision(ax, which: str, angles: list, spacing_thresho
 
 def xaxis_concise_dates(fig, ax, adjacent_offset: bool = True):
     """fuss with the dates on an x-axis."""
+
+    # lazy import of submodules seems to cause problems for matplotlib
+    from matplotlib import pyplot as plt
+
     formatter = mpl.dates.ConciseDateFormatter(
         mpl.dates.AutoDateLocator(), show_offset=True
     )
@@ -344,6 +349,9 @@ def pcolormesh_df(
     y_unit=None,
     y_places=None,
 ):
+    # lazy import of submodules seems to cause problems for matplotlib
+    from matplotlib import pyplot as plt
+    
     if ax is None:
         fig, ax = plt.subplots()
 
@@ -396,6 +404,9 @@ def plot_spectrogram_heatmap_from_iq(
     cmap=None,
     time_span=(None, None),
 ) -> tuple[type_stubs.AxesType, type_stubs.DataFrameType]:
+    # lazy import of submodules seems to cause problems for matplotlib
+    from matplotlib import pyplot as plt
+    
     index_span = (
         None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
         None if time_span[1] is None else int(np.rint(time_span[1] / Ts)),
@@ -453,6 +464,9 @@ def plot_spectrogram_heatmap(
     colorbar=True,
     rasterized=True,
 ) -> tuple[type_stubs.AxesType, type_stubs.DataFrameType]:
+    # lazy import of submodules seems to cause problems for matplotlib
+    from matplotlib import pyplot as plt
+    
     if cmap is None:
         cmap = mpl.cm.get_cmap('magma')
 
@@ -528,6 +542,8 @@ def plot_power_histogram_heatmap(
 
         contiguous_threshold: plot gaps ()
     """
+    # lazy import of submodules seems to cause problems for matplotlib
+    from matplotlib import pyplot as plt
 
     if xlim is not None:
         rolling_histogram = rolling_histogram.loc[:, float(xlim[0]) : float(xlim[1])]
@@ -739,6 +755,9 @@ def plot_power_ccdf(
     ax=None,
     label=None,
 ):
+    # lazy import of submodules seems to cause problems for matplotlib
+    from matplotlib import pyplot as plt
+    
     if ax is None:
         fig, ax = plt.subplots()
 
