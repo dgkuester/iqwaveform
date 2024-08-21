@@ -31,3 +31,16 @@ from .figures import (
 )
 
 from .io import waveform_to_frame
+
+# the following is intended to accommodate matplotlib 3.6. it is not
+# necessary for >= 3.7, and may be removed in the future
+import matplotlib as mpl
+from pathlib import Path
+styles = {
+    __name__ + '.' + sfile.stem: mpl.rc_params_from_file(
+        sfile, use_default_template=False
+    )
+    for sfile in Path(__file__).parent.glob('*.mplstyle')
+}
+mpl.style.library.update(styles)
+del mpl, Path, styles
