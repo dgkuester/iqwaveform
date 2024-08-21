@@ -75,7 +75,7 @@ def stat_ufunc_from_shorthand(kind, xp=np):
     return ufunc
 
 
-def powtodB(x: type_stubs.ArrayLike|Number, abs: bool = True, eps: float = 0, out=None) -> Any:
+def powtodB(x: Union[type_stubs.ArrayLike,Number], abs: bool = True, eps: float = 0, out=None) -> Any:
     """compute `10*log10(abs(x) + eps)` or `10*log10(x + eps)` with speed optimizations"""
 
     eps_str = '' if eps == 0 else '+eps'
@@ -127,7 +127,7 @@ def powtodB(x: type_stubs.ArrayLike|Number, abs: bool = True, eps: float = 0, ou
         raise TypeError(f'unrecognized input type {type(x)}')
 
 
-def dBtopow(x: type_stubs.ArrayLike|Number, abs: bool = True, eps: float = 0, out=None) -> Any:
+def dBtopow(x: Union[type_stubs.ArrayLike,Number], abs: bool = True, eps: float = 0, out=None) -> Any:
     """compute `10**(x/10)` with speed optimizations"""
 
     try:
@@ -170,7 +170,7 @@ def dBtopow(x: type_stubs.ArrayLike|Number, abs: bool = True, eps: float = 0, ou
         raise TypeError(f'unrecognized input type {type(x)}')
 
 
-def envtopow(x: type_stubs.ArrayLike|Number, out=None) -> Any:
+def envtopow(x: Union[type_stubs.ArrayLike,Number], out=None) -> Any:
     """Computes abs(x)**2 with speed optimizations"""
 
     try:
