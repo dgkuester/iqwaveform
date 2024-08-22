@@ -237,7 +237,7 @@ def design_cola_resampler(
 
     if bw is not None and bw > fs_base:
         raise ValueError(
-            'passband bandwidth exceeds Nyquist bandwidth at master clock rate'
+            'passband bandwidth exceeds Nyquist bandwidth at maximum sample rate'
         )
 
     resample_ratio = fs_sdr / fs_target
@@ -258,6 +258,10 @@ def design_cola_resampler(
 
     nfft_out = valid_noverlap_out[0]
     nfft_in = int(np.rint(resample_ratio * nfft_out))
+
+    if nfft_out % 2 == 1 or nfft_in % 2 == 1:
+        nfft_out *= 2
+        nfft_in *= 2
 
     # the following LO shift arguments assume that a hamming COLA window is used
     if shift == 'left':
