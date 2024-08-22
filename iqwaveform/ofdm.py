@@ -9,6 +9,7 @@ import methodtools
 signal = lazy_import('scipy.signal')
 pylab = lazy_import('matplotlib.pylab')
 
+
 def correlate_along_axis(a, b, axis=0):
     """cross-correlate `a` and `b` along the specified axis.
     this implementation
@@ -590,7 +591,9 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         slope, intercept = self._estimate_clock_mismatch(x)
         t, offsets, weights = self._regression_info['inputs']
         pylab.plot(t, offsets, '.')
-        pylab.plot(t, t * self._regression_info['slope'] + self._regression_info['intercept'])
+        pylab.plot(
+            t, t * self._regression_info['slope'] + self._regression_info['intercept']
+        )
 
     def __call__(
         self, x, subsample_offset_correction=True, max_passes=10, on_fail='except'

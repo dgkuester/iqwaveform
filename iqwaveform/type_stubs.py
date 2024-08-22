@@ -17,7 +17,7 @@ if typing.TYPE_CHECKING:
     import xarray as xr
 
 # union of supported array types
-ArrayType: TypeAlias = typing.Union['cp.ndarray','np.ndarray']
+ArrayType: TypeAlias = typing.Union['cp.ndarray', 'np.ndarray']
 
 # pandas types
 DataFrameType: TypeAlias = 'pd.DataFrame'

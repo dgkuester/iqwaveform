@@ -14,8 +14,10 @@ import re
 import warnings
 from numbers import Number
 from functools import partial
-from typing import Union, Any
+from typing import Union, Any, Optional
+from types import ModuleType
 from . import type_stubs
+from .type_stubs import ArrayType, ArrayLike
 
 signal = lazy_import('scipy.signal')
 pd = lazy_import('pandas')
@@ -26,11 +28,7 @@ warnings.filterwarnings('ignore', message='.*divide by zero.*')
 warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
 
 
-_DB_UNIT_MAPPING = {
-    'dBm': 'mW',
-    'dBW': 'W',
-    'dB': 'unitless'
-}
+_DB_UNIT_MAPPING = {'dBm': 'mW', 'dBW': 'W', 'dB': 'unitless'}
 
 
 def unit_dB_to_linear(s: str):
@@ -75,23 +73,74 @@ def stat_ufunc_from_shorthand(kind, xp=np):
     return ufunc
 
 
-def powtodB(x: Union[type_stubs.ArrayLike,Number], abs: bool = True, eps: float = 0, out=None) -> Any:
-    """compute `10*log10(abs(x) + eps)` or `10*log10(x + eps)` with speed optimizations"""
+def _interpret_arraylike(
+    x: Union[ArrayLike, Number], out: Optional[ArrayLike] = None
+) -> tuple[ArrayType, ArrayType, ModuleType]:
+    """interpret the array-like input and output buffer arguments.
 
-    eps_str = '' if eps == 0 else '+eps'
-
+    Returns:
+        ArrayType objects pointing to the underlying array-type objects,
+        and the module to work with them
+    """
     try:
         xp = array_namespace(x)
         values = x
     except TypeError:
         # pandas.Series, pandas.DataFrame, xarray.DataArray
-        if not hasattr(x, 'values'):
+        if hasattr(x, 'values'):            
+            xp = array_namespace(x.values)
+            values = x.values
+        elif isinstance(x, Number):
+            xp = np
+            values = x
+        else:
             raise TypeError(f'unsupported input type {type(x)}')
-        xp = array_namespace(x.values)
-        values = x.values
 
     if out is None:
-        out = xp.zeros(x.shape, dtype=float_dtype_like(x))
+        out = xp.zeros(xp.shape(x), dtype=float_dtype_like(x))
+    elif hasattr(out, 'values'):
+        # pandas, xarray objects
+        out = out.values
+
+    return values, out, xp
+
+
+def _repackage_arraylike(
+    values: ArrayType,
+    obj: Union[ArrayLike, Number],
+    *,
+    unit_transform: Optional[callable] = None,
+) -> Union[ArrayLike, Number]:
+    """package `values` into a data type matching `obj`"""
+
+    # accessing each of these forces imports of each module.
+    # work through progressively more expensive imports
+    if isinstance(obj, Number):
+        return values.item()
+    elif not hasattr(obj, 'values'):
+        return values
+    elif isinstance(obj, pd.Series):
+        return pd.Series(values, index=obj.index)
+    elif isinstance(obj, pd.DataFrame):
+        return pd.DataFrame(values, index=obj.index, columns=obj.columns)
+    elif isinstance(obj, xr.DataArray):
+        ret = obj.copy(deep=False, data=values)
+        units = ret.attrs.get('units', None)
+        if units is not None and unit_transform is not None:
+            ret.attrs = dict(units=unit_transform(units))
+        return ret
+    else:
+        raise TypeError(f'unrecognized input type {type(obj)}')
+
+
+def powtodB(
+    x: Union[ArrayLike, Number], abs: bool = True, eps: float = 0, out=None
+) -> Any:
+    """compute `10*log10(abs(x) + eps)` or `10*log10(x + eps)` with speed optimizations"""
+
+    eps_str = '' if eps == 0 else '+eps'
+
+    values, out, xp = _interpret_arraylike(x, out)
 
     if xp is np:
         if abs:
@@ -109,39 +158,15 @@ def powtodB(x: Union[type_stubs.ArrayLike,Number], abs: bool = True, eps: float 
         values = xp.log10(values, out=out)
         values *= 10
 
-    # accessing each of these forces imports of each module.
-    # work through progressively more expensive imports
-    if not hasattr(x, 'values'):
-        return values
-    if isinstance(x, pd.Series):
-        return pd.Series(values, index=x.index)
-    elif isinstance(x, pd.DataFrame):
-        return pd.DataFrame(values, index=x.index, columns=x.columns)
-    elif isinstance(x, xr.DataArray):
-        ret = x.copy(deep=False, data=out)
-        units = ret.attrs.get('units', None)
-        if units is not None:
-            ret.attrs = dict(units=unit_linear_to_dB(units))
-        return ret
-    else:
-        raise TypeError(f'unrecognized input type {type(x)}')
+    return _repackage_arraylike(values, x, unit_transform=unit_linear_to_dB)
 
 
-def dBtopow(x: Union[type_stubs.ArrayLike,Number], abs: bool = True, eps: float = 0, out=None) -> Any:
+def dBtopow(
+    x: Union[ArrayLike, Number], abs: bool = True, eps: float = 0, out=None
+) -> Any:
     """compute `10**(x/10)` with speed optimizations"""
 
-    try:
-        xp = array_namespace(x)
-        values = x
-    except TypeError:
-        # pandas.Series, pandas.DataFrame, xarray.DataArray
-        if not hasattr(x, 'values'):
-            raise TypeError(f'unsupported input type {type(x)}')
-        xp = array_namespace(x.values)
-        values = x.values
-
-    if out is None:
-        out = xp.zeros(x.shape, dtype=float_dtype_like(x))
+    values, out, xp = _interpret_arraylike(x, out)
 
     if xp is np:
         expr = '10**(values/10.)'
@@ -152,34 +177,13 @@ def dBtopow(x: Union[type_stubs.ArrayLike,Number], abs: bool = True, eps: float 
         values = xp.divide(values, 10, out=out)
         values = xp.power(10, values, out=out)
 
-    # accessing each of these forces imports of each module.
-    # work through progressively more expensive imports
-    if not hasattr(x, 'values'):
-        return values
-    if isinstance(x, pd.Series):
-        return pd.Series(values, index=x.index)
-    elif isinstance(x, pd.DataFrame):
-        return pd.DataFrame(values, index=x.index, columns=x.columns)
-    elif isinstance(x, xr.DataArray):
-        ret = x.copy(deep=False, data=out)
-        units = ret.attrs.get('units', None)
-        if units is not None:
-            ret.attrs = dict(units=unit_dB_to_linear(units))
-        return ret
-    else:
-        raise TypeError(f'unrecognized input type {type(x)}')
+    return _repackage_arraylike(values, x, unit_transform=unit_dB_to_linear)
 
 
-def envtopow(x: Union[type_stubs.ArrayLike,Number], out=None) -> Any:
+def envtopow(x: Union[ArrayLike, Number], out=None) -> Any:
     """Computes abs(x)**2 with speed optimizations"""
 
-    try:
-        xp = array_namespace(x)
-    except TypeError:
-        xp = None
-
-    if xp is not None and out is None:
-        out = xp.zeros(x.shape, dtype=float_dtype_like(x))
+    values, out, xp = _interpret_arraylike(x, out)
 
     if xp in (None, np):
         # numpy, pandas
@@ -193,34 +197,20 @@ def envtopow(x: Union[type_stubs.ArrayLike,Number], out=None) -> Any:
     else:
         # cuda, mlx, etc
         # TODO: CUDA kernel evaluation here
-        values = xp.abs(x)
+        values = xp.abs(x, out=out)
         values *= values
 
-    if isinstance(x, pd.Series):
-        return pd.Series(values, index=x.index)
-    elif isinstance(x, pd.DataFrame):
-        return pd.DataFrame(values, index=x.index, columns=x.columns)
-    else:
-        return values
+    return _repackage_arraylike(values, x)
 
 
-def envtodB(x: Union[type_stubs.ArrayLike,Number], abs: bool = True, eps: float = 0, out=None) -> Any:
+def envtodB(
+    x: Union[ArrayLike, Number], abs: bool = True, eps: float = 0, out=None
+) -> Any:
     """compute `20*log10(abs(x) + eps)` or `20*log10(x + eps)` with speed optimizations"""
 
     eps_str = '' if eps == 0 else '+eps'
 
-    try:
-        xp = array_namespace(x)
-        values = x
-    except TypeError:
-        # pandas.Series, pandas.DataFrame, xarray.DataArray
-        if not hasattr(x, 'values'):
-            raise TypeError(f'unsupported input type {type(x)}')
-        xp = array_namespace(x.values)
-        values = x.values
-
-    if out is None:
-        out = xp.zeros(x.shape, dtype=float_dtype_like(x))
+    values, out, xp = _interpret_arraylike(x, out)
 
     if xp is np:
         if abs:
@@ -240,24 +230,11 @@ def envtodB(x: Union[type_stubs.ArrayLike,Number], abs: bool = True, eps: float 
 
     # accessing each of these forces imports of each module.
     # work through progressively more expensive imports
-    if not hasattr(x, 'values'):
-        return values
-    if isinstance(x, pd.Series):
-        return pd.Series(values, index=x.index)
-    elif isinstance(x, pd.DataFrame):
-        return pd.DataFrame(values, index=x.index, columns=x.columns)
-    elif isinstance(x, xr.DataArray):
-        ret = x.copy(deep=False, data=out)
-        units = ret.attrs.get('units', None)
-        if units is not None:
-            ret.attrs = dict(units=unit_linear_to_dB(units))
-        return ret
-    else:
-        raise TypeError(f'unrecognized input type {type(x)}')
+    return _repackage_arraylike(values, x, unit_transform=unit_linear_to_dB)
 
 
 def iq_to_bin_power(
-    iq: type_stubs.ArrayType,
+    iq: ArrayType,
     Ts: float,
     Tbin: float,
     randomize: bool = False,
@@ -305,14 +282,14 @@ def iq_to_bin_power(
 
 
 def iq_to_cyclic_power(
-    x: type_stubs.ArrayType,
+    x: ArrayType,
     Ts: float,
     detector_period: float,
     cyclic_period: float,
     truncate=False,
     detectors=('rms', 'peak'),
     cycle_stats=('min', 'mean', 'max'),
-) -> dict[str, dict[str, type_stubs.ArrayType]]:
+) -> dict[str, dict[str, ArrayType]]:
     """computes a time series of periodic frame power statistics.
 
     The time axis on the cyclic time lag [0, cyclic_period) is binned with step size
@@ -531,7 +508,7 @@ def hist_laxis(x: np.ndarray, n_bins: int, range_limits: tuple) -> np.ndarray:
 
 def power_histogram_along_axis(
     pvt: type_stubs.DataFrameType,
-    bounds: tuple[float,float],
+    bounds: tuple[float, float],
     resolution_db: float,
     resolution_axis: int = 1,
     truncate: bin = True,

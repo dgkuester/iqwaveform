@@ -1,40 +1,32 @@
 from __future__ import annotations
 import numpy as np
-from multiprocessing import cpu_count
+from os import cpu_count
 from functools import lru_cache
 from array_api_compat import is_cupy_array, is_torch_array
 
-from . import power_analysis, type_stubs
+from . import power_analysis
 from .power_analysis import stat_ufunc_from_shorthand
 from .util import (
     array_namespace,
     sliding_window_view,
     get_input_domain,
     Domain,
-    float_dtype_like,
     _whichfloats,
-    lazy_import
+    lazy_import,
 )
 
+from .type_stubs import ArrayType
+
+pd = lazy_import('pandas')
 scipy = lazy_import('scipy')
 special = lazy_import('scipy.special')
 signal = lazy_import('scipy.signal')
 
 CPU_COUNT = cpu_count()
-OLA_MAX_FFT_SIZE = 64 * 1024
+OLA_MAX_FFT_SIZE = 128 * 1024
 
 
-def _is_shared_arg(arg):
-    if not isinstance(arg, str):
-        return False
-
-    if arg == 'shared':
-        return True
-    else:
-        raise ValueError('"shared" is the only valid string argument for out')
-
-
-def _truncated_buffer(x: type_stubs.ArrayType, shape):
+def _truncated_buffer(x: ArrayType, shape):
     return x.flatten()[: np.prod(shape)].reshape(shape)
 
 
@@ -96,20 +88,20 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         )
 
 
-def zero_pad(x: type_stubs.ArrayType, pad_amt: int) -> Array:
+def zero_pad(x: ArrayType, pad_amt: int) -> ArrayType:
     """shortcut for e.g. np.pad(x, pad_amt, mode="constant", constant_values=0)"""
     xp = array_namespace(x)
 
     return xp.pad(x, pad_amt, mode='constant', constant_values=0)
 
 
-def tile_axis0(x: type_stubs.ArrayType, N) -> Array:
+def tile_axis0(x: ArrayType, N) -> ArrayType:
     """returns N copies of x along axis 0"""
     xp = array_namespace(x)
     return xp.tile(x.T, N).T
 
 
-def to_blocks(y: type_stubs.ArrayType, size: int, truncate=False, axis=0) -> Array:
+def to_blocks(y: ArrayType, size: int, truncate=False, axis=0) -> ArrayType:
     """Returns a view on y reshaped into blocks along axis `axis`.
 
     Args:
@@ -172,7 +164,7 @@ def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True)
     return len(w) * np.sum(w**2) / np.sum(w) ** 2
 
 
-def broadcast_onto(a: type_stubs.ArrayType, other: type_stubs.ArrayType, axis: int) -> Array:
+def broadcast_onto(a: ArrayType, other: ArrayType, axis: int) -> ArrayType:
     """broadcast a 1-D array onto a specified axis of `other`"""
     xp = array_namespace(a)
 
@@ -184,7 +176,7 @@ def broadcast_onto(a: type_stubs.ArrayType, other: type_stubs.ArrayType, axis: i
 @lru_cache(16)
 def _get_stft_axes(
     fs: float, fft_size: int, time_size: int, overlap_frac: float = 0, xp=np
-) -> tuple[Array, Array]:
+) -> tuple[ArrayType, ArrayType]:
     """returns stft (freqs, times) array tuple appropriate to the array module xp"""
 
     freqs = xp.fft.fftshift(xp.fft.fftfreq(fft_size, d=1 / fs))
@@ -208,7 +200,7 @@ def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
 def design_cola_resampler(
     fs_base: float,
     fs_target: float,
-    bw: float=None,
+    bw: float = None,
     bw_lo: float = 0,
     min_oversampling: float = 1.1,
     min_fft_size=2 * 4096 - 1,
@@ -244,7 +236,9 @@ def design_cola_resampler(
         fs_sdr = fs_base
 
     if bw is not None and bw > fs_base:
-        raise ValueError('passband bandwidth exceeds Nyquist bandwidth at master clock rate')
+        raise ValueError(
+            'passband bandwidth exceeds Nyquist bandwidth at master clock rate'
+        )
 
     resample_ratio = fs_sdr / fs_target
 
@@ -282,7 +276,9 @@ def design_cola_resampler(
         lo_offset = 0
         passband = (None, None)
     else:
-        lo_offset = sign * (bw / 2 + bw_lo / 2)  # fs_sdr / nfft_in * (nfft_in - nfft_out)
+        lo_offset = sign * (
+            bw / 2 + bw_lo / 2
+        )  # fs_sdr / nfft_in * (nfft_in - nfft_out)
         passband = (lo_offset - bw / 2, lo_offset + bw / 2)
 
     window = 'hamming'
@@ -312,14 +308,14 @@ def _cola_scale(window, hop_size):
 
 
 def _stack_stft_windows(
-    x: type_stubs.ArrayType,
-    window: type_stubs.ArrayType,
+    x: ArrayType,
+    window: ArrayType,
     nperseg: int,
     noverlap: int,
     pad_mode='constant',
     axis=0,
     out=None,
-) -> Array:
+) -> ArrayType:
     """add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform.
 
     Compared to the underlying stft implementations in scipy and cupyx.scipy, this has been simplified
@@ -329,7 +325,6 @@ def _stack_stft_windows(
         x: the 1-D waveform (or N-D tensor of waveforms)
         axis: the waveform axis; stft will be evaluated across all other axes
     """
-    xp = array_namespace(x)
     axis_slice = signal._arraytools.axis_slice
 
     fft_size = nperseg
@@ -352,8 +347,8 @@ def _stack_stft_windows(
 
 
 def _unstack_stft_windows(
-    y: type_stubs.ArrayType, noverlap: int, nperseg: int, axis=0, out=None, extra=0
-) -> Array:
+    y: ArrayType, noverlap: int, nperseg: int, axis=0, out=None, extra=0
+) -> ArrayType:
     """reconstruct the time-domain waveform from its STFT representation.
 
     Compared to the underlying istft implementations in scipy and cupyx.scipy, this has been simplified
@@ -472,16 +467,13 @@ def _istft_buffer_size(
     array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool
 ):
     fft_size_out, noverlap, overlap_scale, pad_out = _ola_filter_parameters(**locals())
-    N = round(
-        np.ceil(((array_size + pad_out) / fft_size) / overlap_scale)
-        * fft_size
-    )
+    N = round(np.ceil(((array_size + pad_out) / fft_size) / overlap_scale) * fft_size)
     return N
 
 
 def zero_stft_by_freq(
-    freqs: type_stubs.ArrayType, xstft: type_stubs.ArrayType, *, passband: tuple[float, float], axis=0
-) -> Array:
+    freqs: ArrayType, xstft: ArrayType, *, passband: tuple[float, float], axis=0
+) -> ArrayType:
     """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
     axis_slice = signal._arraytools.axis_slice
 
@@ -492,14 +484,14 @@ def zero_stft_by_freq(
 
 
 def downsample_stft(
-    freqs: type_stubs.ArrayType,
-    xstft: type_stubs.ArrayType,
+    freqs: ArrayType,
+    xstft: ArrayType,
     fft_size_out: int,
     *,
     passband: tuple[float, float],
     axis=0,
     out=None,
-) -> tuple[Array, Array]:
+) -> tuple[ArrayType, ArrayType]:
     """downsample and filter an STFT representation of a filter in the frequency domain.
 
     * This is rational downsampling by a factor of `nout/xstft.shape[axis+1]`,
@@ -531,7 +523,7 @@ def downsample_stft(
     iouthi = fft_size_out - stopband_size // 2 - stopband_size % 2
 
     # truncate to the range of frequency bins, centered within the new sampling bandwidth
-    freqs_out = freqs[ilo:ihi] - freqs[(ilo+ihi)//2]
+    freqs_out = freqs[ilo:ihi] - freqs[(ilo + ihi) // 2]
 
     axis_slice(xout, ioutlo, iouthi, axis=ax)[:] = axis_slice(xstft, ilo, ihi, axis=ax)
     axis_slice(xout, 0, ioutlo, axis=ax)[:] = 0
@@ -541,17 +533,17 @@ def downsample_stft(
 
 
 def stft(
-    x: type_stubs.ArrayType,
+    x: ArrayType,
     *,
     fs: float,
-    window: type_stubs.ArrayType | str | tuple[str, float],
+    window: ArrayType | str | tuple[str, float],
     nperseg: int = 256,
     noverlap: int = 0,
     axis: int = 0,
     truncate: bool = True,
     norm: str | None = None,
     out=None,
-) -> tuple[np.array, np.array, Array]:
+) -> tuple[ArrayType, ArrayType, ArrayType]:
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
     some overhead that comes with its generality and allow use of the generic
     python array-api for interchangable numpy/cupy support.
@@ -627,7 +619,12 @@ def stft(
             x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out
         )
 
-        X = fft(x_ol, axis=axis + 1, overwrite_x=True, out=None if out is None else _truncated_buffer(out, x_ol.shape))
+        X = fft(
+            x_ol,
+            axis=axis + 1,
+            overwrite_x=True,
+            out=None if out is None else _truncated_buffer(out, x_ol.shape),
+        )
 
         # interleave the overlaps in time
         X = xp.fft.fftshift(X, axes=axis + 1)
@@ -644,8 +641,8 @@ def stft(
 
 
 def istft(
-    xstft: type_stubs.ArrayType, size=None, *, fft_size: int, noverlap: int, out=None, axis=0
-) -> Array:
+    xstft: ArrayType, size=None, *, fft_size: int, noverlap: int, out=None, axis=0
+) -> ArrayType:
     """reconstruct and return a waveform given its STFT and associated parameters"""
 
     xp = array_namespace(xstft)
@@ -655,7 +652,7 @@ def istft(
         xp.fft.fftshift(xstft, axes=axis + 1),
         axis=axis + 1,
         overwrite_x=True,
-        out=None if out is None else _truncated_buffer(out, xstft.shape)
+        out=None if out is None else _truncated_buffer(out, xstft.shape),
     )
 
     y = _unstack_stft_windows(
@@ -671,7 +668,7 @@ def istft(
 
 
 def ola_filter(
-    x: type_stubs.ArrayType,
+    x: ArrayType,
     *,
     fs: float,
     fft_size: int,
@@ -722,19 +719,26 @@ def ola_filter(
         noverlap=round(fft_size * overlap_scale),
         axis=axis,
         truncate=False,
-        out=out
+        out=out,
     )
 
-    zero_stft_by_freq(freqs, xstft, passband=(passband[0] + enbw, passband[1] - enbw), axis=axis)    
+    zero_stft_by_freq(
+        freqs, xstft, passband=(passband[0] + enbw, passband[1] - enbw), axis=axis
+    )
 
     if fft_size_out != fft_size or frequency_shift:
         freqs, xstft = downsample_stft(
-            freqs, xstft, fft_size_out=fft_size_out, passband=passband, axis=axis, out=xstft
+            freqs,
+            xstft,
+            fft_size_out=fft_size_out,
+            passband=passband,
+            axis=axis,
+            out=xstft,
         )
 
     return istft(
         xstft,
-        round(x.shape[axis] * fft_size_out/fft_size),
+        round(x.shape[axis] * fft_size_out / fft_size),
         fft_size=fft_size_out,
         noverlap=noverlap,
         out=out,
@@ -760,10 +764,10 @@ def _freq_band_edges(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
 
 
 def spectrogram(
-    x: type_stubs.ArrayType,
+    x: ArrayType,
     *,
     fs: float,
-    window: type_stubs.ArrayType | str | tuple[str, float],
+    window: ArrayType | str | tuple[str, float],
     nperseg: int = 256,
     noverlap: int = 0,
     axis: int = 0,
@@ -790,7 +794,7 @@ def spectrogram(
 
 
 def persistence_spectrum(
-    x: type_stubs.ArrayType,
+    x: ArrayType,
     *,
     fs: float,
     bandwidth=None,
@@ -801,7 +805,7 @@ def persistence_spectrum(
     truncate=True,
     dB=True,
     axis=0,
-) -> Array:
+) -> ArrayType:
     # TODO: support other persistence statistics, such as mean
 
     if power_analysis.isroundmod(fs, resolution):
@@ -814,7 +818,6 @@ def persistence_spectrum(
     xp = array_namespace(x)
     axis_slice = signal._arraytools.axis_slice
     domain = get_input_domain()
-    dtype = float_dtype_like(x)
 
     if domain == Domain.TIME:
         freqs, _, X = spectrogram(
@@ -871,13 +874,13 @@ def persistence_spectrum(
 
 
 def low_pass_filter(
-    iq: type_stubs.ArrayType,
+    iq: ArrayType,
     Ts: float,
     bandwidth: float,
-    window: type_stubs.ArrayType = None,
+    window: ArrayType = None,
     fc_offset: float = 0,
     axis=0,
-) -> Array:
+) -> ArrayType:
     """Applies a low-pass filter to the input waveform by conversion into the frequency domain.
 
     Args:
@@ -898,7 +901,7 @@ def low_pass_filter(
     if window is None:
         if axis != 0 or len(iq.shape) != 2:
             raise NotImplementedError(
-                f'in current implementation, `window` can only be used when axis=0 and iq has 2 axes'
+                'in current implementation, `window` can only be used when axis=0 and iq has 2 axes'
             )
         window = xp.array([1])
 
@@ -933,7 +936,7 @@ def low_pass_filter(
     return x  # .astype('complex64')
 
 
-def upsample(iq: type_stubs.ArrayType, factor: int, Ts: float = None, shift_bins=0, axis=0):
+def upsample(iq: ArrayType, factor: int, Ts: float = None, shift_bins=0, axis=0):
     """Upsamples a signal by an integer factor, low-pass filtered so that the new higher frequencies are empty.
 
     Implementation is by zero-padding in the Fourier domain.
@@ -986,12 +989,12 @@ def upsample(iq: type_stubs.ArrayType, factor: int, Ts: float = None, shift_bins
 
 
 def channelize_power(
-    iq: type_stubs.ArrayType,
+    iq: ArrayType,
     Ts: float,
     fft_size_per_channel: int,
     *,
     analysis_bins_per_channel: int,
-    window: type_stubs.ArrayType,
+    window: ArrayType,
     fft_overlap_per_channel=0,
     channel_count: int = 1,
     axis=0,
@@ -1040,9 +1043,7 @@ def channelize_power(
         raise NotImplementedError('sorry, only axis=0 implemented for now')
 
     if analysis_bins_per_channel > fft_size_per_channel:
-        raise ValueError(f'the number of analysis bins cannot be greater than FFT size')
-
-    xp = array_namespace(iq)
+        raise ValueError('the number of analysis bins cannot be greater than FFT size')
 
     freqs, times, X = stft(
         iq,
@@ -1076,8 +1077,8 @@ def channelize_power(
 
 
 def iq_to_stft_spectrogram(
-    iq: type_stubs.ArrayType,
-    window: type_stubs.ArrayType | str | tuple[str, float],
+    iq: ArrayType,
+    window: ArrayType | str | tuple[str, float],
     fft_size: int,
     Ts,
     overlap=True,

@@ -351,7 +351,7 @@ def pcolormesh_df(
 ):
     # lazy import of submodules seems to cause problems for matplotlib
     from matplotlib import pyplot as plt
-    
+
     if ax is None:
         fig, ax = plt.subplots()
 
@@ -406,7 +406,7 @@ def plot_spectrogram_heatmap_from_iq(
 ) -> tuple[type_stubs.AxesType, type_stubs.DataFrameType]:
     # lazy import of submodules seems to cause problems for matplotlib
     from matplotlib import pyplot as plt
-    
+
     index_span = (
         None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
         None if time_span[1] is None else int(np.rint(time_span[1] / Ts)),
@@ -466,7 +466,7 @@ def plot_spectrogram_heatmap(
 ) -> tuple[type_stubs.AxesType, type_stubs.DataFrameType]:
     # lazy import of submodules seems to cause problems for matplotlib
     from matplotlib import pyplot as plt
-    
+
     if cmap is None:
         cmap = mpl.cm.get_cmap('magma')
 
@@ -757,7 +757,7 @@ def plot_power_ccdf(
 ):
     # lazy import of submodules seems to cause problems for matplotlib
     from matplotlib import pyplot as plt
-    
+
     if ax is None:
         fig, ax = plt.subplots()
 

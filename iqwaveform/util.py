@@ -5,6 +5,7 @@ import array_api_compat
 from array_api_compat import is_cupy_array
 import numpy as np
 from functools import lru_cache
+from numbers import Number
 
 from contextlib import contextmanager
 from enum import Enum
@@ -21,6 +22,7 @@ __all__ = [
     'sliding_window_view',
     'float_dtype_like',
 ]
+
 
 def lazy_import(module_name: str):
     """postponed import of the module with the specified name.
@@ -72,7 +74,7 @@ def empty_shared(shape: tuple | int, dtype: np.dtype, xp=np):
 
 
 @lru_cache
-def _whichfloats(seq: tuple[str|float, ...]) -> list[bool]:
+def _whichfloats(seq: tuple[str | float, ...]) -> list[bool]:
     """return a list to flag whether each element can be converted to float"""
 
     ret = []
@@ -298,4 +300,10 @@ def float_dtype_like(x: type_stubs.ArrayType):
     * If x.dtype is float16/float32/float64: x.dtype.
     * If x.dtype is complex64/complex128: float32/float64
     """
-    return np.finfo(x.dtype).dtype
+
+    if isinstance(x, Number):
+        x = np.asarray(x)
+    try:
+        return np.finfo(np.asarray(x).dtype).dtype
+    except ValueError:
+        return np.float64

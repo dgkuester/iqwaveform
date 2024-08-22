@@ -1,8 +1,10 @@
 """Some window functions not included by scipy.signal"""
 
 import numpy as np
-from .utils import lazy_import
+from .util import lazy_import
+
 special = lazy_import('scipy.special')
+
 
 def _len_guards(M):
     """Handle small or incorrect window lengths"""

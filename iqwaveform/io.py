@@ -32,7 +32,9 @@ def extract_ntia_calibration_metadata(metadata: dict) -> dict:
     }
 
 
-def read_sigmf_metadata(metadata_fn, ntia=False) -> tuple[type_stubs.DataFrameType, float]:
+def read_sigmf_metadata(
+    metadata_fn, ntia=False
+) -> tuple[type_stubs.DataFrameType, float]:
     with open(metadata_fn, 'r') as fd:
         metadata = json.load(fd)
 
@@ -105,7 +107,10 @@ def read_sigmf_to_df(
 
 
 def waveform_to_frame(
-    waveform: np.array, Ts: float, columns: type_stubs.IndexType = None, column_name=None
+    waveform: np.array,
+    Ts: float,
+    columns: type_stubs.IndexType = None,
+    column_name=None,
 ) -> tuple[type_stubs.SeriesType, type_stubs.DataFrameType]:
     """packs IQ data into a pandas Series or DataFrame object.
 
