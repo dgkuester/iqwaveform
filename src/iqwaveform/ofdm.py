@@ -90,7 +90,7 @@ class PhyOFDM:
         *,
         channel_bandwidth: float,
         sample_rate: float,
-        fft_size: float,
+        nfft: float,
         cp_sizes=np.array,
         frame_duration: float | None = None,
         contiguous_size: float | None = None,
@@ -98,10 +98,10 @@ class PhyOFDM:
         self.channel_bandwidth = channel_bandwidth
         self.sample_rate = sample_rate
 
-        self.fft_size: float = fft_size
+        self.nfft: float = nfft
         self.frame_duration = frame_duration
 
-        self.subcarrier_spacing: float = self.sample_rate / fft_size
+        self.subcarrier_spacing: float = self.sample_rate / nfft
         if frame_duration is None:
             self.frame_size = None
         else:
@@ -120,10 +120,10 @@ class PhyOFDM:
                 self.contiguous_size = contiguous_size
             else:
                 # if not specified, assume no padding is needed to complete a contiguos block of symbols
-                self.contiguous_size = np.sum(cp_sizes) + len(cp_sizes) * fft_size
+                self.contiguous_size = np.sum(cp_sizes) + len(cp_sizes) * nfft
 
             # build a (start_idx, size) pair for each CP
-            pair_sizes = np.concatenate(((0,), self.cp_sizes + self.fft_size))
+            pair_sizes = np.concatenate(((0,), self.cp_sizes + self.nfft))
             self.cp_start_idx = (pair_sizes.cumsum()).astype(int)[:-1]
             start_and_size = zip(self.cp_start_idx, self.cp_sizes)
 
@@ -195,17 +195,17 @@ class Phy3GPP(PhyOFDM):
             )
 
         sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
-        fft_size = int(np.rint(sample_rate / subcarrier_spacing))
+        nfft = int(np.rint(sample_rate / subcarrier_spacing))
 
-        if fft_size in self.FFT_SIZE_TO_SUBCARRIERS:
-            self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[fft_size]
+        if nfft in self.FFT_SIZE_TO_SUBCARRIERS:
+            self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[nfft]
 
         super().__init__(
             channel_bandwidth=channel_bandwidth,
-            fft_size=fft_size,
+            nfft=nfft,
             sample_rate=sample_rate,
             frame_duration=10e-3,
-            cp_sizes=(fft_size * self.MIN_CP_SIZES) // 128,
+            cp_sizes=(nfft * self.MIN_CP_SIZES) // 128,
         )
 
     @methodtools.lru_cache(4)
@@ -245,7 +245,7 @@ class Phy3GPP(PhyOFDM):
                 # axis 3: cp index
                 0 : self.cp_sizes[1],
                 # axis 4: start offset within the symbol
-                0 : self.fft_size + self.cp_sizes[1],
+                0 : self.nfft + self.cp_sizes[1],
             ]
         )
 
@@ -297,7 +297,7 @@ class Phy802_16(PhyOFDM):
         *,
         alt_sample_rate: float = None,
         frame_duration: float = 5e-3,
-        fft_size: float = 2048,
+        nfft: float = 2048,
         cp_ratio: float = 1 / 8,
     ):
         """
@@ -305,8 +305,8 @@ class Phy802_16(PhyOFDM):
             channel_bandwidth: Channel bandwidth as defined by 802.16-2017
             alt_sample_rate (_type_, optional): If specified, overrides the 802.16-2017 value with sample rate of recorded data.
             frame_duration: _description_. Defaults to 5e-3.
-            fft_size: the fft size corresponding to the length of the useful portion of each symbol. Defaults to 2048.
-            cp_ratio: the size of the cyclic prefix as a fraction of fft_size. Defaults to 1/8.
+            nfft: the fft size corresponding to the length of the useful portion of each symbol. Defaults to 2048.
+            cp_ratio: the size of the cyclic prefix as a fraction of nfft. Defaults to 1/8.
         """
         if not isinstance(channel_bandwidth, Number):
             raise TypeError('expected numeric value for channel_bandwidth')
@@ -317,8 +317,8 @@ class Phy802_16(PhyOFDM):
         elif not np.isclose(channel_bandwidth % 125e3, 0, atol=1e-6):
             raise ValueError('channel bandwidth must be set in increments of 125 kHz')
 
-        if fft_size not in self.VALID_FFT_SIZES:
-            raise ValueError(f'fft_size must be one of {self.VALID_FFT_SIZES}')
+        if nfft not in self.VALID_FFT_SIZES:
+            raise ValueError(f'nfft must be one of {self.VALID_FFT_SIZES}')
 
         if cp_ratio in self.VALID_CP_RATIOS:
             self.cp_ratio = cp_ratio
@@ -339,9 +339,9 @@ class Phy802_16(PhyOFDM):
             sampling_factor = self.sampling_factor = 8 / 7
 
         std_sample_rate = np.floor(sampling_factor * channel_bandwidth / 8000) * 8000
-        cp_size = int(np.rint(cp_ratio * fft_size))
+        cp_size = int(np.rint(cp_ratio * nfft))
         self.total_symbol_duration = (
-            int(np.rint((1 + cp_ratio) * fft_size)) / std_sample_rate
+            int(np.rint((1 + cp_ratio) * nfft)) / std_sample_rate
         )
         self.symbols_per_frame = int(
             np.floor(frame_duration / self.total_symbol_duration)
@@ -361,7 +361,7 @@ class Phy802_16(PhyOFDM):
                     'alt_sample_rate is too small to capture any cyclic prefixes'
                 )
 
-            fft_size = int(np.rint(fft_size * scale))
+            nfft = int(np.rint(nfft * scale))
             cp_size = int(np.rint(cp_size * scale))
             sample_rate = alt_sample_rate
 
@@ -371,7 +371,7 @@ class Phy802_16(PhyOFDM):
 
         super().__init__(
             channel_bandwidth=channel_bandwidth,
-            fft_size=fft_size,
+            nfft=nfft,
             sample_rate=sample_rate,
             frame_duration=frame_duration,
             cp_sizes=np.full(self.symbols_per_frame, cp_size),
@@ -407,7 +407,7 @@ class Phy802_16(PhyOFDM):
                 # axis 2: cp index
                 0 : self.cp_sizes[1],
                 # axis 3: start offset within the symbol
-                0 : self.fft_size + self.cp_sizes[1],
+                0 : self.nfft + self.cp_sizes[1],
             ]
         )
 
@@ -428,7 +428,7 @@ empty_complex64 = np.zeros(0, dtype=np.complex64)
 class BasebandClockSynchronizer:  # other base classes are basic_block, decim_block, interp_block
     """Use the cyclic prefix (CP) in the LTE PHY layer to
     (1) resample to correct clock mismatch relative to the transmitter, and
-    (2) align LTE signal to the start of a CP (resolution of fft_size*(1+9/128) samples)
+    (2) align LTE signal to the start of a CP (resolution of nfft*(1+9/128) samples)
 
     Usage:
 
@@ -474,7 +474,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         # This grid spans a total length of a single slot.
         coarse_step = int(self.phy.cp_sizes[1] * self.COARSE_CP0_STEP)
         self.cp_offsets_coarse = np.arange(
-            0, self.phy.fft_size + self.phy.cp_sizes[1], coarse_step, dtype=int
+            0, self.phy.nfft + self.phy.cp_sizes[1], coarse_step, dtype=int
         )
 
         # 2-D search grid
@@ -494,7 +494,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
                   dimension 1 gives corresponding index offsets of CP samples relative to the start of the slot
 
         """
-        return correlate_along_axis(x[cp_inds], x[self.phy.fft_size :][cp_inds], axis=1)
+        return correlate_along_axis(x[cp_inds], x[self.phy.nfft :][cp_inds], axis=1)
 
     def _find_slot_start_offset(self, x):
         """Estimate the offset required to align the start of a slot to
@@ -561,7 +561,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         t_sync = t_sync[select]
         weights = weights[select]
 
-        # the offsets wrap back to zero when they pass fft_size+length of the first CP block.
+        # the offsets wrap back to zero when they pass nfft+length of the first CP block.
         # unwrap here to keep linear regression from breaking
         offsets = self._unwrap_offsets(offsets)
 
@@ -584,7 +584,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         return slipped_samples, fit.intercept_[0]
 
     def _unwrap_offsets(self, offsets):
-        scale_rad = 2 * np.pi / self.phy.fft_size
+        scale_rad = 2 * np.pi / self.phy.nfft
         return (np.unwrap(offsets * scale_rad) / scale_rad).astype(int)
 
     def plot_offset_with_fit(self, x):
@@ -661,7 +661,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         if spare_samples > 0:
             x = x[:-spare_samples]
 
-        # if there are enough sample slips, we might slip backward by 1 CP duration (9/128 * self.phy.fft_size)
+        # if there are enough sample slips, we might slip backward by 1 CP duration (9/128 * self.phy.nfft)
         return x
 
 
@@ -692,13 +692,13 @@ class SymbolDecoder:
         # first, select symbol indices (== remove cyclic prefixes)
         x = to_blocks(x, 2 * self.phy.contiguous_size)[:, self.phy.symbol_idx].flatten()
 
-        # break up the waveform into windows of length fft_size
-        blocks = to_blocks(x, self.phy.fft_size)
+        # break up the waveform into windows of length nfft
+        blocks = to_blocks(x, self.phy.nfft)
 
         #  decode with the fft
         X = np.fft.fftshift(np.fft.fft(blocks, axis=-1), axes=(-1,))
 
-        X /= np.sqrt(2 * self.phy.fft_size)
+        X /= np.sqrt(2 * self.phy.nfft)
 
         if only_3gpp_subcarriers:
             # return only the FFT bins meant to contain data

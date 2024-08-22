@@ -175,12 +175,12 @@ def broadcast_onto(a: ArrayType, other: ArrayType, axis: int) -> ArrayType:
 
 @lru_cache(16)
 def _get_stft_axes(
-    fs: float, fft_size: int, time_size: int, overlap_frac: float = 0, xp=np
+    fs: float, nfft: int, time_size: int, overlap_frac: float = 0, xp=np
 ) -> tuple[ArrayType, ArrayType]:
     """returns stft (freqs, times) array tuple appropriate to the array module xp"""
 
-    freqs = xp.fft.fftshift(xp.fft.fftfreq(fft_size, d=1 / fs))
-    times = xp.arange(time_size) * ((1 - overlap_frac) * fft_size / fs)
+    freqs = xp.fft.fftshift(xp.fft.fftfreq(nfft, d=1 / fs))
+    times = xp.arange(time_size) * ((1 - overlap_frac) * nfft / fs)
 
     return freqs, times
 
@@ -289,8 +289,8 @@ def design_cola_resampler(
 
     ola_resample_kws = {
         'window': window,
-        'fft_size': nfft_in,
-        'fft_size_out': nfft_out,
+        'nfft': nfft_in,
+        'nfft_out': nfft_out,
         'frequency_shift': shift,
         'passband': passband,
         'fs': fs_sdr,
@@ -331,10 +331,10 @@ def _stack_stft_windows(
     """
     axis_slice = signal._arraytools.axis_slice
 
-    fft_size = nperseg
+    nfft = nperseg
     hop_size = nperseg - noverlap
 
-    strided = sliding_window_view(x, fft_size, axis=axis)
+    strided = sliding_window_view(x, nfft, axis=axis)
 
     stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
     cola_scale = _cola_scale(window, hop_size)
@@ -369,10 +369,10 @@ def _unstack_stft_windows(
     xp = array_namespace(y)
     axis_slice = signal._arraytools.axis_slice
 
-    fft_size = nperseg
+    nfft = nperseg
     hop_size = nperseg - noverlap
 
-    waveform_size = y.shape[axis] * y.shape[axis + 1] * hop_size // fft_size + noverlap
+    waveform_size = y.shape[axis] * y.shape[axis + 1] * hop_size // nfft + noverlap
     target_shape = y.shape[:axis] + (waveform_size,) + y.shape[axis + 2 :]
 
     if out is None:
@@ -397,8 +397,8 @@ def _unstack_stft_windows(
     xr_slice[:] = 0
 
     # for speed, sum up in groups of non-overlapping windows
-    for offs in range(fft_size // hop_size):
-        yslice = axis_slice(y, start=offs, step=fft_size // hop_size, axis=axis)
+    for offs in range(nfft // hop_size):
+        yslice = axis_slice(y, start=offs, step=nfft // hop_size, axis=axis)
         yshape = yslice.shape
 
         yslice = yslice.reshape(
@@ -421,30 +421,30 @@ def _unstack_stft_windows(
 
 @lru_cache
 def _ola_filter_parameters(
-    array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool
+    array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
 ) -> tuple:
-    if fft_size_out is None:
-        fft_size_out = fft_size
+    if nfft_out is None:
+        nfft_out = nfft
 
-    if fft_size < fft_size_out:
+    if nfft < nfft_out:
         raise ValueError('only downsampling is supported')
 
     if window == 'hamming':
-        if fft_size_out % 2 != 0:
+        if nfft_out % 2 != 0:
             raise ValueError(
-                'blackman window COLA requires output fft_size_out % 2 == 0'
+                'blackman window COLA requires output nfft_out % 2 == 0'
             )
         overlap_scale = 1 / 2
     elif window == 'blackman':
-        if fft_size_out % 3 != 0:
+        if nfft_out % 3 != 0:
             raise ValueError(
-                'blackman window COLA requires output fft_size_out % 3 == 0'
+                'blackman window COLA requires output nfft_out % 3 == 0'
             )
         overlap_scale = 2 / 3
     elif window == 'blackmanharris':
-        if fft_size_out % 5 != 0:
+        if nfft_out % 5 != 0:
             raise ValueError(
-                'blackmanharris window requires output fft_size_out % 5 == 0'
+                'blackmanharris window requires output nfft_out % 5 == 0'
             )
         overlap_scale = 4 / 5
     else:
@@ -452,7 +452,7 @@ def _ola_filter_parameters(
             'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
         )
 
-    noverlap = round(fft_size_out * overlap_scale)
+    noverlap = round(nfft_out * overlap_scale)
 
     if array_size % noverlap != 0:
         if extend:
@@ -464,14 +464,14 @@ def _ola_filter_parameters(
     else:
         pad_out = 0
 
-    return fft_size_out, noverlap, overlap_scale, pad_out
+    return nfft_out, noverlap, overlap_scale, pad_out
 
 
 def _istft_buffer_size(
-    array_size: int, *, window, fft_size_out: int, fft_size: int, extend: bool
+    array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
 ):
-    fft_size_out, noverlap, overlap_scale, pad_out = _ola_filter_parameters(**locals())
-    N = round(np.ceil(((array_size + pad_out) / fft_size) / overlap_scale) * fft_size)
+    nfft_out, noverlap, overlap_scale, pad_out = _ola_filter_parameters(**locals())
+    N = round(np.ceil(((array_size + pad_out) / nfft) / overlap_scale) * nfft)
     return N
 
 
@@ -490,7 +490,7 @@ def zero_stft_by_freq(
 def downsample_stft(
     freqs: ArrayType,
     xstft: ArrayType,
-    fft_size_out: int,
+    nfft_out: int,
     *,
     passband: tuple[float, float],
     axis=0,
@@ -500,7 +500,7 @@ def downsample_stft(
 
     * This is rational downsampling by a factor of `nout/xstft.shape[axis+1]`,
       shifted if necessary to center the passband.
-    * One approach to selecting `fft_size_out` for this purpose is the use
+    * One approach to selecting `nfft_out` for this purpose is the use
       of `design_ola_filter`.
 
     Returns:
@@ -511,7 +511,7 @@ def downsample_stft(
     ax = axis + 1
 
     shape = list(xstft.shape)
-    shape[ax] = fft_size_out
+    shape[ax] = nfft_out
 
     if out is None:
         xout = xp.empty(shape, dtype=xstft.dtype)
@@ -522,9 +522,9 @@ def downsample_stft(
 
     # evaluate the index offsets of the passband that center within the downsampled array
     passband_size = ihi - ilo
-    stopband_size = fft_size_out - passband_size
+    stopband_size = nfft_out - passband_size
     ioutlo = stopband_size // 2
-    iouthi = fft_size_out - stopband_size // 2 - stopband_size % 2
+    iouthi = nfft_out - stopband_size // 2 - stopband_size % 2
 
     # truncate to the range of frequency bins, centered within the new sampling bandwidth
     freqs_out = freqs[ilo:ihi] - freqs[(ilo + ihi) // 2]
@@ -596,14 +596,14 @@ def stft(
     #     padded=True,
     # )
 
-    fft_size = nperseg
+    nfft = nperseg
 
     if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
 
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
         should_norm = norm == 'power'
-        w = _get_window(window, fft_size, xp=xp, dtype=x.dtype, norm=should_norm)
+        w = _get_window(window, nfft, xp=xp, dtype=x.dtype, norm=should_norm)
         if is_torch_array(w):
             import torch
 
@@ -612,9 +612,9 @@ def stft(
         w = xp.array(window)
 
     if noverlap == 0:
-        x = to_blocks(x, fft_size, truncate=truncate)
+        x = to_blocks(x, nfft, truncate=truncate)
 
-        x = x * broadcast_onto(w / fft_size, x, axis=axis + 1)
+        x = x * broadcast_onto(w / nfft, x, axis=axis + 1)
         X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
         X = xp.fft.fftshift(X, axes=axis + 1)
 
@@ -635,9 +635,9 @@ def stft(
 
     freqs, times = _get_stft_axes(
         fs,
-        fft_size=fft_size,
+        nfft=nfft,
         time_size=X.shape[axis],
-        overlap_frac=noverlap / fft_size,
+        overlap_frac=noverlap / nfft,
         xp=np,
     )
 
@@ -645,7 +645,7 @@ def stft(
 
 
 def istft(
-    xstft: ArrayType, size=None, *, fft_size: int, noverlap: int, out=None, axis=0
+    xstft: ArrayType, size=None, *, nfft: int, noverlap: int, out=None, axis=0
 ) -> ArrayType:
     """reconstruct and return a waveform given its STFT and associated parameters"""
 
@@ -660,7 +660,7 @@ def istft(
     )
 
     y = _unstack_stft_windows(
-        x_windows, noverlap=noverlap, nperseg=fft_size, axis=axis, out=out
+        x_windows, noverlap=noverlap, nperseg=nfft, axis=axis, out=out
     )
 
     if size is not None:
@@ -675,10 +675,10 @@ def ola_filter(
     x: ArrayType,
     *,
     fs: float,
-    fft_size: int,
+    nfft: int,
     window: str | tuple = 'hamming',
     passband: tuple[float, float],
-    fft_size_out: int = None,
+    nfft_out: int = None,
     frequency_shift=False,
     axis=0,
     extend=False,
@@ -692,7 +692,7 @@ def ola_filter(
         noverlap: the size of overlap between adjacent FFT windows, in samples
         window: the type of COLA window to apply, 'hamming', 'blackman', or 'blackmanharris'
         passband: a tuple of low-pass cutoff and high-pass cutoff frequency (or None to skip either)
-        fft_size_out: implement downsampling by adjusting the size of overlap between adjacent FFT windows
+        nfft_out: implement downsampling by adjusting the size of overlap between adjacent FFT windows
         frequency_shift: the direction to shift the downsampled frequencies ('left' or 'right', or False to center)
         axis: the axis of `x` along which to compute the filter
         extend: if True, allow use of zero-padded samples at the edges to accommodate a non-integer number of overlapping windows in x
@@ -703,24 +703,24 @@ def ola_filter(
     """
     xp = array_namespace(x)
 
-    fft_size_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
+    nfft_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
         x.size,
         window=window,
-        fft_size_out=fft_size_out,
-        fft_size=fft_size,
+        nfft_out=nfft_out,
+        nfft=nfft,
         extend=extend,
     )
 
-    enbw = equivalent_noise_bandwidth(window, fft_size_out, fftbins=False)
+    enbw = equivalent_noise_bandwidth(window, nfft_out, fftbins=False)
 
-    w = _get_window(window, fft_size, fftbins=False, xp=xp)
+    w = _get_window(window, nfft, fftbins=False, xp=xp)
 
     freqs, _, xstft = stft(
         x,
         fs=fs,
         window=w,
-        nperseg=fft_size,
-        noverlap=round(fft_size * overlap_scale),
+        nperseg=nfft,
+        noverlap=round(nfft * overlap_scale),
         axis=axis,
         truncate=False,
         out=out,
@@ -730,11 +730,11 @@ def ola_filter(
         freqs, xstft, passband=(passband[0] + enbw, passband[1] - enbw), axis=axis
     )
 
-    if fft_size_out != fft_size or frequency_shift:
+    if nfft_out != nfft or frequency_shift:
         freqs, xstft = downsample_stft(
             freqs,
             xstft,
-            fft_size_out=fft_size_out,
+            nfft_out=nfft_out,
             passband=passband,
             axis=axis,
             out=xstft,
@@ -742,8 +742,8 @@ def ola_filter(
 
     return istft(
         xstft,
-        round(x.shape[axis] * fft_size_out / fft_size),
-        fft_size=fft_size_out,
+        round(x.shape[axis] * nfft_out / nfft),
+        nfft=nfft_out,
         noverlap=noverlap,
         out=out,
         axis=axis,
@@ -813,8 +813,8 @@ def persistence_spectrum(
     # TODO: support other persistence statistics, such as mean
 
     if power_analysis.isroundmod(fs, resolution):
-        fft_size = round(fs / resolution)
-        noverlap = round(fractional_overlap * fft_size)
+        nfft = round(fs / resolution)
+        noverlap = round(fractional_overlap * nfft)
     else:
         # need sample_rate_Hz/resolution to give us a counting number
         raise ValueError('sample_rate_Hz/resolution must be a counting number')
@@ -825,15 +825,15 @@ def persistence_spectrum(
 
     if domain == Domain.TIME:
         freqs, _, X = spectrogram(
-            x, window=window, fs=fs, nperseg=fft_size, noverlap=noverlap, axis=axis
+            x, window=window, fs=fs, nperseg=nfft, noverlap=noverlap, axis=axis
         )
     elif domain == Domain.FREQUENCY:
         X = x
         freqs, _ = _get_stft_axes(
             fs=fs,
-            fft_size=fft_size,
+            nfft=nfft,
             time_size=X.shape[axis],
-            overlap_frac=noverlap / fft_size,
+            overlap_frac=noverlap / nfft,
             xp=np,
         )
     else:
@@ -1083,7 +1083,7 @@ def channelize_power(
 def iq_to_stft_spectrogram(
     iq: ArrayType,
     window: ArrayType | str | tuple[str, float],
-    fft_size: int,
+    nfft: int,
     Ts,
     overlap=True,
     analysis_bandwidth=None,
@@ -1094,13 +1094,13 @@ def iq_to_stft_spectrogram(
         iq,
         fs=1.0 / Ts,
         window=window,
-        nperseg=fft_size,
-        noverlap=fft_size // 2 if overlap else 0,
+        nperseg=nfft,
+        noverlap=nfft // 2 if overlap else 0,
         norm='power',
         axis=0,
     )
 
-    # X = xp.fft.fftshift(X, axes=0)/xp.sqrt(fft_size*Ts)
+    # X = xp.fft.fftshift(X, axes=0)/xp.sqrt(nfft*Ts)
     X = power_analysis.envtopow(X)
 
     spg = pd.DataFrame(X, columns=freqs, index=times)
@@ -1108,7 +1108,7 @@ def iq_to_stft_spectrogram(
     if analysis_bandwidth is not None:
         throwaway = spg.shape[1] * (
             1 - analysis_bandwidth * Ts
-        )  # (len(freqs)-int(xp.rint(FFT_SIZE*analysis_bandwidth*Ts)))//2
+        )  # (len(freqs)-int(xp.rint(nfft*analysis_bandwidth*Ts)))//2
         if len(times) > 1 and xp.abs(throwaway - xp.rint(throwaway)) > 1e-6:
             raise ValueError(
                 f'analysis bandwidth yield integral number of samples, but got {throwaway}'
