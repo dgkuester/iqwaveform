@@ -1,11 +1,11 @@
-A python module for analysis and visualization of complex-valued waveforms.
+A python module for analysis and visualization of complex-valued "IQ" waveforms.
 
 This is early in development and APIs may change rapidly.
 
 ### Install as a module
 This makes the `iqwaveform` module available for import from your own python scripts.
 
-#### anaconda python
+#### anaconda distributions
 The idea here is to [re-use pre-existing base libraries when possible](https://www.anaconda.com/blog/using-pip-in-a-conda-environment) to minimize interaction problems between pip and conda or mamba.
 
 ```python
