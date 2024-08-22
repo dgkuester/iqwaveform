@@ -303,7 +303,11 @@ def float_dtype_like(x: type_stubs.ArrayType):
 
     if isinstance(x, Number):
         x = np.asarray(x)
+        xp = np
+    else:
+        xp = array_namespace(x)
+
     try:
-        return np.finfo(np.asarray(x).dtype).dtype
+        return np.finfo(xp.asarray(x).dtype).dtype
     except ValueError:
         return np.float64
