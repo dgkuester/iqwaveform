@@ -471,8 +471,9 @@ def _istft_buffer_size(
     array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
 ):
     nfft_out, noverlap, overlap_scale, pad_out = _ola_filter_parameters(**locals())
-    N = round(np.ceil(((array_size + pad_out) / nfft) / overlap_scale) * nfft)
-    return N
+    nfft_max = max(nfft_out, nfft)
+    size = round(np.ceil(((array_size + pad_out) / nfft_max) / overlap_scale) * nfft_max)
+    return size
 
 
 def zero_stft_by_freq(
