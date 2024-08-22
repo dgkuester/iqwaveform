@@ -97,7 +97,7 @@ def _interpret_arraylike(
             raise TypeError(f'unsupported input type {type(x)}')
 
     if out is None:
-        out = xp.zeros(xp.shape(x), dtype=float_dtype_like(x))
+        out = xp.zeros(xp.shape(x), dtype=float_dtype_like(values))
     elif hasattr(out, 'values'):
         # pandas, xarray objects
         out = out.values
