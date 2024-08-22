@@ -87,7 +87,7 @@ def _interpret_arraylike(
         values = x
     except TypeError:
         # pandas.Series, pandas.DataFrame, xarray.DataArray
-        if hasattr(x, 'values'):            
+        if hasattr(x, 'values'):
             xp = array_namespace(x.values)
             values = x.values
         elif isinstance(x, Number):
@@ -185,7 +185,7 @@ def envtopow(x: Union[ArrayLike, Number], out=None) -> Any:
 
     values, out, xp = _interpret_arraylike(x, out)
 
-    if xp in (None, np):
+    if xp is np:
         # numpy, pandas
         values = ne.evaluate(
             'real(abs(x)**2)', local_dict=dict(x=x), out=out, casting='unsafe'
@@ -228,8 +228,6 @@ def envtodB(
         values = xp.log10(values, out=out)
         values *= 20
 
-    # accessing each of these forces imports of each module.
-    # work through progressively more expensive imports
     return _repackage_arraylike(values, x, unit_transform=unit_linear_to_dB)
 
 

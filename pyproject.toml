@@ -1,6 +1,6 @@
 [project]
 name = "iqwaveform"
-version = "0.31.0"
+version = "0.32.0"
 description = "tools for IQ waveform analysis and visualization"
 authors = [
     {name = "Dan Kuester", email = "daniel.kuester@nist.gov"},
@@ -29,7 +29,7 @@ build-backend = "pdm.pep517.api"
 [tool]
 [tool.pdm.version]
 source = "scm"
-write_to = "iqwaveform/_version.py"
+write_to = "src/iqwaveform/_version.py"
 write_template = "__version__ = '{}'"
 
 [tool.pdm.dev-dependencies]
