@@ -3,6 +3,7 @@ import numpy as np
 from os import cpu_count
 from functools import lru_cache
 from array_api_compat import is_cupy_array, is_torch_array
+from math import ceil
 
 from . import power_analysis
 from .power_analysis import stat_ufunc_from_shorthand
@@ -472,7 +473,8 @@ def _istft_buffer_size(
 ):
     nfft_out, _, overlap_scale, pad_out = _ola_filter_parameters(**locals())
     nfft_max = max(nfft_out, nfft)
-    size = round(np.ceil(((array_size + pad_out) / nfft_max) / overlap_scale) * nfft_max)
+    fft_count = (2+((array_size + pad_out) / nfft_max) / overlap_scale)
+    size = ceil(fft_count * nfft_max)
     return size
 
 
