@@ -4,6 +4,7 @@ from os import cpu_count
 from functools import lru_cache
 from array_api_compat import is_cupy_array, is_torch_array
 from math import ceil
+from typing import Optional
 
 from . import power_analysis
 from .power_analysis import stat_ufunc_from_shorthand
@@ -422,7 +423,7 @@ def _unstack_stft_windows(
 
 @lru_cache
 def _ola_filter_parameters(
-    array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
+    array_size: int, *, window, nfft: int, nfft_out: Optional[int]=None, extend: bool
 ) -> tuple:
     if nfft_out is None:
         nfft_out = nfft
@@ -450,7 +451,7 @@ def _ola_filter_parameters(
             'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
         )
 
-    noverlap = round(nfft_out * overlap_scale)
+    noverlap = round(min(nfft_out,nfft) * overlap_scale)
 
     if array_size % noverlap != 0:
         if extend:
