@@ -427,9 +427,6 @@ def _ola_filter_parameters(
     if nfft_out is None:
         nfft_out = nfft
 
-    if nfft < nfft_out:
-        raise ValueError('only downsampling is supported')
-
     if window == 'hamming':
         if nfft_out % 2 != 0:
             raise ValueError(
