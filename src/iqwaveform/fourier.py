@@ -615,12 +615,15 @@ def stft(
         x = to_blocks(x, nfft, truncate=truncate)
 
         x = x * broadcast_onto(w / nfft, x, axis=axis + 1)
-        X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
+        X = fft(x, axis=axis + 1, overwrite_x=True,
+                # out=out
+                )
         X = xp.fft.fftshift(X, axes=axis + 1)
 
     else:
         x_ol = _stack_stft_windows(
-            x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out
+            x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis,
+            # out=out
         )
 
         X = fft(
@@ -660,7 +663,8 @@ def istft(
     )
 
     y = _unstack_stft_windows(
-        x_windows, noverlap=noverlap, nperseg=nfft, axis=axis, out=out
+        x_windows, noverlap=noverlap, nperseg=nfft, axis=axis,
+        # out=out
     )
 
     if size is not None:
