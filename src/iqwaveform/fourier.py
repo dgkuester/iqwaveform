@@ -940,58 +940,6 @@ def low_pass_filter(
     return x  # .astype('complex64')
 
 
-def upsample(iq: ArrayType, factor: int, Ts: float = None, shift_bins=0, axis=0):
-    """Upsamples a signal by an integer factor, low-pass filtered so that the new higher frequencies are empty.
-
-    Implementation is by zero-padding in the Fourier domain.
-
-    Args:
-
-        iq: input waveform, complex- or real-valued
-
-        upsample_factor: defined such that the output sample period is `Ts/upsample_factor`
-
-        Ts: sample period
-
-        shift_bins: shift the zero-padded FFT by this many bins.
-
-    Returns:
-
-        (iq_upsampled) if Ts is None, otherwise (iq_upsampled, Ts/upsample_factor)
-
-    """
-
-    xp = array_namespace(iq)
-
-    X = xp.fft.fftshift(
-        fft(iq * factor, axis=axis),
-        axes=axis,
-    )
-
-    if factor == 1:
-        if Ts is None:
-            return iq
-        else:
-            return iq, Ts
-
-    count = iq.shape[0] * (factor - 1) / 2
-
-    X = zero_pad(
-        X,
-        [[int(xp.floor(count)) - shift_bins, int(xp.ceil(count)) + shift_bins]]
-        + [[0, 0]] * (len(iq.shape) - 1),
-    )
-    x = ifft(
-        xp.fft.fftshift(X, axes=axis),
-        axis=axis,
-    )
-
-    if Ts is None:
-        return x  # [iq.shape[0] : 2 * iq.shape[0]]
-    else:
-        return x, Ts / factor  # [iq.shape[0] : 2 * iq.shape[0]], Ts / factor
-
-
 def channelize_power(
     iq: ArrayType,
     Ts: float,
