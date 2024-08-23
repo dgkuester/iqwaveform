@@ -470,9 +470,8 @@ def _istft_buffer_size(
     array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
 ):
     nfft_out, _, overlap_scale, pad_out = _ola_filter_parameters(**locals())
-    nfft_max = max(nfft_out, nfft)
-    fft_count = (2+((array_size + pad_out) / nfft_max) / overlap_scale)
-    size = ceil(fft_count * nfft_max)
+    fft_count = (((array_size + pad_out) / min(nfft_out, nfft)) / overlap_scale)
+    size = ceil(fft_count * max(nfft_out, nfft))
     return size
 
 
