@@ -4,7 +4,6 @@ from os import cpu_count
 from functools import lru_cache
 from array_api_compat import is_cupy_array, is_torch_array
 from math import ceil
-from typing import Optional
 
 from . import power_analysis
 from .power_analysis import stat_ufunc_from_shorthand
@@ -423,7 +422,7 @@ def _unstack_stft_windows(
 
 @lru_cache
 def _ola_filter_parameters(
-    array_size: int, *, window, nfft: int, nfft_out: Optional[int]=None, extend: bool
+    array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
 ) -> tuple:
     if nfft_out is None:
         nfft_out = nfft
@@ -451,7 +450,7 @@ def _ola_filter_parameters(
             'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
         )
 
-    noverlap = round(min(nfft_out,nfft) * overlap_scale)
+    noverlap = round(nfft_out * overlap_scale)
 
     if array_size % noverlap != 0:
         if extend:
@@ -470,8 +469,9 @@ def _istft_buffer_size(
     array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
 ):
     nfft_out, _, overlap_scale, pad_out = _ola_filter_parameters(**locals())
-    fft_count = (((array_size + pad_out) / min(nfft_out, nfft)) / overlap_scale)
-    size = ceil(fft_count * max(nfft_out, nfft))
+    nfft_max = max(nfft_out, nfft)
+    fft_count = (2+((array_size + pad_out) / nfft_max) / overlap_scale)
+    size = ceil(fft_count * nfft_max)
     return size
 
 
@@ -615,15 +615,12 @@ def stft(
         x = to_blocks(x, nfft, truncate=truncate)
 
         x = x * broadcast_onto(w / nfft, x, axis=axis + 1)
-        X = fft(x, axis=axis + 1, overwrite_x=True,
-                # out=out
-                )
+        X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
         X = xp.fft.fftshift(X, axes=axis + 1)
 
     else:
         x_ol = _stack_stft_windows(
-            x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis,
-            # out=out
+            x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out
         )
 
         X = fft(
@@ -663,8 +660,7 @@ def istft(
     )
 
     y = _unstack_stft_windows(
-        x_windows, noverlap=noverlap, nperseg=nfft, axis=axis,
-        # out=out
+        x_windows, noverlap=noverlap, nperseg=nfft, axis=axis, out=out
     )
 
     if size is not None:
@@ -942,6 +938,58 @@ def low_pass_filter(
     )
 
     return x  # .astype('complex64')
+
+
+def upsample(iq: ArrayType, factor: int, Ts: float = None, shift_bins=0, axis=0):
+    """Upsamples a signal by an integer factor, low-pass filtered so that the new higher frequencies are empty.
+
+    Implementation is by zero-padding in the Fourier domain.
+
+    Args:
+
+        iq: input waveform, complex- or real-valued
+
+        upsample_factor: defined such that the output sample period is `Ts/upsample_factor`
+
+        Ts: sample period
+
+        shift_bins: shift the zero-padded FFT by this many bins.
+
+    Returns:
+
+        (iq_upsampled) if Ts is None, otherwise (iq_upsampled, Ts/upsample_factor)
+
+    """
+
+    xp = array_namespace(iq)
+
+    X = xp.fft.fftshift(
+        fft(iq * factor, axis=axis),
+        axes=axis,
+    )
+
+    if factor == 1:
+        if Ts is None:
+            return iq
+        else:
+            return iq, Ts
+
+    count = iq.shape[0] * (factor - 1) / 2
+
+    X = zero_pad(
+        X,
+        [[int(xp.floor(count)) - shift_bins, int(xp.ceil(count)) + shift_bins]]
+        + [[0, 0]] * (len(iq.shape) - 1),
+    )
+    x = ifft(
+        xp.fft.fftshift(X, axes=axis),
+        axis=axis,
+    )
+
+    if Ts is None:
+        return x  # [iq.shape[0] : 2 * iq.shape[0]]
+    else:
+        return x, Ts / factor  # [iq.shape[0] : 2 * iq.shape[0]], Ts / factor
 
 
 def channelize_power(
