@@ -308,6 +308,9 @@ def float_dtype_like(x: type_stubs.ArrayType):
         xp = array_namespace(x)
 
     try:
-        return np.finfo(xp.asarray(x).dtype).dtype
+        ret = np.finfo(xp.asarray(x).dtype).dtype
     except ValueError:
-        return np.float64
+        print('eek!')
+        ret = np.float64
+    print('dtype like: ', ret)
+    return ret
