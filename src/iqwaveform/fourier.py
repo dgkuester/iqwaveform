@@ -838,9 +838,9 @@ def persistence_spectrum(
         X = X[:, ilo:ihi]
 
     if domain == Domain.TIME and not dB:
+        # already linear power from spectrogram()
         pass
     elif domain == Domain.TIME and dB:
-        # already power
         spg = power_analysis.powtodB(X, eps=1e-25, out=X)
     elif domain == Domain.FREQUENCY and dB:
         # here X is complex-valued; use the first-half of its buffer
