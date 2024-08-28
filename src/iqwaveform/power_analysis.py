@@ -191,7 +191,7 @@ def envtopow(x: Union[ArrayLike, Number], out=None) -> Any:
             'real(abs(x)**2)', local_dict=dict(x=x), out=out, casting='unsafe'
         )
 
-        if np.iscomplexobj(values):
+        if xp.iscomplexobj(values):
             values = values.real
 
     else:

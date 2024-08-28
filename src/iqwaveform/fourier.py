@@ -841,7 +841,7 @@ def persistence_spectrum(
         if dB:
             spg = power_analysis.powtodB(X, eps=1e-25, out=X)
         else:
-            spg = X
+            spg = X.astype('float32')
     elif domain == Domain.FREQUENCY:
         if dB:
             # here X is complex-valued; use the first-half of its buffer
