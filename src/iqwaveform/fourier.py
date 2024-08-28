@@ -781,18 +781,8 @@ def spectrogram(
 ):
     kws = dict(locals())
 
-    if is_cupy_array(x):
-        from . import cuda
-
-        cuda.build()
-
-        with cuda.apply_abs2_in_fft:
-            freqs, times, spg = stft(**kws)
-            spg = spg.real
-
-    else:
-        freqs, times, X = stft(**kws)
-        spg = power_analysis.envtopow(X)
+    freqs, times, X = stft(**kws)
+    spg = power_analysis.envtopow(X, out=X)
 
     return freqs, times, spg
 
