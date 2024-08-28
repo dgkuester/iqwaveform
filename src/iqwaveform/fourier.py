@@ -852,9 +852,11 @@ def persistence_spectrum(
         spg = power_analysis.powtodB(X, eps=1e-25, out=X)
     elif domain == Domain.FREQUENCY and dB:
         # here X is complex-valued; use the first-half of its buffer
-        spg = power_analysis.envtodB(X, eps=1e-25)
-    elif domain == Domain.FREQUENCY and not dB:
-        spg = power_analysis.envtopow(X, eps=1e-25)
+        spg = power_analysis.envtodB(X, eps=1e-25, out=X.real)
+    elif not dB:
+        spg = power_analysis.envtopow(X, out=X.real)
+    else:
+        raise ValueError(f'unhandled dB and domain: {dB}, {domain}')
 
     isquantile = _whichfloats(tuple(statistics))
 
