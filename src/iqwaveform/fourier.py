@@ -837,16 +837,17 @@ def persistence_spectrum(
         ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *bw_args)
         X = X[:, ilo:ihi]
 
-    if domain == Domain.TIME and not dB:
-        # already linear power from spectrogram()
-        pass
-    elif domain == Domain.TIME and dB:
-        spg = power_analysis.powtodB(X, eps=1e-25, out=X)
-    elif domain == Domain.FREQUENCY and dB:
-        # here X is complex-valued; use the first-half of its buffer
-        spg = power_analysis.envtodB(X, eps=1e-25, out=X.real)
-    elif domain == Domain.FREQUENCY and not dB:
-        spg = power_analysis.envtopow(X, out=X.real)
+    if domain == Domain.TIME:
+        if dB:
+            spg = power_analysis.powtodB(X, eps=1e-25, out=X)
+        else:
+            spg = X
+    elif domain == Domain.FREQUENCY:
+        if dB:
+            # here X is complex-valued; use the first-half of its buffer
+            spg = power_analysis.envtodB(X, eps=1e-25, out=X.real)
+        else:
+            spg = power_analysis.envtopow(X, out=X.real)
     else:
         raise ValueError(f'unhandled dB and domain: {dB}, {domain}')
 
