@@ -11,6 +11,7 @@ from .util import (
     array_namespace,
     sliding_window_view,
     get_input_domain,
+    isroundmod,
     Domain,
     _whichfloats,
     lazy_import,
@@ -245,7 +246,7 @@ def design_cola_resampler(
 
     # the following returns the modulos closest to either 0 or 1, accommodating downward rounding errors (e.g., 0.999)
     trial_noverlap = resample_ratio * np.arange(1, OLA_MAX_FFT_SIZE + 1)
-    check_mods = power_analysis.isroundmod(trial_noverlap, 1) & (
+    check_mods = isroundmod(trial_noverlap, 1) & (
         trial_noverlap > min_fft_size * resample_ratio
     )
 
@@ -429,21 +430,15 @@ def _ola_filter_parameters(
 
     if window == 'hamming':
         if nfft_out % 2 != 0:
-            raise ValueError(
-                'blackman window COLA requires output nfft_out % 2 == 0'
-            )
+            raise ValueError('blackman window COLA requires output nfft_out % 2 == 0')
         overlap_scale = 1 / 2
     elif window == 'blackman':
         if nfft_out % 3 != 0:
-            raise ValueError(
-                'blackman window COLA requires output nfft_out % 3 == 0'
-            )
+            raise ValueError('blackman window COLA requires output nfft_out % 3 == 0')
         overlap_scale = 2 / 3
     elif window == 'blackmanharris':
         if nfft_out % 5 != 0:
-            raise ValueError(
-                'blackmanharris window requires output nfft_out % 5 == 0'
-            )
+            raise ValueError('blackmanharris window requires output nfft_out % 5 == 0')
         overlap_scale = 4 / 5
     else:
         raise TypeError(
@@ -470,7 +465,7 @@ def _istft_buffer_size(
 ):
     nfft_out, _, overlap_scale, pad_out = _ola_filter_parameters(**locals())
     nfft_max = max(nfft_out, nfft)
-    fft_count = (2+((array_size + pad_out) / nfft_max) / overlap_scale)
+    fft_count = 2 + ((array_size + pad_out) / nfft_max) / overlap_scale
     size = ceil(fft_count * nfft_max)
     return size
 
@@ -802,7 +797,7 @@ def persistence_spectrum(
 ) -> ArrayType:
     # TODO: support other persistence statistics, such as mean
 
-    if power_analysis.isroundmod(fs, resolution):
+    if isroundmod(fs, resolution):
         nfft = round(fs / resolution)
         noverlap = round(fractional_overlap * nfft)
     else:
