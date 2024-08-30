@@ -23,6 +23,11 @@ def _show_xarray_units_in_parentheses():
 _show_xarray_units_in_parentheses()
 
 
+def round_places(x, digits):
+    scale = 10**(np.ceil(np.log10(x)))
+    return np.round(x/scale, digits)*scale
+
+
 def is_decade(x, **kwargs):
     y = np.log10(x)
     return np.isclose(y, np.round(y), **kwargs)
@@ -31,7 +36,9 @@ def is_decade(x, **kwargs):
 class GammaMaxNLocator(mpl.ticker.MaxNLocator):
     """The ticker locator for linearized gamma-distributed survival functions"""
 
-    def __init__(self, transform, nbins=None, minor=False):
+    PRIORITY_TICKS = [0.5, 0.9, 0.1, .99, 1-1e-3, 1-1e-4, 0.95, 0.8, 1e-3, 0.98, 1-1e-5, 0.2, 1e-5, 1e-4, 1e-6]
+
+    def __init__(self, transform: mpl.scale.FuncTransform, nbins=None, minor=False):
         self._transform = transform
         self._minor = minor
         super().__init__(nbins)
@@ -44,63 +51,74 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
     def tick_values(self, vmin, vmax):
         vmin, vmax = min((vmin, vmax)), max((vmin, vmax))
         vmin, vmax = self.limit_range_for_scale(vmin, vmax, 1e-7)
+
+        # thresholds for scaling regimes used to select tick count and placement
         vth_lo = 0.15
-        vth_hi = 0.75
-
-        # compute bounds in the transformed space, where step sizes will be roughly even
-        tmin = self._transform.transform(vmin)
-        tmax = self._transform.transform(vmax)
-        tth_lo = self._transform.transform(vth_lo)
-        tth_hi = self._transform.transform(vth_hi)
-
-        # the lo and hi regions will be logarithmically spaced; the middle linear
-        counts_lo = int(max(0, np.ceil(self._nbins * (tth_lo - tmin) / (tmax - tmin))))
-        counts_hi = int(max(0, np.ceil(self._nbins * (tmax - tth_hi) / (tmax - tmin))))
-        counts_mid = self._nbins - (counts_lo + counts_hi)
+        vth_hi = 0.85
 
         # now compute round tick locations in the original space (0 to 1)
         ticks = []
-        if counts_lo > 0:
-            if self._minor:
-                lo_locator = mpl.ticker.LogLocator(
-                    base=10.0, subs=(1.0, 3), numticks=counts_lo
-                )
-                ticks.append(lo_locator.tick_values(vmin, 0.1))
-            else:
-                ticks.append(np.logspace(-(counts_lo), -1, counts_lo))
 
-        if counts_mid > 0 and not self._minor:
-            mid_locator = mpl.ticker.MaxNLocator(
-                nbins=int(np.ceil(counts_mid / 2)), steps=[1, 2, 2.5, 5, 10]
-            )
-            ticks.append(mid_locator.tick_values(vth_lo, 0.5))
-            ticks.append(mid_locator.tick_values(0.5, vth_hi))
+        # "roughly logarithmic" scale range
+        log_locator = mpl.ticker.LogLocator(
+            base=10.0, subs=(1.0,), numticks=self._nbins
+        )
+        lo_ticks = log_locator.tick_values(vmin, vth_lo)
+        ticks.extend(lo_ticks[(lo_ticks>0) & (lo_ticks < vth_lo)])
 
-        if counts_hi > 0:
-            if self._minor:
-                hi_locator = mpl.ticker.LogLocator(
-                    base=10.0, subs=(1.0, 2, 3, 5), numticks=counts_hi
-                )
-                ticks.append(1 - hi_locator.tick_values(1 - 0.9, 1 - vmax))
-            else:
-                ticks.append([0.9])
-                if counts_hi > 1:
-                    ticks.append([0.95])
-                if counts_hi > 2:
-                    ticks.append(1 - np.logspace(-1, -(counts_hi - 2), counts_hi - 2))
+        # "roughly linear" scale range 
+        mid_locator = mpl.ticker.MaxNLocator(
+            nbins=self._nbins, steps=[1, 5, 10]
+        )
+        mid_ticks = mid_locator.tick_values(vth_lo, vth_hi)
+        ticks.extend(mid_ticks[(mid_ticks >= vth_lo) & (mid_ticks <= vth_hi)])
 
-        ticks = np.concatenate(ticks)
+        # "in between" scale range
+        log_locator = mpl.ticker.LogLocator(
+            base=10.0, subs=(1.0, 2, 3, 5), numticks=self._nbins
+        )
+        hi_ticks = 1-log_locator.tick_values(1 - vmax, 1 - 0.9)
+        ticks.extend([0.9])
+        ticks.extend([0.95])
+        ticks.extend(hi_ticks[(hi_ticks>=vth_hi) & (hi_ticks < 1)])
+
         ticks = np.unique(ticks)
-        if 0.0 in ticks:
-            ticks = ticks[1:]
+        ticks = np.sort(ticks)
 
-        if self._minor:
-            ticks = ticks[(ticks < 0.2) | (ticks > 0.85)]
+        # if self._minor:
+        #     ticks = ticks[(ticks < 0.2) | (ticks > 0.85)]
+        tticks = self._transform.transform(ticks)
 
-        return ticks
+        tkeep = self._transform.transform(np.array(self.PRIORITY_TICKS))
+        tticks = self._prune_ticks(tticks, self._nbins, tkeep)
+
+        ticks = self._transform.inverted().transform(tticks)
+        ticks = np.sort(ticks)
+        return np.array(list(ticks))
 
     def get_transform(self):
         return self._transform
+
+    def _prune_ticks(self, ticks, count, always_keep=[]):
+        ticks = ticks.copy()
+        always_keep = [ticks[0]]+list(always_keep)+[ticks[-1]]
+        while count < len(ticks):
+            diffs = np.nanmin(
+                np.vstack(
+                    [np.diff(ticks, prepend=np.nan),
+                     np.diff(ticks, append=np.nan)]),
+                axis=0
+            )
+
+            for i in np.argsort(diffs):
+                if ticks[i] not in always_keep[:min(len(always_keep), count)]:
+                    ticks = np.delete(ticks, i)
+                    break
+            else:
+                break
+
+        return ticks
+
 
     def limit_range_for_scale(self, vmin, vmax, minpos):
         """Limit the domain to positive values."""
@@ -111,7 +129,7 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
 
         ret = (
             minpos if vmin <= minpos else vmin,
-            1.0 - np.sqrt(minpos) if vmax >= 1 - np.sqrt(minpos) else vmax,
+            1.0 - minpos if vmax >= 1 - minpos else vmax,
         )
 
         self.axis.set_view_interval(ret[1], ret[0], True)
@@ -134,12 +152,15 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
             return ''
         if math.isclose(2 * x, round(2 * x)) and round(2 * x) == 1:
             s = self._one_half
-        elif np.any(np.isclose(x, np.array([0.01, 0.1, 0.9, 0.99]), rtol=1e-7)):
-            s = str(x)
-        elif x < 0.1 and is_decade(x, rtol=1e-7):
+        elif np.any(np.isclose(x, np.array([0.9, 0.99]), rtol=1e-5)):
+            if x < 0.15:
+                s = f'{round_places(x,1):f}'
+            else:
+                s = str(x)
+        elif x < 0.1 and is_decade(x, rtol=1e-5):
             exponent = round(np.log10(x))
             s = '10^{%d}' % exponent
-        elif x > 0.9 and is_decade(1 - x, rtol=1e-7):
+        elif x > 0.9 and is_decade(1 - x, rtol=1e-5):
             exponent = round(np.log10(1 - x))
             s = self._one_minus('10^{%d}' % exponent)
         elif x < 0.05:
@@ -191,7 +212,7 @@ class GammaQQScale(mpl.scale.FuncScale):
         def inverse(x):
             if db_ordinal:
                 x = dBtopow(x)
-            q = 1 - stats.gamma.sf(x, a=k, scale=1)
+            q = stats.gamma.sf(x, a=k, scale=1)
             return q
 
         transform = mpl.scale.FuncTransform(forward=forward, inverse=inverse)
@@ -201,7 +222,6 @@ class GammaQQScale(mpl.scale.FuncScale):
             self._minor_locator = GammaMaxNLocator(
                 transform=transform, nbins=minor_ticks, minor=True
             )
-        else:
             self._minor_locator = None
 
         super().__init__(axis, (forward, inverse))
@@ -209,8 +229,8 @@ class GammaQQScale(mpl.scale.FuncScale):
     def set_default_locators_and_formatters(self, axis):
         axis.set_major_locator(self._major_locator)
 
-        if self._minor_locator is not None:
-            axis.set_minor_locator(self._minor_locator)
+        # if self._minor_locator is not None:
+            # axis.set_minor_locator(self._minor_locator)
 
         axis.set_major_formatter(GammaLogitFormatter(one_half='0.5'))
 
