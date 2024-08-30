@@ -429,21 +429,15 @@ def _ola_filter_parameters(
 
     if window == 'hamming':
         if nfft_out % 2 != 0:
-            raise ValueError(
-                'blackman window COLA requires output nfft_out % 2 == 0'
-            )
+            raise ValueError('blackman window COLA requires output nfft_out % 2 == 0')
         overlap_scale = 1 / 2
     elif window == 'blackman':
         if nfft_out % 3 != 0:
-            raise ValueError(
-                'blackman window COLA requires output nfft_out % 3 == 0'
-            )
+            raise ValueError('blackman window COLA requires output nfft_out % 3 == 0')
         overlap_scale = 2 / 3
     elif window == 'blackmanharris':
         if nfft_out % 5 != 0:
-            raise ValueError(
-                'blackmanharris window requires output nfft_out % 5 == 0'
-            )
+            raise ValueError('blackmanharris window requires output nfft_out % 5 == 0')
         overlap_scale = 4 / 5
     else:
         raise TypeError(
@@ -470,7 +464,7 @@ def _istft_buffer_size(
 ):
     nfft_out, _, overlap_scale, pad_out = _ola_filter_parameters(**locals())
     nfft_max = max(nfft_out, nfft)
-    fft_count = (2+((array_size + pad_out) / nfft_max) / overlap_scale)
+    fft_count = 2 + ((array_size + pad_out) / nfft_max) / overlap_scale
     size = ceil(fft_count * nfft_max)
     return size
 
