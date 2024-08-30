@@ -36,7 +36,7 @@ def is_decade(x, **kwargs):
 class GammaMaxNLocator(mpl.ticker.MaxNLocator):
     """The ticker locator for linearized gamma-distributed survival functions"""
 
-    PRIORITY_TICKS = [0.5, 0.9, 0.1, .99, 1-1e-3, 1-1e-4, 0.95, 0.8, 1e-3, 0.98, 1-1e-5, 0.2, 1e-5, 1e-4, 1e-6]
+    PRIORITY_TICKS = [0.5, 0.9, 0.1, .99, 1-1e-3, 1-1e-4, 0.95, 0.8, 1e-4, 0.98, 1-1e-5, 0.2, 1e-3, 1e-5]
 
     def __init__(self, transform: mpl.scale.FuncTransform, nbins=None, minor=False):
         self._transform = transform
@@ -88,8 +88,7 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
         # if self._minor:
         #     ticks = ticks[(ticks < 0.2) | (ticks > 0.85)]
         tticks = self._transform.transform(ticks)
-
-        tkeep = self._transform.transform(np.array(self.PRIORITY_TICKS))
+        tkeep = self._transform.transform(np.array(self.PRIORITY_TICKS + [vmin] + [vmax]))
         tticks = self._prune_ticks(tticks, self._nbins, tkeep)
 
         ticks = self._transform.inverted().transform(tticks)
@@ -133,7 +132,7 @@ class GammaMaxNLocator(mpl.ticker.MaxNLocator):
         )
 
         self.axis.set_view_interval(ret[1], ret[0], True)
-        # self.axis.set_data_interval(ret[1], ret[0], True)
+        self.axis.set_data_interval(ret[1], ret[0], True)
 
         return ret
 
