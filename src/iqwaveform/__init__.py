@@ -9,18 +9,6 @@ from . import fourier, io, ofdm, power_analysis, util
 
 figures = util.lazy_import('iqwaveform.figures')
 
-from .power_analysis import (
-    dBtopow,
-    powtodB,
-    envtodB,
-    envtopow,
-    hist_laxis,
-    power_histogram_along_axis,
-    sample_ccdf,
-    iq_to_bin_power,
-    iq_to_cyclic_power
-)
-
 from .fourier import to_blocks, stft, iq_to_stft_spectrogram
 
 from .figures import (
@@ -32,3 +20,17 @@ from .figures import (
 )
 
 from .io import waveform_to_frame
+
+from .power_analysis import (
+    dBtopow,
+    envtodB,
+    envtopow,
+    hist_laxis,
+    iq_to_bin_power,
+    iq_to_cyclic_power,
+    power_histogram_along_axis,
+    powtodB,
+    sample_ccdf,
+)
+
+from .util import isroundmod
