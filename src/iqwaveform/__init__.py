@@ -18,6 +18,7 @@ from .power_analysis import (
     power_histogram_along_axis,
     sample_ccdf,
     iq_to_bin_power,
+    iq_to_cyclic_power
 )
 
 from .fourier import to_blocks, stft, iq_to_stft_spectrogram
