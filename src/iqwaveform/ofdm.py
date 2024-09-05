@@ -72,9 +72,7 @@ def to_blocks(y, size, truncate=False):
     return y[..., : new_size].reshape(new_shape)
 
 
-def _index_or_all(x, name, size):
-    xp = array_namespace(x)
-    
+def _index_or_all(x, name, size, xp=np):   
     if isinstance(x, str) and x == 'all':
         if size is None:
             raise ValueError('must set max to allow "all" value')
@@ -238,8 +236,9 @@ class Phy3GPP(PhyOFDM):
             slots,
             '"slots" argument',
             size=self.SCS_TO_SLOTS_PER_FRAME[self.subcarrier_spacing],
+            xp=xp
         )
-        symbols = _index_or_all(symbols, '"symbols" argument', size=self.FFT_PER_SLOT)
+        symbols = _index_or_all(symbols, '"symbols" argument', size=self.FFT_PER_SLOT, xp=xp)
 
         # first build each grid axis separately
         grid = []
@@ -402,7 +401,7 @@ class Phy802_16(PhyOFDM):
         frames = xp.array(frames)
 
         symbols = _index_or_all(
-            symbols, '"symbols" argument', size=self.symbols_per_frame
+            symbols, '"symbols" argument', size=self.symbols_per_frame, xp=xp
         )
 
         # first build each grid axis separately
