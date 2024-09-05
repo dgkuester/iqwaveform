@@ -1,26 +1,25 @@
 from __future__ import annotations
-from .util import lazy_import
-
+from .util import lazy_import, array_namespace
+from .type_stubs import ArrayType
 import numpy as np
 from datetime import datetime
 from numbers import Number
 import methodtools
 
 signal = lazy_import('scipy.signal')
-pylab = lazy_import('matplotlib.pylab')
 
 
 def correlate_along_axis(a, b, axis=0):
     """cross-correlate `a` and `b` along the specified axis.
-    this implementation
-    is optimized for small sequences to replace for loop across
-    scipy.signal.correlate.
+    this implementation is optimized for small sequences to replace for
+    loop across scipy.signal.correlate.
     """
+    xp = array_namespace(a)
     if axis == 0:
-        # np.vdot conjugates b for us
-        return np.array([np.vdot(a[:, i], b[:, i]) for i in range(a.shape[1])])
+        # xp.vdot conjugates b for us
+        return xp.array([xp.vdot(a[:, i], b[:, i]) for i in range(a.shape[1])])
     else:
-        return np.array([np.vdot(a[i], b[i]) for i in range(a.shape[0])])
+        return xp.array([xp.vdot(a[i], b[i]) for i in range(a.shape[0])])
 
 
 def indexsum2d(ix, iy):
@@ -34,23 +33,28 @@ def call_by_block(func, x, size, *args, **kws):
     """repeatedly call `func` on the 1d array `x`, with arguments and keyword arguments args, and kws,
     and concatenate the result
     """
+    xp = array_namespace(x)
+
     out_chunks = []
-    input_chunks = np.split(x, np.mgrid[: x.size : size][1:])
+    input_chunks = xp.split(x, xp.mgrid[: x.size : size][1:])
 
     if len(input_chunks[-1]) != len(input_chunks[0]):
         input_chunks = input_chunks[:-1]
     for i, chunk in enumerate(input_chunks):
         out_chunks.append(func(chunk, *args, **kws))
 
-    return np.concatenate(out_chunks)
+    return xp.concatenate(out_chunks)
 
 
 def subsample_shift(x, shift):
     """FFT-based subsample shift in x"""
+    xp = array_namespace(x)
+
     N = len(x)
-    f = np.fft.fftshift(np.arange(x.size))
-    z = np.exp((-2j * np.pi * shift / N) * f)
-    return np.fft.ifft(np.fft.fft(x) * z)
+
+    f = xp.fft.fftshift(xp.arange(x.size))
+    z = xp.exp((-2j * np.pi * shift / N) * f)
+    return xp.fft.ifft(xp.fft.fft(x) * z)
 
 
 def to_blocks(y, size, truncate=False):
@@ -61,24 +65,28 @@ def to_blocks(y, size, truncate=False):
                 y.shape[-1], size
             )
         )
-    return y[..., : size * (y.shape[-1] // size)].reshape(
-        y.shape[:-1] + (y.shape[-1] // size, size)
-    )
+
+    new_size = size * (y.shape[-1] // size) 
+    new_shape = y.shape[:-1] + (y.shape[-1] // size, size)
+
+    return y[..., : new_size].reshape(new_shape)
 
 
 def _index_or_all(x, name, size):
+    xp = array_namespace(x)
+    
     if isinstance(x, str) and x == 'all':
         if size is None:
             raise ValueError('must set max to allow "all" value')
-        x = np.arange(size)
-    elif np.ndim(x) in (0, 1):
-        x = np.array(x)
+        x = xp.arange(size)
+    elif xp.ndim(x) in (0, 1):
+        x = xp.array(x)
     else:
         raise ValueError(f'{name} argument must be a flat array of indices or "all"')
 
-    if np.max(x) > size:
+    if xp.max(x) > size:
         raise ValueError(f'{name} value {x} exceeds the maximum {size}')
-    if np.max(-x) > size:
+    if xp.max(-x) > size:
         raise ValueError(f'{name} value {x} is below the minimum {-size}')
 
     return x
@@ -91,10 +99,12 @@ class PhyOFDM:
         channel_bandwidth: float,
         sample_rate: float,
         nfft: float,
-        cp_sizes=np.array,
+        cp_sizes: ArrayType,
         frame_duration: float | None = None,
         contiguous_size: float | None = None,
     ):
+        xp = array_namespace(cp_sizes)
+
         self.channel_bandwidth = channel_bandwidth
         self.sample_rate = sample_rate
 
@@ -105,7 +115,7 @@ class PhyOFDM:
         if frame_duration is None:
             self.frame_size = None
         else:
-            self.frame_size = int(np.rint(sample_rate * frame_duration))
+            self.frame_size = round(sample_rate * frame_duration)
 
         self.cp_sizes = cp_sizes
 
@@ -123,21 +133,21 @@ class PhyOFDM:
                 self.contiguous_size = np.sum(cp_sizes) + len(cp_sizes) * nfft
 
             # build a (start_idx, size) pair for each CP
-            pair_sizes = np.concatenate(((0,), self.cp_sizes + self.nfft))
+            pair_sizes = xp.concatenate(((0,), self.cp_sizes + self.nfft))
             self.cp_start_idx = (pair_sizes.cumsum()).astype(int)[:-1]
             start_and_size = zip(self.cp_start_idx, self.cp_sizes)
 
             idx_range = range(self.contiguous_size)
 
             # indices in the contiguous range that are CP
-            self.cp_idx = np.concatenate(
+            self.cp_idx = xp.concatenate(
                 [idx_range[start : start + size] for start, size in start_and_size]
             )
 
             # indices in the contiguous range that are not CP
-            self.symbol_idx = np.array(list(set(idx_range) - set(self.cp_idx)))
+            self.symbol_idx = xp.array(list(set(idx_range) - set(self.cp_idx)))
 
-    def index_cyclic_prefix(self) -> np.array:
+    def index_cyclic_prefix(self) -> ArrayType:
         raise NotImplementedError
 
 
@@ -188,24 +198,26 @@ class Phy3GPP(PhyOFDM):
     # TODO: add 5G FR2 SCS values
     SUBCARRIER_SPACINGS = {15e3, 30e3, 60e3}
 
-    def __init__(self, channel_bandwidth, subcarrier_spacing=15e3):
+    def __init__(self, channel_bandwidth, subcarrier_spacing=15e3, xp=np):
         if subcarrier_spacing not in self.SUBCARRIER_SPACINGS:
             raise ValueError(
                 f'subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}'
             )
 
         sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
-        nfft = int(np.rint(sample_rate / subcarrier_spacing))
+        nfft = round(sample_rate / subcarrier_spacing)
 
         if nfft in self.FFT_SIZE_TO_SUBCARRIERS:
             self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[nfft]
 
+        cp_sizes = xp.array((nfft * self.MIN_CP_SIZES) // 128)
+        
         super().__init__(
             channel_bandwidth=channel_bandwidth,
             nfft=nfft,
             sample_rate=sample_rate,
             frame_duration=10e-3,
-            cp_sizes=(nfft * self.MIN_CP_SIZES) // 128,
+            cp_sizes=cp_sizes,
         )
 
     @methodtools.lru_cache(4)
@@ -217,9 +229,10 @@ class Phy3GPP(PhyOFDM):
         slots='all',
     ):
         """build an indexing tensor for performing cyclic prefix correlation across various axes"""
+        xp = array_namespace(self.cp_sizes)
 
-        frames = np.array(frames)
-        frame_size = int(np.rint(self.sample_rate * 10e-3))
+        frames = xp.array(frames)
+        frame_size = round(self.sample_rate * 10e-3)
 
         slots = _index_or_all(
             slots,
@@ -241,7 +254,7 @@ class Phy3GPP(PhyOFDM):
         grid.append(frames * frame_size)
 
         grid.extend(
-            np.ogrid[
+            xp.ogrid[
                 # axis 3: cp index
                 0 : self.cp_sizes[1],
                 # axis 4: start offset within the symbol
@@ -250,7 +263,7 @@ class Phy3GPP(PhyOFDM):
         )
 
         # pad the axis dimensions so they can be broadcast together
-        a = np.meshgrid(*grid, indexing='ij', copy=False)
+        a = xp.meshgrid(*grid, indexing='ij', copy=False)
 
         # sum all of the index offsets
         inds = a[0].copy()
@@ -261,7 +274,8 @@ class Phy3GPP(PhyOFDM):
 
 
 def isclosetoint(v, atol=1e-6):
-    return np.isclose(v % 1, (0, 1), atol=atol).any()
+    xp = array_namespace(v)
+    return xp.isclose(v % 1, (0, 1), atol=atol).any()
 
 
 class Phy802_16(PhyOFDM):
@@ -299,6 +313,7 @@ class Phy802_16(PhyOFDM):
         frame_duration: float = 5e-3,
         nfft: float = 2048,
         cp_ratio: float = 1 / 8,
+        xp=np
     ):
         """
         Args:
@@ -361,21 +376,17 @@ class Phy802_16(PhyOFDM):
                     'alt_sample_rate is too small to capture any cyclic prefixes'
                 )
 
-            nfft = int(np.rint(nfft * scale))
-            cp_size = int(np.rint(cp_size * scale))
+            nfft = round(nfft * scale)
+            cp_size = round(cp_size * scale)
             sample_rate = alt_sample_rate
-
-        # we need to specify explicitly the length of the contiguous sequence
-        # of symbols to ensure proper padding out to a full frame
-        contiguous_size = int(np.rint(frame_duration * sample_rate))
 
         super().__init__(
             channel_bandwidth=channel_bandwidth,
             nfft=nfft,
             sample_rate=sample_rate,
             frame_duration=frame_duration,
-            cp_sizes=np.full(self.symbols_per_frame, cp_size),
-            contiguous_size=contiguous_size,
+            cp_sizes=xp.full(self.symbols_per_frame, cp_size),
+            contiguous_size=round(frame_duration * sample_rate),
         )
 
     @methodtools.lru_cache(4)
@@ -384,10 +395,11 @@ class Phy802_16(PhyOFDM):
         *,
         frames=(0,),
         symbols='all',
-    ) -> np.ndarray:
+    ) -> ArrayType:
         """build an indexing tensor for performing cyclic prefix correlation across various axes"""
 
-        frames = np.array(frames)
+        xp = array_namespace(self.cp_sizes)
+        frames = xp.array(frames)
 
         symbols = _index_or_all(
             symbols, '"symbols" argument', size=self.symbols_per_frame
@@ -403,7 +415,7 @@ class Phy802_16(PhyOFDM):
         grid.append(frames * self.frame_size)
 
         grid.extend(
-            np.ogrid[
+            xp.ogrid[
                 # axis 2: cp index
                 0 : self.cp_sizes[1],
                 # axis 3: start offset within the symbol
@@ -412,7 +424,7 @@ class Phy802_16(PhyOFDM):
         )
 
         # pad the axis dimensions so they can be broadcast together
-        a = np.meshgrid(*grid, indexing='ij', copy=False)
+        a = xp.meshgrid(*grid, indexing='ij', copy=False)
 
         # sum all of the index offsets
         inds = a[0].copy()
@@ -453,6 +465,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         sync_window_count: int = 2,  # how many correlation windows to synchronize at a time (suggest >= 2)
         which_cp: str = 'all',  # 'all', 'special', or 'normal'
         subcarrier_spacing=15e3,
+        xp=np
     ):
         self.phy = Phy3GPP(channel_bandwidth, subcarrier_spacing=subcarrier_spacing)
         self.correlation_subframes = correlation_subframes
@@ -462,7 +475,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
 
         # index array of cyclic prefix samples
         cp_gate = self.phy.cp_idx  # 1 single slot
-        i_slot_starts = self.phy.contiguous_size * np.arange(correlation_subframes)
+        i_slot_starts = self.phy.contiguous_size * xp.arange(correlation_subframes)
         cp_gate = indexsum2d(
             i_slot_starts, cp_gate
         ).flatten()  # duplicate across slot_count slots
@@ -473,7 +486,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         #
         # This grid spans a total length of a single slot.
         coarse_step = int(self.phy.cp_sizes[1] * self.COARSE_CP0_STEP)
-        self.cp_offsets_coarse = np.arange(
+        self.cp_offsets_coarse = xp.arange(
             0, self.phy.nfft + self.phy.cp_sizes[1], coarse_step, dtype=int
         )
 
@@ -482,7 +495,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
 
         # Define the fine search sample grid, which is applied as an offset relative to the
         # result of the coarse search
-        self.cp_offsets_fine = np.arange(
+        self.cp_offsets_fine = xp.arange(
             -np.ceil(coarse_step / 2), np.ceil(coarse_step / 2) + 1, 1, dtype=int
         )
         self.cp_indices_fine = indexsum2d(self.cp_offsets_fine, cp_gate)
@@ -500,19 +513,19 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         """Estimate the offset required to align the start of a slot to
         index 0 in the complex sample vector `x`
         """
-        self._debug.setdefault('x', []).append(x)
+        
+        xp = array_namespace(x)
 
         # Coarse estimate of alignment offset to within coarse_step samples
-        coarse_corr = np.abs(self._cp_correlate(x, self.cp_indices_coarse))
-        self._debug.setdefault('coarse_corr', []).append(coarse_corr)
-        coarse_offset = self.cp_offsets_coarse[np.argmax(coarse_corr)]
+        coarse_corr = xp.abs(self._cp_correlate(x, self.cp_indices_coarse))
+        coarse_offset = self.cp_offsets_coarse[xp.argmax(coarse_corr)]
 
         # Fine calculation for the offset (near the coarse result)
-        fine_corr = np.abs(self._cp_correlate(x, self.cp_indices_fine + coarse_offset))
-        n_fine = np.argmax(fine_corr)
+        fine_corr = xp.abs(self._cp_correlate(x, self.cp_indices_fine + coarse_offset))
+        n_fine = xp.argmax(fine_corr)
         fine_offset = coarse_offset + self.cp_offsets_fine[n_fine]
 
-        noise_est = np.nanmedian(np.abs(np.sort(coarse_corr)[:-3]))
+        noise_est = xp.nanmedian(xp.abs(xp.sort(coarse_corr)[:-3]))
 
         return fine_offset, fine_corr[n_fine], noise_est
 
@@ -523,18 +536,17 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         To find the offset required in each sync period, cyclic prefix correlation is
         applied to the full window between sync periods.
         """
-
-        self._debug = {}
+        xp = array_namespace(x)
 
         ret = []
-        input_chunks = np.split(x, np.mgrid[: x.size : self.sync_size][1:])
+        input_chunks = xp.split(x, xp.mgrid[: x.size : self.sync_size][1:])
 
         if len(input_chunks[-1]) != len(input_chunks[0]):
             input_chunks = input_chunks[:-1]
 
         ret = [self._find_slot_start_offset(chunk) for chunk in input_chunks]
 
-        return np.array(ret)
+        return xp.array(ret)
 
     def _estimate_clock_mismatch(self, x, snr_min=3):
         """Phase-unwrapped linear regression to estimate the discrepancy
@@ -544,8 +556,10 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
 
         from sklearn import linear_model
 
+        xp = array_namespace(x)
+
         offsets, weights, noise = self._offset_by_sync_period(x).T
-        t_sync = (self.sync_size / self.phy.sample_rate) * np.arange(offsets.size)
+        t_sync = (self.sync_size / self.phy.sample_rate) * xp.arange(offsets.size)
 
         self.snr = weights / noise
 
@@ -573,7 +587,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
             t_sync.reshape(-1, 1), offsets.reshape(-1, 1), weights
         )
         print('LinearRegression.fit() finished')
-        slipped_samples = np.round(
+        slipped_samples = xp.round(
             fit.coef_[0, 0] * x.size / self.phy.sample_rate
         ).astype(int)
 
@@ -584,10 +598,15 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         return slipped_samples, fit.intercept_[0]
 
     def _unwrap_offsets(self, offsets):
+        xp = array_namespace(offsets)
+
         scale_rad = 2 * np.pi / self.phy.nfft
-        return (np.unwrap(offsets * scale_rad) / scale_rad).astype(int)
+        return (xp.unwrap(offsets * scale_rad) / scale_rad).astype(int)
 
     def plot_offset_with_fit(self, x):
+        # TODO: this belongs in figures.py
+        from matplotlib import pylab
+
         slope, intercept = self._estimate_clock_mismatch(x)
         t, offsets, weights = self._regression_info['inputs']
         pylab.plot(t, offsets, '.')
@@ -686,9 +705,13 @@ class SymbolDecoder:
     @staticmethod
     def prb_power(symbols):
         """Return the total power in the PRB"""
-        return (np.abs(to_blocks(symbols, Phy3GPP.SUBFRAMES_PER_PRB)) ** 2).sum(axis=-1)
+        xp = array_namespace(symbols)
+        by_prb = xp.abs(to_blocks(symbols, Phy3GPP.SUBFRAMES_PER_PRB)) ** 2
+        return by_prb.sum(axis=-1)
 
     def _decode_symbols(self, x, only_3gpp_subcarriers=True):
+        xp = array_namespace(x)
+
         # first, select symbol indices (== remove cyclic prefixes)
         x = to_blocks(x, 2 * self.phy.contiguous_size)[:, self.phy.symbol_idx].flatten()
 
@@ -696,23 +719,25 @@ class SymbolDecoder:
         blocks = to_blocks(x, self.phy.nfft)
 
         #  decode with the fft
-        X = np.fft.fftshift(np.fft.fft(blocks, axis=-1), axes=(-1,))
+        X = xp.fft.fftshift(xp.fft.fft(blocks, axis=-1), axes=(-1,))
 
-        X /= np.sqrt(2 * self.phy.nfft)
+        X /= xp.sqrt(2 * self.phy.nfft)
 
         if only_3gpp_subcarriers:
             # return only the FFT bins meant to contain data
             sc_start = X.shape[-1] // 2 - self.phy.subcarriers // 2
             sc_stop = X.shape[-1] // 2 + self.phy.subcarriers // 2
             X = X[:, sc_start:sc_stop]
-        print(x.shape)
+
         return X
 
     def _align_symbols_to_tti(self, symbols):
+        xp = array_namespace(symbols)
+
         # determine the power change that is strongest across all PRBs in each FFT window
         power = self.prb_power(symbols)
-        power_diff = np.diff(power, axis=0, append=0) / power
-        diff_peaks = np.abs(power_diff).max(axis=1)
+        power_diff = xp.diff(power, axis=0, append=0) / power
+        diff_peaks = xp.abs(power_diff).max(axis=1)
         diff_peak_by_symbol = to_blocks(diff_peaks, Phy3GPP.FFT_PER_SLOT)
         self._diff_peak_by_symbol = diff_peak_by_symbol
         self._diff_peaks = diff_peaks
@@ -725,6 +750,7 @@ class SymbolDecoder:
 
     def __call__(self, x):
         """Ringlead the decoding process"""
+
         symbols = self._decode_symbols(x)
         symbols = self._align_symbols_to_tti(symbols)
         return symbols
