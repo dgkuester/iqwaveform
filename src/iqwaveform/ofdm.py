@@ -131,19 +131,19 @@ class PhyOFDM:
                 self.contiguous_size = np.sum(cp_sizes) + len(cp_sizes) * nfft
 
             # build a (start_idx, size) pair for each CP
-            pair_sizes = xp.concatenate(((0,), self.cp_sizes + self.nfft))
+            pair_sizes = xp.concatenate((xp.array((0,)), self.cp_sizes + self.nfft))
             self.cp_start_idx = (pair_sizes.cumsum()).astype(int)[:-1]
             start_and_size = zip(self.cp_start_idx, self.cp_sizes)
 
-            idx_range = range(self.contiguous_size)
+            idx_range = xp.arange(self.contiguous_size).astype(int)
 
             # indices in the contiguous range that are CP
             self.cp_idx = xp.concatenate(
                 [idx_range[start : start + size] for start, size in start_and_size]
             )
-
+            
             # indices in the contiguous range that are not CP
-            self.symbol_idx = xp.array(list(set(idx_range) - set(self.cp_idx)))
+            self.symbol_idx = np.setdiff1d(idx_range, self.cp_idx)
 
     def index_cyclic_prefix(self) -> ArrayType:
         raise NotImplementedError
@@ -261,6 +261,7 @@ class Phy3GPP(PhyOFDM):
             ]
         )
 
+        grid = [x.squeeze() for x in grid]
         # pad the axis dimensions so they can be broadcast together
         a = xp.meshgrid(*grid, indexing='ij', copy=False)
 
