@@ -622,7 +622,6 @@ def stft(
         X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
 
     else:
-        print('norm is ', norm)
         x_ol = _stack_stft_windows(
             x, window=w/nfft, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out, norm=norm
         )
