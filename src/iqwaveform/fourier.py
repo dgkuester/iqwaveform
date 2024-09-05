@@ -318,6 +318,7 @@ def _stack_stft_windows(
     nperseg: int,
     noverlap: int,
     pad_mode='constant',
+    norm=None,
     axis=0,
     out=None,
 ) -> ArrayType:
@@ -332,13 +333,20 @@ def _stack_stft_windows(
     """
     axis_slice = signal._arraytools.axis_slice
 
+
     nfft = nperseg
     hop_size = nperseg - noverlap
 
     strided = sliding_window_view(x, nfft, axis=axis)
 
     stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
-    cola_scale = _cola_scale(window, hop_size)
+
+    if norm is None:
+        scale = _cola_scale(window, hop_size)
+    elif norm == 'power':
+        scale = 1
+    else:
+        raise ValueError(f"invalid normalization argument '{norm}' (should be 'cola' or 'psd')")
 
     if out is None:
         out = stride_windows.copy()
@@ -346,7 +354,7 @@ def _stack_stft_windows(
         out = _truncated_buffer(out, stride_windows.shape)
         out[:] = stride_windows
 
-    out *= broadcast_onto(window / cola_scale, stride_windows, axis=axis + 1)
+    out *= broadcast_onto(window / scale, stride_windows, axis=axis + 1)
 
     return out
 
@@ -595,6 +603,8 @@ def stft(
     if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
 
+    if window in (None, 'rectangular'):
+        w = xp.ones(nfft)
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
         should_norm = norm == 'power'
         w = _get_window(window, nfft, xp=xp, dtype=x.dtype, norm=should_norm)
@@ -610,11 +620,11 @@ def stft(
 
         x = x * broadcast_onto(w / nfft, x, axis=axis + 1)
         X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
-        X = xp.fft.fftshift(X, axes=axis + 1)
 
     else:
+        print('norm is ', norm)
         x_ol = _stack_stft_windows(
-            x, window=w, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out
+            x, window=w/nfft, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out, norm=norm
         )
 
         X = fft(
@@ -624,8 +634,8 @@ def stft(
             out=None if out is None else _truncated_buffer(out, x_ol.shape),
         )
 
-        # interleave the overlaps in time
-        X = xp.fft.fftshift(X, axes=axis + 1)
+    # interleave the overlaps in time
+    X = xp.fft.fftshift(X, axes=axis + 1)
 
     freqs, times = _get_stft_axes(
         fs,
@@ -770,12 +780,11 @@ def spectrogram(
     noverlap: int = 0,
     axis: int = 0,
     truncate: bool = True,
-    norm: str | None = None,
     out=None,
 ):
     kws = dict(locals())
 
-    freqs, times, X = stft(**kws)
+    freqs, times, X = stft(norm='power', **kws)
     spg = power_analysis.envtopow(X, out=X)
 
     return freqs, times, spg
