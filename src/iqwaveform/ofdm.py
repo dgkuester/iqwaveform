@@ -280,8 +280,6 @@ class Phy3GPP(PhyOFDM):
         for sub in a[1:]:
             inds += sub
 
-        print(inds.shape)
-
         return inds
 
 
