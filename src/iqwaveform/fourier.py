@@ -603,15 +603,14 @@ def stft(
     if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
 
-    if window in (None, 'rectangular'):
-        w = xp.ones(nfft)
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
         should_norm = norm == 'power'
         w = _get_window(window, nfft, xp=xp, dtype=x.dtype, norm=should_norm)
         if is_torch_array(w):
             import torch
-
             w = torch.asarray(w, dtype=x.dtype, device=x.device)
+    elif window is None:
+        w = xp.ones(nfft)
     else:
         w = xp.array(window)
 
