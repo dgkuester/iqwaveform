@@ -183,6 +183,9 @@ class Phy3GPP(PhyOFDM):
         25e6: 38.40e6,
         30e6: 46.08e6,
         40e6: 61.44e6,
+        60e6: 92.16e6,
+        80e6: 122.88e6,
+        100e6: 153.6e6
     }
 
     # Slot structure including cyclic prefix (CP) indices are specified in
