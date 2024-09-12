@@ -228,7 +228,6 @@ class Phy3GPP(PhyOFDM):
         frames=(0,),
         symbols='all',
         slots='all',
-        max_cp_size=36,
     ):
         """build an indexing tensor for performing cyclic prefix correlation across various axes"""
         xp = array_namespace(self.cp_sizes)
@@ -256,18 +255,12 @@ class Phy3GPP(PhyOFDM):
         # axis 2: frame number
         grid.append(frames * frame_size)
 
-        cp_size = min(self.cp_sizes[1], max_cp_size)
-        if max_cp_size is None:
-            cp_step = 1
-        else:
-            cp_step = max(self.cp_sizes[1] // max_cp_size,1)
-
         grid.extend(
             xp.ogrid[
                 # axis 3: cp index
-                0 : self.cp_sizes[1] : cp_step,
+                0 : self.cp_sizes[1],
                 # axis 4: start offset within the symbol
-                0 : self.nfft + self.cp_sizes[1] : cp_step,
+                0 : self.nfft + self.cp_sizes[1],
             ]
         )
 
