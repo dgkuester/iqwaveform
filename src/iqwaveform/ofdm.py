@@ -256,29 +256,23 @@ class Phy3GPP(PhyOFDM):
         # axis 2: frame number
         grid.append(frames * frame_size)
 
-        cp_size = min(self.cp_sizes[1], max_cp_size)
-        if max_cp_size is None:
-            cp_step = 1
-        else:
-            cp_step = max(self.cp_sizes[1] // max_cp_size,1)
-
         grid.extend(
             xp.ogrid[
                 # axis 3: cp index
-                0 : self.cp_sizes[1] : cp_step,
+                0 : self.cp_sizes[1],
                 # axis 4: start offset within the symbol
-                0 : self.nfft + self.cp_sizes[1] : cp_step,
+                0 : self.nfft + self.cp_sizes[1],
             ]
         )
 
-        grid = [x.squeeze() for x in grid]
+        grid = [x.squeeze() for x in grid if x.size > 1]
         # pad the axis dimensions so they can be broadcast together
-        a = xp.meshgrid(*grid, indexing='ij', copy=False)
+        inds, *offsets = xp.meshgrid(*grid, indexing='ij', copy=False)
 
         # sum all of the index offsets
-        inds = a[0].copy()
-        for sub in a[1:]:
-            inds += sub
+        inds = inds.copy()
+        for offset in offsets:
+            inds += offset
 
         return inds
 
