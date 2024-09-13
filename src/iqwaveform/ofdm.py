@@ -228,7 +228,6 @@ class Phy3GPP(PhyOFDM):
         frames=(0,),
         symbols='all',
         slots='all',
-        max_cp_size=36,
     ):
         """build an indexing tensor for performing cyclic prefix correlation across various axes"""
         xp = array_namespace(self.cp_sizes)
