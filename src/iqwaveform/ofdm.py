@@ -255,12 +255,10 @@ class Phy3GPP(PhyOFDM):
         # axis 2: frame number
         grid.append(frames * frame_size)
 
-        grid.extend(
+        # axis 3: cp index
+        grid.append(
             xp.ogrid[
-                # axis 3: cp index
-                0 : self.cp_sizes[1],
-                # axis 4: start offset within the symbol
-                0 : self.nfft + self.cp_sizes[1],
+                0 : self.cp_sizes[1]
             ]
         )
 
@@ -417,12 +415,10 @@ class Phy802_16(PhyOFDM):
         # axis 1: frame number
         grid.append(frames * self.frame_size)
 
-        grid.extend(
+        # axis 2: cp index
+        grid.append(
             xp.ogrid[
-                # axis 2: cp index
-                0 : self.cp_sizes[1],
-                # axis 3: start offset within the symbol
-                0 : self.nfft + self.cp_sizes[1],
+                0 : self.cp_sizes[1]
             ]
         )
 
