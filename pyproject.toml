@@ -1,6 +1,6 @@
 [project]
 name = "iqwaveform"
-version = "0.32.0"
+version = "0.33.0"
 description = "tools for IQ waveform analysis and visualization"
 authors = [
     {name = "Dan Kuester", email = "daniel.kuester@nist.gov"},
@@ -16,7 +16,8 @@ dependencies = [
     "methodtools",
     "xarray",
     "array-api-compat>=1.6",
-    "typing-extensions"
+    "typing-extensions",
+    "numba"
 ]
 requires-python = ">=3.9"
 readme = "README.md"

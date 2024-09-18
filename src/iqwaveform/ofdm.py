@@ -5,6 +5,7 @@ import numpy as np
 from datetime import datetime
 from numbers import Number
 import methodtools
+import array_api_compat
 
 signal = lazy_import('scipy.signal')
 
@@ -89,6 +90,27 @@ def _index_or_all(x, name, size, xp=np):
 
     return x
 
+
+def corr_at_indices(inds, x, nfft, norm=True, out=None):
+    xp = array_namespace(x)
+
+    # the number of waveform samples per cyclic prefix
+    ncp = inds.shape[-1]
+    flat_inds = inds.flatten()
+
+    if out is None:
+        out = xp.empty(nfft + ncp, dtype=x.dtype)
+
+    if xp is array_api_compat.numpy:
+        from ._jit.cpu import _corr_at_indices
+    else:
+        tpb = 32
+        bpg = max((x.size + (tpb - 1)) // tpb, 1)
+
+        from ._jit.cuda import _corr_at_indices
+        _corr_at_indices = _corr_at_indices[bpg, tpb]
+
+    return _corr_at_indices(flat_inds, x, int(nfft), int(ncp), bool(norm), out)
 
 class PhyOFDM:
     def __init__(
