@@ -1,21 +1,10 @@
 import numba as nb
 import math
+import numpy as np
 
-@nb.njit(
-    # [
-    #     (nb.int32[:], nb.complex64[:], nb.int32, nb.int32, nb.boolean, nb.complex64[:]),
-    #     (nb.int32[:], nb.complex64[:], nb.int64, nb.int32, nb.boolean, nb.complex64[:]),
-    #     (nb.int64[:], nb.complex64[:], nb.int32, nb.int32, nb.boolean, nb.complex64[:]),
-    #     (nb.int64[:], nb.complex64[:], nb.int64, nb.int32, nb.boolean, nb.complex64[:]),
-    #     (nb.int32[:], nb.complex64[:], nb.int32, nb.int64, nb.boolean, nb.complex64[:]),
-    #     (nb.int32[:], nb.complex64[:], nb.int64, nb.int64, nb.boolean, nb.complex64[:]),
-    #     (nb.int64[:], nb.complex64[:], nb.int32, nb.int64, nb.boolean, nb.complex64[:]),
-    #     (nb.int64[:], nb.complex64[:], nb.int64, nb.int64, nb.boolean, nb.complex64[:]),
-    # ],
-    parallel=True,
-    cache=True
-)
-def _corr_at_indices(inds, x, nfft: int, ncp: int, norm: bool, out):
+
+@nb.njit(parallel=True, cache=True)
+def _corr_at_indices(inds: np.ndarray, x: np.ndarray, nfft: int, ncp: int, norm: bool, out: np.ndarray):
     # j: autocorrelation sequence (output) index
     for j in nb.prange(nfft + ncp):
         accum_corr = nb.complex128(0 + 0j)

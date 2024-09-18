@@ -93,6 +93,7 @@ def _index_or_all(x, name, size, xp=np):
 
 def corr_at_indices(inds, x, nfft, norm=True, out=None):
     xp = array_namespace(x)
+    assert xp is array_namespace(inds)
 
     # the number of waveform samples per cyclic prefix
     ncp = inds.shape[-1]
@@ -104,13 +105,16 @@ def corr_at_indices(inds, x, nfft, norm=True, out=None):
     if xp is array_api_compat.numpy:
         from ._jit.cpu import _corr_at_indices
     else:
+        from ._jit.cuda import _corr_at_indices
+
         tpb = 32
         bpg = max((x.size + (tpb - 1)) // tpb, 1)
 
-        from ._jit.cuda import _corr_at_indices
         _corr_at_indices = _corr_at_indices[bpg, tpb]
 
-    return _corr_at_indices(flat_inds, x, int(nfft), int(ncp), bool(norm), out)
+    _corr_at_indices(flat_inds, x, int(nfft), int(ncp), bool(norm), out)
+
+    return out
 
 class PhyOFDM:
     def __init__(
