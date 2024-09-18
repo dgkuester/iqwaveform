@@ -1,5 +1,5 @@
 from __future__ import annotations
-import importlib
+import importlib.util
 import sys
 import array_api_compat
 from array_api_compat import is_cupy_array
