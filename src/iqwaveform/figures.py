@@ -1,856 +1,1026 @@
 from __future__ import annotations
-import math
 import numpy as np
-import typing
+from os import cpu_count
 from functools import lru_cache
+from array_api_compat import is_cupy_array, is_torch_array
+from math import ceil
 
-from .power_analysis import powtodB, dBtopow, envtodB, sample_ccdf, iq_to_bin_power
-from .fourier import iq_to_stft_spectrogram
-from . import type_stubs
-from .util import lazy_import
+from . import power_analysis
+from .power_analysis import stat_ufunc_from_shorthand
+from .util import (
+    array_namespace,
+    sliding_window_view,
+    get_input_domain,
+    Domain,
+    _whichfloats,
+    lazy_import,
+)
 
-if typing.TYPE_CHECKING:
-    import matplotlib as mpl
-    from scipy import stats
-    import pandas as pd
-else:
-    mpl = lazy_import('matplotlib')
-    stats = lazy_import('scipy.stats')
-    pd = lazy_import('pandas')
+from .type_stubs import ArrayType
 
+pd = lazy_import('pandas')
+scipy = lazy_import('scipy')
+special = lazy_import('scipy.special')
+signal = lazy_import('scipy.signal')
 
-def _show_xarray_units_in_parentheses():
-    """change xarray plots to "Label ({units})" to match IEEE style guidelines"""
-
-    from xarray.plot.utils import _get_units_from_attrs
-
-    code = _get_units_from_attrs.__code__
-    consts = tuple([' ({})' if c == ' [{}]' else c for c in code.co_consts])
-    _get_units_from_attrs.__code__ = code.replace(co_consts=consts)
-
-
-_show_xarray_units_in_parentheses()
+CPU_COUNT = cpu_count()
+OLA_MAX_FFT_SIZE = 128 * 1024
 
 
-def round_places(x, digits):
-    scale = 10 ** (np.ceil(np.log10(x)))
-    return np.round(x / scale, digits) * scale
+def _truncated_buffer(x: ArrayType, shape):
+    return x.flatten()[: np.prod(shape)].reshape(shape)
 
 
-def is_decade(x, **kwargs):
-    y = np.log10(x)
-    return np.isclose(y, np.round(y), **kwargs)
+def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
+    if is_cupy_array(x):
+        import cupy as cp
 
-
-@lru_cache
-def _log_tick_range(vlo, vhi, count, subs=(1.0,)):
-    """use mpl.ticker.LogLocator to generate ticks confined to the specified range.
-
-    Compared to np.logspace, this results in the use of round(er) numbers
-    that are not necessarily evenly spaced.
-    """
-    locator = mpl.ticker.LogLocator(base=10.0, subs=subs, numticks=count)
-    ticks = locator.tick_values(vlo, vhi)
-    return ticks[(ticks >= vlo) & (ticks < vhi)]
-
-
-@lru_cache
-def _linear_tick_range(vlo, vhi, count, steps=(1.0,)):
-    """use mpl.ticker.MaxNLocator to generate ticks in the specified range.
-
-    Compared to np.linspace, this results in the use of round(er) numbers
-    that are not necessarily evenly spaced.
-    """
-    locator = mpl.ticker.MaxNLocator(nbins=count, steps=steps)
-    ticks = locator.tick_values(vlo, vhi)
-    return ticks[(ticks >= vlo) & (ticks < vhi)]
-
-
-@lru_cache
-def _prune_ticks(ticks: tuple, count: int, prefer: tuple = tuple()) -> np.array:
-    """prune a sequence of tick marks to the specified count, attempting to spread
-    them out evenly.
-
-    If `prefer` is passed, it specifies an order of preference for specific tick
-    marks that should be kept in the returned array.
-
-    Returns:
-        `np.array` of shape `(count,)`
-    """
-
-    ticks = np.array(ticks).copy()
-    prefer = np.array(prefer)
-    while count < len(ticks):
-        diffs = np.nanmin(
-            np.vstack([np.diff(ticks, prepend=np.nan), np.diff(ticks, append=np.nan)]),
-            axis=0,
-        )
-
-        for i in np.argsort(diffs):
-            if ticks[i] not in prefer[: min(len(prefer), count)]:
-                ticks = np.delete(ticks, i)
-                break
+        # TODO: see about upstream question on this
+        if out is None:
+            pass
         else:
-            break
+            out = out.reshape(x.shape)
 
-    return ticks
-
-
-class GammaMaxNLocator(mpl.ticker.MaxNLocator):
-    """The ticker locator for linearized gamma-distributed survival functions"""
-
-    # avoid removing these quantiles when selecting ticks
-    PREFER_TICKS = [
-        0.5,
-        0.9,
-        0.1,
-        0.99,
-        1 - 1e-3,
-        1 - 1e-4,
-        0.95,
-        1e-4,
-        0.8,
-        1 - 1e-5,
-        0.98,
-        1e-2,
-        1 - 1e-6,
-        1e-5,
-        1e-3,
-        1 - 1e-7,
-        1 - 1e-8,
-        1 - 1e-9,
-        1e-7,
-        1e-9,
-        1e-8,
-    ]
-
-    def __init__(self, transform: mpl.scale.FuncTransform, nbins=None, minor=False):
-        self._transform = transform
-        self._minor = minor
-        super().__init__(nbins)
-
-    def __call__(self):
-        dmin, dmax = self.axis.get_data_interval()
-        vmin, vmax = self.axis.get_view_interval()
-        return self.tick_values(max(vmin, dmin), min(vmax, dmax))
-
-    def tick_values(self, vmin, vmax):
-        vmin, vmax = min((vmin, vmax)), max((vmin, vmax))
-        vmin, vmax = self.limit_range_for_scale(vmin, vmax, 1e-9)
-
-        # thresholds for scaling regimes used to select tick count and placement
-        vth_lo = 0.15
-        vth_hi = 0.85
-
-        # generate candidate values for ticks
-        maybe_ticks = []
-        maybe_ticks.extend(_log_tick_range(vmin, vth_lo, self._nbins, subs=(1.0,)))
-        maybe_ticks.extend(
-            _linear_tick_range(vth_lo, vth_hi, self._nbins, steps=(1, 5, 10))
+        return cp.fft._fft._fftn(
+            x,
+            (None,),
+            (axis,),
+            None,
+            cp.cuda.cufft.CUFFT_FORWARD,
+            overwrite_x=overwrite_x,
+            plan=plan,
+            out=out,
+            order='C',
         )
-        maybe_ticks.extend(
-            1 - _log_tick_range(1 - vmax, 1 - vth_hi, self._nbins, subs=(1.0, 2, 3, 5))
-        )
-        maybe_ticks.extend([0.9, 0.95])
-        maybe_ticks = np.sort(np.unique(maybe_ticks))
-
-        # transform the scale by quantile
-        tr_ticks = self._transform.transform(maybe_ticks)
-        tr_prefer = self._transform.transform(
-            np.array(self.PREFER_TICKS + [vmin] + [vmax])
-        )
-        tr_ticks = _prune_ticks(tuple(tr_ticks), self._nbins, tuple(tr_prefer))
-        ticks = self._transform.inverted().transform(tr_ticks)
-        return np.sort(ticks)
-
-    def get_transform(self):
-        return self._transform
-
-    def limit_range_for_scale(self, vmin, vmax, minpos):
-        """Limit the domain to positive values."""
-        vmin, vmax = min((vmin, vmax)), max((vmin, vmax))
-
-        if not np.isfinite(minpos):
-            minpos = 1e-12  # Should rarely (if ever) have a visible effect.
-
-        ret = (
-            minpos if vmin <= minpos else vmin,
-            1.0 - minpos if vmax >= 1 - minpos else vmax,
+    else:
+        if workers is None:
+            workers = CPU_COUNT // 2
+        return scipy.fft.fft(
+            x, axis=axis, workers=workers, overwrite_x=overwrite_x, plan=plan
         )
 
-        self.axis.set_view_interval(ret[1], ret[0], True)
-        return ret
 
-    def view_limits(self, vmin, vmax):
-        vmin, vmax = self.nonsingular(vmin, vmax)
-        return vmin, vmax
+def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
+    if is_cupy_array(x):
+        import cupy as cp
 
-
-class GammaLogitFormatter(mpl.ticker.LogitFormatter):
-    """A text formatter for probability labels on the GammaCCDF scale"""
-
-    def __call__(self, x, pos=None):
-        if self._minor and x not in self._labelled:
-            return ''
-        if x <= 0 or x >= 1:
-            return ''
-        if math.isclose(2 * x, round(2 * x)) and round(2 * x) == 1:
-            s = self._one_half
-        elif np.any(np.isclose(x, np.array([0.9, 0.99]), rtol=1e-5)):
-            if x < 0.15:
-                s = f'{round_places(x,1):f}'
-            else:
-                s = str(x)
-        elif x < 0.1 and is_decade(x, rtol=1e-5):
-            exponent = round(np.log10(x))
-            s = '10^{%d}' % exponent
-        elif x > 0.9 and is_decade(1 - x, rtol=1e-5):
-            exponent = round(np.log10(1 - x))
-            s = self._one_minus('10^{%d}' % exponent)
-        elif x < 0.05:
-            s = self._format_value(x, self.locs)
-        elif x > 0.98:
-            s = self._one_minus(self._format_value(1 - x, 1 - self.locs))
+        # TODO: see about upstream question on this
+        if out is None:
+            pass
         else:
-            s = self._format_value(x, self.locs, sci_notation=False)
-        return r'$\mathdefault{%s}$' % s
+            out = out.reshape(x.shape)
+
+        return cp.fft._fft._fftn(
+            x,
+            (None,),
+            (axis,),
+            None,
+            cp.cuda.cufft.CUFFT_INVERSE,
+            overwrite_x=overwrite_x,
+            plan=plan,
+            out=out,
+            order='C',
+        )
+    else:
+        if workers is None:
+            workers = CPU_COUNT // 2
+        return scipy.fft.ifft(
+            x, axis=axis, workers=workers, overwrite_x=overwrite_x, plan=plan
+        )
 
 
-class GammaQQScale(mpl.scale.FuncScale):
-    """A transformed scale that linearizes Gamma-distributed survival functions when the
-    independent axis is log-scaled (e.g., dB).
+def zero_pad(x: ArrayType, pad_amt: int) -> ArrayType:
+    """shortcut for e.g. np.pad(x, pad_amt, mode="constant", constant_values=0)"""
+    xp = array_namespace(x)
 
-    Suggested usage:
-
-    ```
-        from iqwaveform import figures
-
-        plot(10*np.log10(bins), sf)
-
-        ax.set_scale('gamma-ccdf', k=10)
-
-    ```
-    In power measurements, the shape parameter `k` should be set equal to the number of averaged power samples.
-
-    """
-
-    name = 'gamma-qq'
-
-    def __init__(
-        self,
-        axis,
-        *,
-        k,
-        major_ticks=10,
-        minor_ticks=None,
-        vmin=None,
-        vmax=None,
-        db_ordinal=True,
-    ):
-        def forward(q):
-            x = stats.gamma.isf(q, a=k, scale=1)
-            if db_ordinal:
-                x = powtodB(x)
-            return x
-
-        def inverse(x):
-            if db_ordinal:
-                x = dBtopow(x)
-            q = stats.gamma.sf(x, a=k, scale=1)
-            return q
-
-        transform = mpl.scale.FuncTransform(forward=forward, inverse=inverse)
-        self._major_locator = GammaMaxNLocator(transform=transform, nbins=major_ticks)
-
-        if minor_ticks is not None:
-            self._minor_locator = GammaMaxNLocator(
-                transform=transform, nbins=minor_ticks, minor=True
-            )
-            self._minor_locator = None
-
-        super().__init__(axis, (forward, inverse))
-
-    def set_default_locators_and_formatters(self, axis):
-        axis.set_major_locator(self._major_locator)
-
-        # if self._minor_locator is not None:
-        # axis.set_minor_locator(self._minor_locator)
-
-        axis.set_major_formatter(GammaLogitFormatter(one_half='0.5'))
+    return xp.pad(x, pad_amt, mode='constant', constant_values=0)
 
 
-mpl.scale.register_scale(GammaQQScale)
+def tile_axis0(x: ArrayType, N) -> ArrayType:
+    """returns N copies of x along axis 0"""
+    xp = array_namespace(x)
+    return xp.tile(x.T, N).T
 
 
-def contiguous_segments(df, index_level, threshold=7, relative=True):
-    """Split `df` into a list of DataFrames for which the index values
-    labeled by level `index_level`, have no discontinuities greater
-    than threshold*(median step between index values).
-    """
-    delta = pd.Series(df.index.get_level_values(index_level)).diff()
-    if relative:
-        threshold = threshold * delta.median()
-    i_gaps = delta[delta > threshold].index.values
-    i_segments = [[0] + list(i_gaps), list(i_gaps) + [None]]
-
-    return [df.iloc[i0:i1] for i0, i1 in zip(*i_segments)]
-
-
-def _has_tick_label_collision(ax, which: str, spacing_threshold=10):
-    """finds the minimum spacing between tick labels along an axis to check for collisions (overlaps).
+def to_blocks(y: ArrayType, size: int, truncate=False, axis=0) -> ArrayType:
+    """Returns a view on y reshaped into blocks along axis `axis`.
 
     Args:
-        ax: matplotlib the axis object
+        y: an input array of size (N[0], ... N[K-1])
 
-        which: "x" or "y"
+    Raises:
+        TypeError: if not isinstance(size, int)
+
+        IndexError: if y.size == 0
+
+        ValueError: if truncate == False and y.shape[axis] % size != 0
 
     Returns:
-        the spacing, in units of the figure render of the axis. negative indicates a collision
+        view on `y` with shape (..., N[axis]//size, size, ..., N[K-1]])
     """
-    fig = ax.get_figure()
 
-    if which == 'x':
-        the_ax = ax.xaxis
-    elif which == 'y':
-        the_ax = ax.yaxis
+    if not isinstance(size, int):
+        raise TypeError('block size must be integer')
+    if y.size == 0:
+        raise IndexError('cannot form blocks on arrays of size 0')
+
+    # ensure the axis dimension is a multiple of the block size
+    ax_size = y.shape[axis]
+    if ax_size % size != 0:
+        if not truncate:
+            raise ValueError(
+                f'axis 0 size {ax_size} is not a factor of block size {size}'
+            )
+
+        slices = len(y.shape) * [slice(None, None)]
+        slices[axis] = slice(None, size * (ax_size // size))
+        y = y.__getitem__(tuple(slices))
+
+    newshape = y.shape[:axis] + (ax_size // size, size) + y.shape[axis + 1 :]
+
+    return y.reshape(newshape)
+
+
+@lru_cache(64)
+def _get_window(name_or_tuple, N, fftbins=True, norm=True, dtype=None, xp=None):
+    if xp is None:
+        w = signal.windows.get_window(name_or_tuple, N, fftbins=fftbins)
+
+        if norm:
+            w /= np.sqrt(np.mean(np.abs(w) ** 2))
+        return w
     else:
-        raise ValueError(f'"which" must be "x" or "y", but got "{repr(which)}"')
+        w = _get_window(name_or_tuple, N)
+        if hasattr(xp, 'asarray'):
+            w = xp.asarray(w, dtype=dtype)
+        else:
+            w = xp.array(w).astype(dtype)
+        return w
 
-    boxen = [
-        t.get_tightbbox(fig.canvas.get_renderer()) for t in the_ax.get_ticklabels()
-    ]
 
-    if which == 'x':
-        boxen = np.array([(b.x0, b.x1) for b in boxen])
+@lru_cache
+def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True):
+    """return the equivalent noise bandwidth (ENBW) of a window, in bins"""
+    w = _get_window(window, N, fftbins=fftbins)
+    return len(w) * np.sum(w**2) / np.sum(w) ** 2
+
+
+def broadcast_onto(a: ArrayType, other: ArrayType, axis: int) -> ArrayType:
+    """broadcast a 1-D array onto a specified axis of `other`"""
+    xp = array_namespace(a)
+
+    slices = [xp.newaxis] * len(other.shape)
+    slices[axis] = slice(None, None)
+    return a.__getitem__(tuple(slices))
+
+
+@lru_cache(16)
+def _get_stft_axes(
+    fs: float, nfft: int, time_size: int, overlap_frac: float = 0, xp=np
+) -> tuple[ArrayType, ArrayType]:
+    """returns stft (freqs, times) array tuple appropriate to the array module xp"""
+
+    freqs = xp.fft.fftshift(xp.fft.fftfreq(nfft, d=1 / fs))
+    times = xp.arange(time_size) * ((1 - overlap_frac) * nfft / fs)
+
+    return freqs, times
+
+
+@lru_cache
+def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
+    s = np.arange(3, max, 2)
+
+    for m in range(3, int(np.sqrt(max) + 1), 2):
+        if s[(m - 3) // 2]:
+            s[(m * m - 3) // 2 :: m] = 0
+
+    return s[(s > min)]
+
+
+@lru_cache
+def design_cola_resampler(
+    fs_base: float,
+    fs_target: float,
+    bw: float = None,
+    bw_lo: float = 0,
+    min_oversampling: float = 1.1,
+    min_fft_size=2 * 4096 - 1,
+    shift=False,
+    avoid_primes=True,
+) -> tuple[float, float, dict]:
+    """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
+
+    The result includes the integer-divided SDR sample rate to request from the SDR, the LO frequency offset,
+    and the keyword arguments needed to realize resampling with `ola_filter`.
+
+    Args:
+        fs_base: the base clock rate (sometimes known as master clock rate, MCR) of the receiver
+        fs_target: the desired sample rate after resampling
+        bw: the analysis bandwidth to protect from LO leakage
+        bw_lo: the spectral leakage/phase noise bandwidth of the LO
+        shift: the direction to shift the LO
+        avoid_primes: whether to avoid large prime numbered FFTs for performance reasons
+
+    Returns:
+        (SDR sample rate, RF LO frequency offset in Hz, ola_filter_kws)
+    """
+
+    if shift:
+        fs_sdr_min = fs_target + min_oversampling * bw / 2 + bw_lo / 2
     else:
-        boxen = np.array([(b.y0, b.y1) for b in boxen])
+        fs_sdr_min = fs_target
 
-    spacing = boxen[1:, 0] - boxen[:-1, 1]
+    if fs_base > fs_target:
+        if shift and fs_sdr_min > fs_base:
+            msg = f"""LO frequency shift with the requested parameters
+            requires running the radio at a minimum {fs_sdr_min/1e6:0.2f} MS/s,
+            but its maximum rate is {fs_base/1e6:0.2f} MS/s"""
 
-    return np.min(spacing) < spacing_threshold
+            raise ValueError(msg)
 
-
-def rotate_ticklabels_on_collision(ax, which: str, angles: list, spacing_threshold=3):
-    # lazy import of submodules seems to cause problems for matplotlib
-    from matplotlib import pyplot as plt
-
-    def set_rotation(the_ax, angle):
-        for label in the_ax.get_ticklabels():
-            label.set_rotation(angle)
-            if which == 'y' and angle == 90:
-                label.set_verticalalignment('center')
-            elif which == 'x' and angle == 90:
-                label.set_horizontalalignment('right')
-
-    if which == 'x':
-        the_ax = ax.xaxis
-    elif which == 'y':
-        the_ax = ax.yaxis
+        decimation = int(fs_base / fs_sdr_min)
+        fs_sdr = fs_base / decimation
     else:
+        fs_sdr = fs_base
+
+    if bw is not None and bw > fs_base:
         raise ValueError(
-            f'"which" argument must be "x" or "y", but got "{repr(which)}"'
+            'passband bandwidth exceeds Nyquist bandwidth at maximum sample rate'
         )
 
-    set_rotation(the_ax, angles[0])
-    if len(angles) == 1:
-        return angles[0]
+    resample_ratio = fs_sdr / fs_target
 
-    a = angles[0]
-    for angle in angles[1:]:
-        plt.draw()
-
-        if _has_tick_label_collision(ax, which, spacing_threshold):
-            a = angle
-            set_rotation(the_ax, angle)
-        else:
-            break
-    return a
-
-
-def xaxis_concise_dates(fig, ax, adjacent_offset: bool = True):
-    """fuss with the dates on an x-axis."""
-
-    # lazy import of submodules seems to cause problems for matplotlib
-    from matplotlib import pyplot as plt
-
-    formatter = mpl.dates.ConciseDateFormatter(
-        mpl.dates.AutoDateLocator(), show_offset=True
+    # the following returns the modulos closest to either 0 or 1, accommodating downward rounding errors (e.g., 0.999)
+    trial_noverlap = resample_ratio * np.arange(1, OLA_MAX_FFT_SIZE + 1)
+    check_mods = power_analysis.isroundmod(trial_noverlap, 1) & (
+        trial_noverlap > min_fft_size * resample_ratio
     )
 
-    if adjacent_offset:
-        plt.xticks(rotation=0, ha='right')
-    ax.xaxis.set_major_formatter(formatter)
+    # all valid noverlap size candidates
+    valid_noverlap_out = 1 + np.where(check_mods)[0]
+    if avoid_primes:
+        reject = _prime_fft_sizes(100)
+        valid_noverlap_out = np.setdiff1d(valid_noverlap_out, reject, True)
+    if len(valid_noverlap_out) == 0:
+        raise ValueError('no rational FFT sizes satisfied design constraints')
 
-    plt.draw()
+    nfft_out = valid_noverlap_out[0]
+    nfft_in = int(np.rint(resample_ratio * nfft_out))
 
-    if adjacent_offset:
-        labels = [item.get_text() for item in ax.get_xticklabels()]
-        labels[0] = f'{formatter.get_offset()} {labels[0]}'
-        ax.set_xticklabels(labels)
+    if nfft_out % 2 == 1 or nfft_in % 2 == 1:
+        nfft_out *= 2
+        nfft_in *= 2
 
-        dx = 5 / 72.0
-        dy = 0 / 72.0
-        offset = mpl.transforms.ScaledTranslation(dx, dy, fig.dpi_scale_trans)
-        for label in ax.get_xticklabels():
-            label.set_transform(label.get_transform() + offset)
+    # the following LO shift arguments assume that a hamming COLA window is used
+    if shift == 'left':
+        sign = -1
+    elif shift == 'right':
+        sign = +1
+    elif shift in ('none', False, None):
+        sign = 0
+    else:
+        raise ValueError(f'shift argument must be "left" or "right", not {repr(shift)}')
 
-    return ax
+    if sign != 0 and bw is None:
+        raise ValueError('a passband bandwidth must be set to design a LO shift')
+
+    if bw is None:
+        lo_offset = 0
+        passband = (None, None)
+    else:
+        lo_offset = sign * (
+            bw / 2 + bw_lo / 2
+        )  # fs_sdr / nfft_in * (nfft_in - nfft_out)
+        passband = (lo_offset - bw / 2, lo_offset + bw / 2)
+
+    window = 'hamming'
+
+    ola_resample_kws = {
+        'window': window,
+        'nfft': nfft_in,
+        'nfft_out': nfft_out,
+        'frequency_shift': shift,
+        'passband': passband,
+        'fs': fs_sdr,
+    }
+
+    return fs_sdr, lo_offset, ola_resample_kws
 
 
-def pcolormesh_df(
-    df,
-    vmin=None,
-    vmax=None,
-    rasterized=True,
-    cmap=None,
-    ax=None,
-    xlabel=None,
-    ylabel=None,
-    title=None,
+def _cola_scale(window, hop_size):
+    if (window.size - hop_size) % 2 == 0:
+        # scaling correction based on the shape of the window where it intersects with its neighbor
+        cola_scale = 2 * window[(window.size - hop_size) // 2]
+    else:
+        cola_scale = (
+            window[(window.size - hop_size) // 2]
+            + window[(window.size - hop_size) // 2 + 1]
+        )
+    return cola_scale.real
+
+
+def _stack_stft_windows(
+    x: ArrayType,
+    window: ArrayType,
+    nperseg: int,
+    noverlap: int,
+    pad_mode='constant',
     norm=None,
-    x_unit=None,
-    x_places=None,
-    y_unit=None,
-    y_places=None,
-):
-    # lazy import of submodules seems to cause problems for matplotlib
-    from matplotlib import pyplot as plt
+    axis=0,
+    out=None,
+) -> ArrayType:
+    """add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform.
 
-    if ax is None:
-        fig, ax = plt.subplots()
-
-    X = df.columns.values
-    Y = df.index.values
-
-    drawing = ax.pcolormesh(
-        X,
-        Y,
-        df.values,
-        vmin=vmin,
-        vmax=vmax,
-        rasterized=rasterized,
-        cmap=cmap,
-        norm=norm,
-        edgecolors='none',
-        edgecolor='none',
-    )
-
-    if xlabel is not False:
-        ax.set_xlabel(df.columns.name if xlabel is None else xlabel)
-
-    if ylabel is not False:
-        ax.set_ylabel(df.index.name if ylabel is None else ylabel)
-
-    if title is not None:
-        ax.set_title(title)
-
-    if x_unit is not None:
-        ax.xaxis.set_major_formatter(
-            mpl.ticker.EngFormatter(unit=x_unit, useMathText=True, places=x_places)
-        )
-        rotate_ticklabels_on_collision(ax, 'x', [0, 25])
-
-    if y_unit is not None:
-        ax.yaxis.set_major_formatter(
-            mpl.ticker.EngFormatter(unit=y_unit, useMathText=True, places=y_places)
-        )
-        rotate_ticklabels_on_collision(ax, 'y', [90, 65, 0])
-
-    return drawing
-
-
-def plot_spectrogram_heatmap_from_iq(
-    iq: np.array,
-    window: np.array,
-    Ts: float,
-    ax=None,
-    vmin: float = None,
-    cmap=None,
-    time_span=(None, None),
-) -> tuple[type_stubs.AxesType, type_stubs.DataFrameType]:
-    # lazy import of submodules seems to cause problems for matplotlib
-    from matplotlib import pyplot as plt
-
-    index_span = (
-        None if time_span[0] is None else int(np.rint(time_span[0] / Ts)),
-        None if time_span[1] is None else int(np.rint(time_span[1] / Ts)),
-    )
-
-    iq = iq[index_span[0] : index_span[1]]
-
-    spg = iq_to_stft_spectrogram(iq=iq, window=window, Ts=Ts, overlap=True)
-
-    if cmap is None:
-        cmap = mpl.cm.get_cmap('magma')
-
-    c = pcolormesh_df(
-        powtodB(spg.T),
-        xlabel='Time elapsed (s)',
-        ylabel='Baseband Frequency',
-        y_unit='Hz',
-        # x_unit='s',
-        ax=ax,
-        cmap=cmap,
-        vmin=vmin,
-    )
-
-    freq_res = 1 / Ts / window.size
-
-    if freq_res < 1e3:
-        freq_res_name = f'{freq_res:0.1f}'
-    elif freq_res < 1e6:
-        freq_res_name = f'{freq_res/1e3:0.1f} kHz'
-    elif freq_res < 1e9:
-        freq_res_name = f'{freq_res/1e6:0.1f} MHz'
-    else:
-        freq_res_name = f'{freq_res/1e9:0.1f} GHz'
-
-    plt.colorbar(
-        c,
-        cmap=cmap,
-        ax=ax,
-        label=f'Bin power (dBm/{freq_res_name})',
-        # rasterized=True
-    )
-
-    return ax, spg
-
-
-def plot_spectrogram_heatmap(
-    spg: type_stubs.DataFrameType,
-    Ts: float,
-    ax=None,
-    vmin: float = None,
-    vmax: float = None,
-    cmap=None,
-    time_span=(None, None),
-    transpose=False,
-    colorbar=True,
-    rasterized=True,
-) -> tuple[type_stubs.AxesType, type_stubs.DataFrameType]:
-    # lazy import of submodules seems to cause problems for matplotlib
-    from matplotlib import pyplot as plt
-
-    if cmap is None:
-        cmap = mpl.cm.get_cmap('magma')
-
-    if transpose:
-        c = pcolormesh_df(
-            powtodB(spg),
-            ylabel='Time elapsed (s)',
-            xlabel='Baseband Frequency',
-            x_unit='Hz',
-            # x_unit='s',
-            ax=ax,
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            rasterized=rasterized,
-        )
-    else:
-        c = pcolormesh_df(
-            powtodB(spg.T),
-            xlabel='Time elapsed (s)',
-            ylabel='Baseband Frequency',
-            y_unit='Hz',
-            # x_unit='s',
-            ax=ax,
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            rasterized=rasterized,
-        )
-
-    freq_res = 1 / Ts / spg.shape[1]
-
-    if freq_res < 1e3:
-        freq_res_name = f'{freq_res:0.1f}'
-    elif freq_res < 1e6:
-        freq_res_name = f'{freq_res/1e3:0.1f} kHz'
-    elif freq_res < 1e9:
-        freq_res_name = f'{freq_res/1e6:0.1f} MHz'
-    else:
-        freq_res_name = f'{freq_res/1e9:0.1f} GHz'
-
-    if colorbar:
-        plt.colorbar(
-            c,
-            cmap=cmap,
-            ax=ax,
-            label=f'Bin power (dBm/{freq_res_name})',
-            # rasterized=True
-        )
-
-    return ax, spg
-
-
-def plot_power_histogram_heatmap(
-    rolling_histogram: type_stubs.DataFrameType,
-    contiguous_threshold=None,
-    log_counts=True,
-    title: str = None,
-    ylabel: str = None,
-    xlabel: str = None,
-    clabel: str = 'Count',
-    xlim: tuple = None,
-    ax=None,
-    cbar=True,
-    rasterized=True,
-    x_unit=None,
-    x_places=None,
-):
-    """plot a heat map of power histograms along the time axis, with color map intensity set by the counts.
+    Compared to the underlying stft implementations in scipy and cupyx.scipy, this has been simplified
+    to a reduced set of parameters for speed.
 
     Args:
-        rolling_histogram: histogram data, given along axis 0
-
-        contiguous_threshold: plot gaps ()
+        x: the 1-D waveform (or N-D tensor of waveforms)
+        axis: the waveform axis; stft will be evaluated across all other axes
     """
-    # lazy import of submodules seems to cause problems for matplotlib
-    from matplotlib import pyplot as plt
+    axis_slice = signal._arraytools.axis_slice
 
-    if xlim is not None:
-        rolling_histogram = rolling_histogram.loc[:, float(xlim[0]) : float(xlim[1])]
 
-    if ax is None:
-        fig, ax = plt.subplots()
+    nfft = nperseg
+    hop_size = nperseg - noverlap
+
+    strided = sliding_window_view(x, nfft, axis=axis)
+
+    stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
+
+    if norm is None:
+        scale = _cola_scale(window, hop_size)
+    elif norm == 'power':
+        scale = 1
     else:
-        try:
-            fig = ax.get_figure()
-        except BaseException:
-            raise ValueError(str(locals()))
+        raise ValueError(f"invalid normalization argument '{norm}' (should be 'cola' or 'psd')")
 
-    if rolling_histogram.shape[0] == 0:
-        raise EOFError
+    if out is None:
+        out = stride_windows.copy()
+    else:
+        out = _truncated_buffer(out, stride_windows.shape)
+        out[:] = stride_windows
 
-    index_type = type(rolling_histogram.index[0])
+    out *= broadcast_onto(window / scale, stride_windows, axis=axis + 1)
 
-    # elif issubclass(index_type, pd.Timedelta):
-    #     pass
-    # else:
-    #     raise ValueError(
-    #         f"don't know how to handle index type {index_type} for 2D histogram over time"
-    #     )
+    return out
 
-    # quantize the color map levels to the number of bins
-    bad_color = '0.95'
-    cmap = mpl.cm.get_cmap('magma')
-    if rolling_histogram.shape[1] < cmap.N:
-        subset = np.linspace(
-            0, len(cmap.colors) - 1, rolling_histogram.shape[1], dtype=int
+
+def _unstack_stft_windows(
+    y: ArrayType, noverlap: int, nperseg: int, axis=0, out=None, extra=0
+) -> ArrayType:
+    """reconstruct the time-domain waveform from its STFT representation.
+
+    Compared to the underlying istft implementations in scipy and cupyx.scipy, this has been simplified
+    for speed at the expense of memory consumption.
+
+    Args:
+        y: the stft output, containing at least 2 dimensions
+        noverlap: the overlap size that was used to generate the STFT (see scipy.signal.stft)
+        axis: the axis of the first dimension of the STFT (the second is at axis+1)
+        out: if specified, the output array that will receive the result. it must have at least the same allocated size as y
+        extra: total number of extra samples to include at the edges
+    """
+
+    xp = array_namespace(y)
+    axis_slice = signal._arraytools.axis_slice
+
+    nfft = nperseg
+    hop_size = nperseg - noverlap
+
+    waveform_size = y.shape[axis] * y.shape[axis + 1] * hop_size // nfft + noverlap
+    target_shape = y.shape[:axis] + (waveform_size,) + y.shape[axis + 2 :]
+
+    if out is None:
+        xr = xp.empty(target_shape, dtype=y.dtype)
+    else:
+        xr = _truncated_buffer(out, target_shape)
+
+    xr_slice = axis_slice(
+        xr,
+        start=0,
+        stop=noverlap,
+        axis=axis,
+    )
+    xr_slice[:] = 0
+
+    xr_slice = axis_slice(
+        xr,
+        start=-noverlap,
+        stop=None,
+        axis=axis,
+    )
+    xr_slice[:] = 0
+
+    # for speed, sum up in groups of non-overlapping windows
+    for offs in range(nfft // hop_size):
+        yslice = axis_slice(y, start=offs, step=nfft // hop_size, axis=axis)
+        yshape = yslice.shape
+
+        yslice = yslice.reshape(
+            yshape[:axis] + (yshape[axis] * yshape[axis + 1],) + yshape[axis + 2 :]
         )
-        newcolors = np.array(cmap.colors)[subset].tolist()
-        cmap = mpl.colors.ListedColormap(newcolors)
-        cmap.set_bad(bad_color)
+        xr_slice = axis_slice(
+            xr,
+            start=offs * hop_size,
+            stop=offs * hop_size + yslice.shape[axis],
+            axis=axis,
+        )
 
-    if log_counts:
-        if rolling_histogram.values.dtype == np.dtype('int64'):
-            plot_norm = mpl.colors.LogNorm(vmin=1, vmax=rolling_histogram.max().max())
+        if offs == 0:
+            xr_slice[:] = yslice[: xr_slice.size]
         else:
-            plot_norm = mpl.colors.LogNorm(
-                vmin=rolling_histogram[rolling_histogram > 0].min().min(),
-                vmax=rolling_histogram.max().max(),
+            xr_slice += yslice[: xr_slice.size]
+
+    return xr  # axis_slice(xr, start=noverlap-extra//2, stop=(-noverlap+extra//2) or None, axis=axis)
+
+
+@lru_cache
+def _ola_filter_parameters(
+    array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
+) -> tuple:
+    if nfft_out is None:
+        nfft_out = nfft
+
+    if window == 'hamming':
+        if nfft_out % 2 != 0:
+            raise ValueError('blackman window COLA requires output nfft_out % 2 == 0')
+        overlap_scale = 1 / 2
+    elif window == 'blackman':
+        if nfft_out % 3 != 0:
+            raise ValueError('blackman window COLA requires output nfft_out % 3 == 0')
+        overlap_scale = 2 / 3
+    elif window == 'blackmanharris':
+        if nfft_out % 5 != 0:
+            raise ValueError('blackmanharris window requires output nfft_out % 5 == 0')
+        overlap_scale = 4 / 5
+    else:
+        raise TypeError(
+            'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
+        )
+
+    noverlap = round(nfft_out * overlap_scale)
+
+    if array_size % noverlap != 0:
+        if extend:
+            pad_out = array_size % noverlap
+        else:
+            raise ValueError(
+                f'x.size ({array_size}) is not an integer multiple of noverlap ({noverlap})'
             )
     else:
-        plot_norm = None
+        pad_out = 0
 
-    pc_kws = dict(
-        cmap=cmap,
-        norm=plot_norm,
-        rasterized=rasterized,
-        xlabel=xlabel,
-        ylabel=ylabel,
-        title=title,
-        ax=ax,
-        x_unit=x_unit,
-        x_places=x_places,
+    return nfft_out, noverlap, overlap_scale, pad_out
+
+
+def _istft_buffer_size(
+    array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
+):
+    nfft_out, _, overlap_scale, pad_out = _ola_filter_parameters(**locals())
+    nfft_max = max(nfft_out, nfft)
+    fft_count = 2 + ((array_size + pad_out) / nfft_max) / overlap_scale
+    size = ceil(fft_count * nfft_max)
+    return size
+
+
+def zero_stft_by_freq(
+    freqs: ArrayType, xstft: ArrayType, *, passband: tuple[float, float], axis=0
+) -> ArrayType:
+    """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
+    axis_slice = signal._arraytools.axis_slice
+
+    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
+    axis_slice(xstft, start=0, stop=ilo, axis=axis + 1)[:] = 0
+    axis_slice(xstft, start=ihi, stop=None, axis=axis + 1)[:] = 0
+    return xstft
+
+
+def downsample_stft(
+    freqs: ArrayType,
+    xstft: ArrayType,
+    nfft_out: int,
+    *,
+    passband: tuple[float, float],
+    axis=0,
+    out=None,
+) -> tuple[ArrayType, ArrayType]:
+    """downsample and filter an STFT representation of a filter in the frequency domain.
+
+    * This is rational downsampling by a factor of `nout/xstft.shape[axis+1]`,
+      shifted if necessary to center the passband.
+    * One approach to selecting `nfft_out` for this purpose is the use
+      of `design_ola_filter`.
+
+    Returns:
+        A tuple containing the new `freqs` range and trimmed `xstft`
+    """
+    xp = array_namespace(xstft)
+    axis_slice = signal._arraytools.axis_slice
+    ax = axis + 1
+
+    shape = list(xstft.shape)
+    shape[ax] = nfft_out
+
+    if out is None:
+        xout = xp.empty(shape, dtype=xstft.dtype)
+    else:
+        xout = _truncated_buffer(out, shape)
+
+    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
+
+    # evaluate the index offsets of the passband that center within the downsampled array
+    passband_size = ihi - ilo
+    stopband_size = nfft_out - passband_size
+    ioutlo = stopband_size // 2
+    iouthi = nfft_out - stopband_size // 2 - stopband_size % 2
+
+    # truncate to the range of frequency bins, centered within the new sampling bandwidth
+    freqs_out = freqs[ilo:ihi] - freqs[(ilo + ihi) // 2]
+
+    axis_slice(xout, ioutlo, iouthi, axis=ax)[:] = axis_slice(xstft, ilo, ihi, axis=ax)
+    axis_slice(xout, 0, ioutlo, axis=ax)[:] = 0
+    axis_slice(xout, iouthi, None, axis=ax)[:] = 0
+
+    return freqs_out, xout
+
+
+def stft(
+    x: ArrayType,
+    *,
+    fs: float,
+    window: ArrayType | str | tuple[str, float],
+    nperseg: int = 256,
+    noverlap: int = 0,
+    axis: int = 0,
+    truncate: bool = True,
+    norm: str | None = None,
+    out=None,
+) -> tuple[ArrayType, ArrayType, ArrayType]:
+    """Implements a stripped-down subset of scipy.fft.stft in order to avoid
+    some overhead that comes with its generality and allow use of the generic
+    python array-api for interchangable numpy/cupy support.
+
+    For additional information, see help for scipy.fft.
+
+    Args:
+        x: input array
+
+        fs: sampling rate
+
+        window: a window array, or a name or (name, parameter) pair as in `scipy.signal.get_window`
+
+        nperseg: the size of the FFT (= segment size used if overlapping)
+
+        noverlap: if nonzero, compute windowed FFTs that overlap by this many bins (only 0 and nperseg//2 supported)
+
+        axis: the axis on which to compute the STFT
+
+        truncate: whether to allow truncation of `x` to enforce full fft block sizes
+
+    Raises:
+        NotImplementedError: if axis != 0
+
+        ValueError: if truncate == False and x.shape[axis] % nperseg != 0
+
+    Returns:
+        stft (see scipy.fft.stft)
+
+    """
+
+    xp = array_namespace(x)
+
+    # # For reference: this is probably the same
+    # freqs, times, X = signal.spectral._spectral_helper(
+    #     x,
+    #     x,
+    #     fs,
+    #     window,
+    #     nperseg,
+    #     noverlap,
+    #     nperseg,
+    #     scaling="spectrum",
+    #     axis=axis,
+    #     mode="stft",
+    #     padded=True,
+    # )
+
+    nfft = nperseg
+
+    if norm not in ('power', None):
+        raise TypeError('norm must be "power" or None')
+
+    if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
+        should_norm = norm == 'power'
+        w = _get_window(window, nfft, xp=xp, dtype=x.dtype, norm=should_norm)
+        if is_torch_array(w):
+            import torch
+            w = torch.asarray(w, dtype=x.dtype, device=x.device)
+    elif window is None:
+        w = xp.ones(nfft)
+    else:
+        w = xp.array(window)
+
+    if noverlap == 0:
+        x = to_blocks(x, nfft, truncate=truncate)
+
+        x = x * broadcast_onto(w / nfft, x, axis=axis + 1)
+        X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
+
+    else:
+        x_ol = _stack_stft_windows(
+            x, window=w/nfft, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out, norm=norm
+        )
+
+        X = fft(
+            x_ol,
+            axis=axis + 1,
+            overwrite_x=True,
+            out=None if out is None else _truncated_buffer(out, x_ol.shape),
+        )
+
+    # interleave the overlaps in time
+    X = xp.fft.fftshift(X, axes=axis + 1)
+
+    freqs, times = _get_stft_axes(
+        fs,
+        nfft=nfft,
+        time_size=X.shape[axis],
+        overlap_frac=noverlap / nfft,
+        xp=np,
     )
 
-    if issubclass(index_type, pd.Timestamp):
-        # break into contiguous segments so that mpl will not project lines across
-        # missing data
-
-        if contiguous_threshold is not None:
-            segments = contiguous_segments(
-                rolling_histogram, 'Time', threshold=contiguous_threshold
-            )
-        else:
-            segments = [rolling_histogram]
-
-        for hist_sub in segments:
-            c = pcolormesh_df(hist_sub.T, **pc_kws)
-
-    elif issubclass(index_type, pd.Timedelta):
-        if rolling_histogram.index[1] - rolling_histogram.index[0] < pd.Timedelta(3600):
-            t = rolling_histogram.index.total_seconds() / 3600
-        else:
-            t = rolling_histogram.index.total_seconds()
-
-        hist_sub = pd.DataFrame(
-            rolling_histogram.values, index=t, columns=rolling_histogram.columns
-        )
-
-        c = pcolormesh_df(hist_sub.T, **pc_kws)
-        # c = pcolormesh_df(rolling_histogram.T, **pc_kws)
-
-    else:
-        c = pcolormesh_df(rolling_histogram.T, **pc_kws)
-
-    if cbar and not log_counts:
-        cb = fig.colorbar(
-            c,
-            cmap=cmap,
-            ax=ax,
-            extend='min',
-            extendrect=True,
-            # extendfrac='auto',
-            # cax = fig.add_axes([1.02, 0.152, 0.03, 0.7])
-        )
-
-        formatter = mpl.ticker.ScalarFormatter(useMathText=True)
-        cb.ax.yaxis.set_major_formatter(formatter)
-        cb.ax.ticklabel_format(style='sci', scilimits=(6, 6))
-        cb.ax.yaxis.get_offset_text().set_position((0, 1.01))
-        cb.ax.yaxis.get_offset_text().set_horizontalalignment('left')
-        cb.ax.yaxis.get_offset_text().set_verticalalignment('bottom')
-
-        cb.set_label(
-            clabel,
-            labelpad=-16,
-            y=-0.08,
-            # x=-1,
-            rotation=0,
-            va='top',
-            ha='right',
-        )
-
-    elif cbar:
-        cbar_cmap = mpl.colors.ListedColormap(cmap.colors.copy())
-        cbar_cmap.set_under(bad_color)
-        cbar_cmap.set_bad(bad_color)
-
-        cb = fig.colorbar(
-            c,
-            cmap=cbar_cmap,
-            ax=ax,
-            extend='min',
-            extendrect=True,
-            extendfrac=0.05,
-            # cax = fig.add_axes([1.02, 0.152, 0.03, 0.75])
-        )
-
-        # add in the extension
-        extension_length = cb._get_extension_lengths(cb.extendfrac, True, True)[1]
-        cb._boundaries = np.array(
-            [np.nan]
-            + list(
-                np.linspace(
-                    cb._boundaries[0], cb._boundaries[1], cb._boundaries.size - 1
-                )
-            )
-        )
-        cb._values = np.array(
-            [np.nan]
-            + list(np.linspace(cb._values[0], cb._values[1], cb._values.size - 1))
-        )
-
-        cb._do_extends(cb._get_extension_lengths(extension_length, True, True))
-
-        cb.ax.text(
-            1,
-            -extension_length / 2,
-            '- 0',
-            ha='left',
-            va='center',
-            transform=cb.ax.transAxes,
-        )
-
-        formatter = mpl.ticker.LogFormatterSciNotation(
-            minor_thresholds=(1, 2, 5), labelOnlyBase=False
-        )
-
-        cb.ax.yaxis.set_major_formatter(formatter)
-        cb.ax.yaxis.set_minor_formatter(formatter)
-
-        # cb.ax.xaxis.set_major_locator(mpl.ticker.AutoLocator())
-        # cb.ax.xaxis.set_minor_formatter(mpl.ticker.StrMethodFormatter(f''))
-
-        cb.set_label(
-            clabel,
-            labelpad=-16,
-            y=-0.08,
-            # x=-1,
-            rotation=0,
-            va='top',
-            ha='right',
-        )
-    else:
-        cb = None
-
-    # X axis formatting
-    if issubclass(index_type, (pd.Timestamp)):
-        xaxis_concise_dates(plt.gcf(), ax)
-    else:
-        plt.draw()
-        # labels = [f"{l.get_text()}:00" for l in ax.get_xticklabels()]
-        # ax.set_xticklabels(labels)
-    # @mpl.ticker.FuncFormatter
-    # def minor_formatter(x, pos):
-    #     exp = int(np.trunc(np.log10(x)))
-    #     return rf'${x/10**(exp-1):0.0f}$'
-
-    if cb is not None and cb.vmax / cb.vmin < 1e3:
-        cb.ax.yaxis.set_minor_formatter(formatter)
-        pass
-        # for label in cb.ax.yaxis.get_minorticklabels()[1::2]:
-        #     label.set_visible(False)
-
-    return ax, c
+    return freqs, times, X
 
 
-def plot_power_ccdf(
-    iq,
-    Ts,
-    Tavg=None,
-    random_offsets=False,
-    bins=None,
-    scale='gamma-qq',
-    major_ticks=12,
-    ax=None,
-    label=None,
+def istft(
+    xstft: ArrayType, size=None, *, nfft: int, noverlap: int, out=None, axis=0
+) -> ArrayType:
+    """reconstruct and return a waveform given its STFT and associated parameters"""
+
+    xp = array_namespace(xstft)
+    axis_slice = signal._arraytools.axis_slice
+
+    x_windows = ifft(
+        xp.fft.fftshift(xstft, axes=axis + 1),
+        axis=axis + 1,
+        overwrite_x=True,
+        out=None if out is None else _truncated_buffer(out, xstft.shape),
+    )
+
+    y = _unstack_stft_windows(
+        x_windows, noverlap=noverlap, nperseg=nfft, axis=axis, out=out
+    )
+
+    if size is not None:
+        trim = y.shape[axis] - size
+        if trim > 0:
+            y = axis_slice(y, start=trim // 2, stop=-trim // 2, axis=axis)
+
+    return y
+
+
+def ola_filter(
+    x: ArrayType,
+    *,
+    fs: float,
+    nfft: int,
+    window: str | tuple = 'hamming',
+    passband: tuple[float, float],
+    nfft_out: int = None,
+    frequency_shift=False,
+    axis=0,
+    extend=False,
+    out=None,
 ):
-    # lazy import of submodules seems to cause problems for matplotlib
-    from matplotlib import pyplot as plt
+    """apply a bandpass filter implemented through STFT overlap-and-add.
 
-    if ax is None:
-        fig, ax = plt.subplots()
+    Args:
+        x: the input waveform
+        fs: the sample rate of the input waveform, in Hz
+        noverlap: the size of overlap between adjacent FFT windows, in samples
+        window: the type of COLA window to apply, 'hamming', 'blackman', or 'blackmanharris'
+        passband: a tuple of low-pass cutoff and high-pass cutoff frequency (or None to skip either)
+        nfft_out: implement downsampling by adjusting the size of overlap between adjacent FFT windows
+        frequency_shift: the direction to shift the downsampled frequencies ('left' or 'right', or False to center)
+        axis: the axis of `x` along which to compute the filter
+        extend: if True, allow use of zero-padded samples at the edges to accommodate a non-integer number of overlapping windows in x
+        out: None, 'shared', or an array object to receive the output data
 
-    if Tavg is None:
-        Navg = 1
-        power_dB = envtodB(iq)
-    else:
-        Navg = int(Tavg / Ts)
-        power_dB = powtodB(
-            iq_to_bin_power(
-                iq, Ts=Ts, Tbin=Tavg, randomize=random_offsets, truncate=True
-            )
+    Returns:
+        an Array of the same shape as X
+    """
+    xp = array_namespace(x)
+
+    nfft_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
+        x.size,
+        window=window,
+        nfft_out=nfft_out,
+        nfft=nfft,
+        extend=extend,
+    )
+
+    enbw = equivalent_noise_bandwidth(window, nfft_out, fftbins=False)
+
+    w = _get_window(window, nfft, fftbins=False, xp=xp)
+
+    freqs, _, xstft = stft(
+        x,
+        fs=fs,
+        window=w,
+        nperseg=nfft,
+        noverlap=round(nfft * overlap_scale),
+        axis=axis,
+        truncate=False,
+        out=out,
+    )
+
+    zero_stft_by_freq(
+        freqs, xstft, passband=(passband[0] + enbw, passband[1] - enbw), axis=axis
+    )
+
+    if nfft_out != nfft or frequency_shift:
+        freqs, xstft = downsample_stft(
+            freqs,
+            xstft,
+            nfft_out=nfft_out,
+            passband=passband,
+            axis=axis,
+            out=xstft,
         )
 
-    if bins is None:
-        bins = np.arange(power_dB.min(), power_dB.max() + 0.01, 0.01)
-    if np.isscalar(bins):
-        bins = np.linspace(power_dB.min(), power_dB.max(), bins)
+    return istft(
+        xstft,
+        round(x.shape[axis] * nfft_out / nfft),
+        nfft=nfft_out,
+        noverlap=noverlap,
+        out=out,
+        axis=axis,
+    )
+
+
+@lru_cache
+def _freq_band_edges(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
+    freq_inds = np.linspace(freq_min, freq_max, freq_count)
+
+    if cutoff_low is None:
+        ilo = None
     else:
-        bins = np.array(bins)
+        ilo = np.where(freq_inds >= cutoff_low)[0][0]
 
-    ccdf = sample_ccdf(power_dB, bins)
-    ax.plot(ccdf, bins, label=label)  # Path(DATA_FILE).parent.name)
-
-    if scale == 'gamma-qq':
-        ax.set_xscale(scale, k=Navg, major_ticks=major_ticks, db_ordinal=True)
+    if cutoff_hi is None:
+        ihi = None
     else:
-        ax.set_xscale(scale)
+        ihi = np.where(freq_inds <= cutoff_hi)[0][-1] + 1
 
-    ax.legend()
+    return ilo, ihi
 
-    return ax, ccdf, bins
+
+def spectrogram(
+    x: ArrayType,
+    *,
+    fs: float,
+    window: ArrayType | str | tuple[str, float],
+    nperseg: int = 256,
+    noverlap: int = 0,
+    axis: int = 0,
+    truncate: bool = True,
+    out=None,
+):
+    kws = dict(locals())
+
+    freqs, times, X = stft(norm='power', **kws)
+    spg = power_analysis.envtopow(X, out=X)
+
+    return freqs, times, spg
+
+
+def persistence_spectrum(
+    x: ArrayType,
+    *,
+    fs: float,
+    bandwidth=None,
+    window,
+    resolution: float,
+    fractional_overlap=0,
+    statistics: list[float],
+    truncate=True,
+    dB=True,
+    axis=0,
+) -> ArrayType:
+    # TODO: support other persistence statistics, such as mean
+
+    if power_analysis.isroundmod(fs, resolution):
+        nfft = round(fs / resolution)
+        noverlap = round(fractional_overlap * nfft)
+    else:
+        # need sample_rate_Hz/resolution to give us a counting number
+        raise ValueError('sample_rate_Hz/resolution must be a counting number')
+
+    xp = array_namespace(x)
+    axis_slice = signal._arraytools.axis_slice
+    domain = get_input_domain()
+
+    if domain == Domain.TIME:
+        freqs, _, X = spectrogram(
+            x, window=window, fs=fs, nperseg=nfft, noverlap=noverlap, axis=axis
+        )
+    elif domain == Domain.FREQUENCY:
+        X = x
+        freqs, _ = _get_stft_axes(
+            fs=fs,
+            nfft=nfft,
+            time_size=X.shape[axis],
+            overlap_frac=noverlap / nfft,
+            xp=np,
+        )
+    else:
+        raise ValueError('unsupported persistence spectrum domain "{domain}')
+
+    if truncate:
+        if bandwidth is None:
+            bw_args = (None, None)
+        else:
+            bw_args = (-bandwidth / 2, +bandwidth / 2)
+        ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *bw_args)
+        X = X[:, ilo:ihi]
+
+    if domain == Domain.TIME:
+        if dB:
+            spg = power_analysis.powtodB(X, eps=1e-25, out=X.real)
+        else:
+            spg = X.astype('float32')
+    elif domain == Domain.FREQUENCY:
+        if dB:
+            # here X is complex-valued; use the first-half of its buffer
+            spg = power_analysis.envtodB(X, eps=1e-25, out=X.real)
+        else:
+            spg = power_analysis.envtopow(X, out=X.real)
+    else:
+        raise ValueError(f'unhandled dB and domain: {dB}, {domain}')
+
+    isquantile = _whichfloats(tuple(statistics))
+
+    shape = list(spg.shape)
+    shape[axis] = len(statistics)
+    out = xp.empty(tuple(shape), dtype='float32')
+
+    quantiles = list(np.asarray(statistics)[isquantile].astype('float32'))
+
+    # TODO: access the proper axis of spg in the output buffer
+    out[isquantile] = xp.quantile(
+        spg, xp.array(quantiles), axis=axis, out=out[isquantile]
+    )
+
+    for i, isquantile in enumerate(isquantile):
+        if not isquantile:
+            ufunc = stat_ufunc_from_shorthand(statistics[i], xp=xp)
+            axis_slice(out, start=i, stop=i + 1, axis=axis)[...] = ufunc(spg, axis=axis)
+
+    return out
+
+
+def channelize_power(
+    iq: ArrayType,
+    Ts: float,
+    fft_size_per_channel: int,
+    *,
+    analysis_bins_per_channel: int,
+    window: ArrayType,
+    fft_overlap_per_channel=0,
+    channel_count: int = 1,
+    axis=0,
+):
+    """Channelizes the input waveform and returns a time series of power in each channel.
+
+    The calculation is performed by transformation into the frequency domain. Power is
+    summed across the bins in the analysis bandwidth, ignoring those in bins outside
+    of the analysis bandwidth.
+
+    The total analysis bandwidth (i.e., covering all channels) is equal to
+    `(analysis_bins_per_channel/fft_size_per_channel)/Ts`,
+    occupying the center of the total sampling bandwidth. The bandwidth in each power bin is equal to
+    `(analysis_bins_per_channel/fft_size_per_channel)/Ts/channel_count`.
+
+    The time spacing of the power samples is equal to `Ts * fft_size_per_channel * channel_count`
+    if `fft_overlap_per_channel` is 0, otherwise, `Ts * fft_size_per_channel * channel_count / 2`.
+
+    Args:
+        iq: an input waveform or set of input waveforms, with time along axis 0
+
+        Ts: the sampling period (1/sampling_rate)
+
+        fft_size_per_channel: the size of the fft to use in each channel; total fft size is (channel_count * fft_size_per_channel)
+
+        channel_count: the number of channels to analyze
+
+        fft_overlap_per_channel: equal to 0 to disable overlapping windows, or to disable overlap, or fft_size_per_channel // 2)
+
+        analysis_bins_per_channel: the number of bins to keep in each channel
+
+        window: callable window function to use in the analysis
+
+        axis: the axis along which to perform the FFT (for now, require axis=0)
+
+    Raises:
+        NotImplementedError: if axis != 0
+
+        NotImplementedError: if fft_overlap_per_channel is not one of (0, fft_size_per_channel//2)
+
+        ValueError: if analysis_bins_per_channel > fft_size_per_channel
+
+        ValueError: if channel_count * (fft_size_per_channel - analysis_bins_per_channel) is not even
+    """
+    if axis != 0:
+        raise NotImplementedError('sorry, only axis=0 implemented for now')
+
+    if analysis_bins_per_channel > fft_size_per_channel:
+        raise ValueError('the number of analysis bins cannot be greater than FFT size')
+
+    freqs, times, X = stft(
+        iq,
+        fs=1.0 / Ts,
+        w=window,
+        nperseg=fft_size_per_channel * channel_count,
+        noverlap=fft_overlap_per_channel * channel_count,
+        norm='power',
+        axis=axis,
+    )
+
+    # extract only the bins inside the analysis bandwidth
+    skip_bins = channel_count * (fft_size_per_channel - analysis_bins_per_channel)
+    if skip_bins % 2 == 1:
+        raise ValueError('must pass an even number of bins to skip')
+    X = X[:, skip_bins // 2 : -skip_bins // 2]
+    freqs = freqs[skip_bins // 2 : -skip_bins // 2]
+
+    if channel_count == 1:
+        channel_power = power_analysis.envtopow(X).sum(axis=axis + 1)
+
+        return times, channel_power
+
+    else:
+        freqs = to_blocks(freqs, analysis_bins_per_channel)
+        X = to_blocks(X, analysis_bins_per_channel, axis=axis + 1)
+
+        channel_power = power_analysis.envtopow(X).sum(axis=axis + 2)
+
+        return freqs[0], times, channel_power
+
+
+def iq_to_stft_spectrogram(
+    iq: ArrayType,
+    window: ArrayType | str | tuple[str, float],
+    nfft: int,
+    Ts,
+    overlap=True,
+    analysis_bandwidth=None,
+):
+    xp = array_namespace(iq)
+
+    freqs, times, X = stft(
+        iq,
+        fs=1.0 / Ts,
+        window=window,
+        nperseg=nfft,
+        noverlap=nfft // 2 if overlap else 0,
+        norm='power',
+        axis=0,
+    )
+
+    # X = xp.fft.fftshift(X, axes=0)/xp.sqrt(nfft*Ts)
+    X = power_analysis.envtopow(X)
+
+    spg = pd.DataFrame(X, columns=freqs, index=times)
+
+    if analysis_bandwidth is not None:
+        throwaway = spg.shape[1] * (
+            1 - analysis_bandwidth * Ts
+        )  # (len(freqs)-int(xp.rint(nfft*analysis_bandwidth*Ts)))//2
+        if len(times) > 1 and xp.abs(throwaway - xp.rint(throwaway)) > 1e-6:
+            raise ValueError(
+                f'analysis bandwidth yield integral number of samples, but got {throwaway}'
+            )
+        # throwaway = throwaway
+        # if throwaway % 2 == 1:
+        #     raise ValueError('should have been even')
+        spg = spg.iloc[:, int(xp.floor(throwaway / 2)) : -int(xp.ceil(throwaway // 2))]
+
+    return spg
+
+
+def time_to_frequency(iq, Ts, window=None, axis=0):
+    xp = array_namespace(iq)
+
+    if window is None:
+        window = signal.windows.blackmanharris(iq.shape[0], sym=False)
+
+    window /= iq.shape[0] * xp.sqrt((window).mean())
+    window = broadcast_onto(window, iq, axis=0)
+
+    X = xp.fft.fftshift(
+        fft(iq * window, axis=0),
+        axes=0,
+    )
+    fftfreqs = xp.fft.fftshift(xp.fft.fftfreq(X.shape[0], Ts))
+    return fftfreqs, X
