@@ -231,6 +231,13 @@ def design_cola_resampler(
         fs_sdr_min = fs_target
 
     if fs_base > fs_target:
+        if shift and fs_sdr_min > fs_base:
+            msg = f"""LO frequency shift with the requested parameters
+            requires running the radio at a minimum {fs_sdr_min/1e6:0.2f} MS/s,
+            but its maximum rate is {fs_base/1e6:0.2f} MS/s"""
+
+            raise ValueError(msg)
+
         decimation = int(fs_base / fs_sdr_min)
         fs_sdr = fs_base / decimation
     else:
