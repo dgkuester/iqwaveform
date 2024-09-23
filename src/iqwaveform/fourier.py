@@ -1,7 +1,8 @@
 from __future__ import annotations
-import numpy as np
+import functools
+import typing
+
 from os import cpu_count
-from functools import lru_cache
 from array_api_compat import is_cupy_array, is_torch_array
 from math import ceil
 
@@ -18,10 +19,17 @@ from .util import (
 
 from .type_stubs import ArrayType
 
-pd = lazy_import('pandas')
-scipy = lazy_import('scipy')
-special = lazy_import('scipy.special')
-signal = lazy_import('scipy.signal')
+if typing.TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import scipy
+    from scipy import special, signal
+else:
+    np = lazy_import('numpy')
+    pd = lazy_import('pandas')
+    scipy = lazy_import('scipy')
+    special = lazy_import('scipy.special')
+    signal = lazy_import('scipy.signal')
 
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 128 * 1024
@@ -141,7 +149,7 @@ def to_blocks(y: ArrayType, size: int, truncate=False, axis=0) -> ArrayType:
     return y.reshape(newshape)
 
 
-@lru_cache(64)
+@functools.lru_cache(64)
 def _get_window(name_or_tuple, N, fftbins=True, norm=True, dtype=None, xp=None):
     if xp is None:
         w = signal.windows.get_window(name_or_tuple, N, fftbins=fftbins)
@@ -158,7 +166,7 @@ def _get_window(name_or_tuple, N, fftbins=True, norm=True, dtype=None, xp=None):
         return w
 
 
-@lru_cache
+@functools.lru_cache
 def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True):
     """return the equivalent noise bandwidth (ENBW) of a window, in bins"""
     w = _get_window(window, N, fftbins=fftbins)
@@ -174,7 +182,7 @@ def broadcast_onto(a: ArrayType, other: ArrayType, axis: int) -> ArrayType:
     return a.__getitem__(tuple(slices))
 
 
-@lru_cache(16)
+@functools.lru_cache(16)
 def _get_stft_axes(
     fs: float, nfft: int, time_size: int, overlap_frac: float = 0, xp=np
 ) -> tuple[ArrayType, ArrayType]:
@@ -186,7 +194,7 @@ def _get_stft_axes(
     return freqs, times
 
 
-@lru_cache
+@functools.lru_cache
 def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
     s = np.arange(3, max, 2)
 
@@ -197,7 +205,7 @@ def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
     return s[(s > min)]
 
 
-@lru_cache
+@functools.lru_cache
 def design_cola_resampler(
     fs_base: float,
     fs_target: float,
@@ -435,7 +443,7 @@ def _unstack_stft_windows(
     return xr  # axis_slice(xr, start=noverlap-extra//2, stop=(-noverlap+extra//2) or None, axis=axis)
 
 
-@lru_cache
+@functools.lru_cache
 def _ola_filter_parameters(
     array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
 ) -> tuple:
@@ -759,7 +767,7 @@ def ola_filter(
     )
 
 
-@lru_cache
+@functools.lru_cache
 def _freq_band_edges(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
     freq_inds = np.linspace(freq_min, freq_max, freq_count)
 
