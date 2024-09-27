@@ -233,6 +233,9 @@ def design_cola_resampler(
         (SDR sample rate, RF LO frequency offset in Hz, ola_filter_kws)
     """
 
+    if bw is None and shift:
+        raise ValueError('frequency shifting applies only when an analysis bandwidth is specified')
+
     if shift:
         fs_sdr_min = fs_target + min_oversampling * bw / 2 + bw_lo / 2
     else:
