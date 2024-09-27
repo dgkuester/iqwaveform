@@ -234,7 +234,7 @@ def design_cola_resampler(
     """
 
     if bw is None and shift:
-        raise ValueError('frequency shifting applies only when an analysis bandwidth is specified')
+        raise ValueError('frequency shifting may only be applied when an analysis bandwidth is specified')
 
     if shift:
         fs_sdr_min = fs_target + min_oversampling * bw / 2 + bw_lo / 2
@@ -533,12 +533,17 @@ def downsample_stft(
     shape = list(xstft.shape)
     shape[ax] = nfft_out
 
+    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
+    if (ilo, ihi) == (None, None):
+        # for now, resampling is centered around the bandpass
+        # center frequency; skip downsampling when it is not
+        # specified 
+        return freqs, xstft
+
     if out is None:
         xout = xp.empty(shape, dtype=xstft.dtype)
     else:
         xout = _truncated_buffer(out, shape)
-
-    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
 
     # evaluate the index offsets of the passband that center within the downsampled array
     passband_size = ihi - ilo
