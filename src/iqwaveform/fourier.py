@@ -806,7 +806,7 @@ def spectrogram(
     kws = dict(locals())
 
     freqs, times, X = stft(norm='power', **kws)
-    spg = power_analysis.envtopow(X, out=X)
+    spg = power_analysis.envtopow(X, out=X).real
 
     return freqs, times, spg
 
