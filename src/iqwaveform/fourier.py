@@ -549,7 +549,7 @@ def downsample_stft(
     passband_size = ihi - ilo
     stopband_size = nfft_out - passband_size
     ioutlo = stopband_size // 2 + 1
-    iouthi = nfft_out - ioutlo + stopband_size % 2
+    iouthi = ioutlo + (ihi-ilo)
 
     # truncate to the range of frequency bins, centered within the new sampling bandwidth
     freqs_out = freqs[ilo:ihi] - freqs[(ilo + ihi) // 2]
