@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .util import lazy_import, array_namespace
+from .util import lazy_import, array_namespace, isroundmod
 from .type_stubs import ArrayType
 import numpy as np
 from datetime import datetime
@@ -199,6 +199,7 @@ class Phy3GPP(PhyOFDM):
         2048: 1201,
     }
 
+    # "default" sample rates from LTE
     BW_TO_SAMPLE_RATE = {
         1.4e6: 1.92e6,
         3e6: 3.84e6,
@@ -216,8 +217,8 @@ class Phy3GPP(PhyOFDM):
 
     # Slot structure including cyclic prefix (CP) indices are specified in
     # 3GPP TS 38.211, Section 5.3.1. Below are the sizes of all CPs (in samples)
-    # in 1 slot for FFT size 128. CP size then scales proportionally to FFT size.
-    # 1 slot is the minimum number of contiguous symbols in a sequence
+    # in 1 slot for FFT size 128 at 15 kHz SCS. CP size then scales proportionally
+    # to FFT size. 1 slot is the minimum number of contiguous symbols in a sequence.
     MIN_CP_SIZES = np.array((10, 9, 9, 9, 9, 9, 9, 10, 9, 9, 9, 9, 9, 9), dtype=int)
 
     SCS_TO_SLOTS_PER_FRAME = {15e3: 10, 30e3: 20, 60e3: 40}
@@ -225,14 +226,21 @@ class Phy3GPP(PhyOFDM):
     # TODO: add 5G FR2 SCS values
     SUBCARRIER_SPACINGS = {15e3, 30e3, 60e3}
 
-    def __init__(self, channel_bandwidth, subcarrier_spacing=15e3, xp=np):
+    def __init__(self, channel_bandwidth, subcarrier_spacing=15e3, sample_rate=None, xp=np):
         if subcarrier_spacing not in self.SUBCARRIER_SPACINGS:
             raise ValueError(
                 f'subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}'
             )
 
-        sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
-        nfft = round(sample_rate / subcarrier_spacing)
+        if sample_rate is None:
+            sample_rate = self.BW_TO_SAMPLE_RATE[channel_bandwidth]
+        else:
+            sample_rate = sample_rate
+
+        if isroundmod(sample_rate, subcarrier_spacing):
+            nfft = round(sample_rate / subcarrier_spacing)
+        else:
+            raise ValueError('sample_rate / subcarrier_spacing must be counting number')
 
         if nfft in self.FFT_SIZE_TO_SUBCARRIERS:
             self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[nfft]
