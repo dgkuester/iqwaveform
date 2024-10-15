@@ -7,6 +7,7 @@ from .util import (
     Domain,
     float_dtype_like,
     isroundmod,
+    is_cupy_array
 )
 
 import array_api_compat.numpy as np
@@ -148,8 +149,21 @@ def powtodB(
         else:
             expr = f'real(10*log10(values+eps){eps_str})'
         values = ne.evaluate(expr, out=out, casting='unsafe')
+    elif is_cupy_array(xp):
+        from ._jit import cuda
+
+        if eps == 0:
+            if abs:
+                values = cuda.powtodB(x, out)
+            else:
+                values = cuda.powtodB_noabs(x, out)
+        else:
+            if abs:
+                values = cuda.powtodB_eps(x, out, eps)
+            else:
+                values = cuda.powtodB_eps_noabs(x, out, eps)
     else:
-        # cuda, mlx, etc array backends
+        # mlx, torch, etc
         # TODO: CUDA kernel evaluation here
         if abs:
             values = xp.abs(values, out=out)
@@ -162,7 +176,7 @@ def powtodB(
 
 
 def dBtopow(
-    x: Union[ArrayLike, Number], abs: bool = True, eps: float = 0, out=None
+    x: Union[ArrayLike, Number], out=None
 ) -> Any:
     """compute `10**(x/10)` with speed optimizations"""
 
@@ -171,8 +185,12 @@ def dBtopow(
     if xp is np:
         expr = '10**(values/10.)'
         values = ne.evaluate(expr, out=out, casting='unsafe')
+    elif is_cupy_array(xp):
+        from ._jit import cuda
+
+        values = cuda.dBtopow(x, out)
     else:
-        # cuda, mlx, etc array backends
+        # mlx, torch, etc
         # TODO: CUDA kernel evaluation here
         values = xp.divide(values, 10, out=out)
         values = xp.power(10, values, out=out)
@@ -193,9 +211,12 @@ def envtopow(x: Union[ArrayLike, Number], out=None) -> Any:
 
         if xp.iscomplexobj(values):
             values = values.real
+    elif is_cupy_array(xp):
+        from ._jit import cuda
 
+        values = cuda.envtopow(x, out)
     else:
-        # cuda, mlx, etc
+        # mlx, torch, etc
         # TODO: CUDA kernel evaluation here
         values = xp.abs(x, out=out)
         values *= values
@@ -214,12 +235,25 @@ def envtodB(
 
     if xp is np:
         if abs:
-            expr = f'real(10*log10(abs(values){eps_str}))'
+            expr = f'real(20*log10(abs(values){eps_str}))'
         else:
-            expr = f'real(10*log10(values+eps){eps_str})'
+            expr = f'real(20*log10(values+eps){eps_str})'
         values = ne.evaluate(expr, out=out, casting='unsafe')
+    elif is_cupy_array(xp):
+        from ._jit import cuda
+
+        if eps == 0:
+            if abs:
+                values = cuda.envtodB(x, out)
+            else:
+                values = cuda.envtodB_noabs(x, out)
+        else:
+            if abs:
+                values = cuda.envtodB_eps(x, out, eps)
+            else:
+                values = cuda.envtodB_eps_noabs(x, out, eps)
     else:
-        # cuda, mlx, etc array backends
+        # mlx, torch, etc
         # TODO: CUDA kernel evaluation here
         if abs:
             values = xp.abs(values, out=out)
