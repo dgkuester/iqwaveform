@@ -33,7 +33,7 @@ else:
 
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 128 * 1024
-
+INF = float('inf')
 
 def _truncated_buffer(x: ArrayType, shape):
     return x.flatten()[: np.prod(shape)].reshape(shape)
@@ -209,7 +209,7 @@ def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
 def design_cola_resampler(
     fs_base: float,
     fs_target: float,
-    bw: float = None,
+    bw: float = INF,
     bw_lo: float = 0,
     min_oversampling: float = 1.1,
     min_fft_size=2 * 4096 - 1,
@@ -233,7 +233,7 @@ def design_cola_resampler(
         (SDR sample rate, RF LO frequency offset in Hz, ola_filter_kws)
     """
 
-    if bw is None and shift:
+    if bw == INF and shift:
         raise ValueError('frequency shifting may only be applied when an analysis bandwidth is specified')
 
     if shift:
@@ -254,7 +254,7 @@ def design_cola_resampler(
     else:
         fs_sdr = fs_base
 
-    if bw is not None and bw > fs_base:
+    if bw != INF and bw > fs_base:
         raise ValueError(
             'passband bandwidth exceeds Nyquist bandwidth at maximum sample rate'
         )
@@ -292,10 +292,10 @@ def design_cola_resampler(
     else:
         raise ValueError(f'shift argument must be "left" or "right", not {repr(shift)}')
 
-    if sign != 0 and bw is None:
+    if sign != 0 and bw == INF:
         raise ValueError('a passband bandwidth must be set to design a LO shift')
 
-    if bw is None:
+    if bw == INF:
         lo_offset = 0
         passband = (None, None)
     else:
@@ -815,7 +815,7 @@ def persistence_spectrum(
     x: ArrayType,
     *,
     fs: float,
-    bandwidth=None,
+    bandwidth=INF,
     window,
     resolution: float,
     fractional_overlap=0,
@@ -854,7 +854,7 @@ def persistence_spectrum(
         raise ValueError('unsupported persistence spectrum domain "{domain}')
 
     if truncate:
-        if bandwidth is None:
+        if bandwidth == INF:
             bw_args = (None, None)
         else:
             bw_args = (-bandwidth / 2, +bandwidth / 2)
