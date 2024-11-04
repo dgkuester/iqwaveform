@@ -27,7 +27,7 @@ ytick.minor.size: 2.5
 ytick.major.pad: 1.75
 ytick.minor.pad: 1.75
 
-# Use use a limited number of colors selected for limited color vision from the seaborn 'colorblind' palette
+# Selected colors from the seaborn 'colorblind' palette for limited color vision
 axes.prop_cycle: cycler('color',['0173b2', 'de8f05', '029e73', 'd55e00', 'cc78bc', 'ca9161', 'fbafe4'])
 axes.grid: True
 grid.linestyle: ":"
