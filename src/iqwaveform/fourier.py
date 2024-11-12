@@ -35,6 +35,7 @@ CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 128 * 1024
 INF = float('inf')
 
+
 def _truncated_buffer(x: ArrayType, shape):
     return x.flatten()[: np.prod(shape)].reshape(shape)
 
@@ -234,7 +235,9 @@ def design_cola_resampler(
     """
 
     if bw == INF and shift:
-        raise ValueError('frequency shifting may only be applied when an analysis bandwidth is specified')
+        raise ValueError(
+            'frequency shifting may only be applied when an analysis bandwidth is specified'
+        )
 
     if shift:
         fs_sdr_min = fs_target + min_oversampling * bw / 2 + bw_lo / 2
@@ -351,7 +354,6 @@ def _stack_stft_windows(
     """
     axis_slice = signal._arraytools.axis_slice
 
-
     nfft = nperseg
     hop_size = nperseg - noverlap
 
@@ -364,7 +366,9 @@ def _stack_stft_windows(
     elif norm == 'power':
         scale = 1
     else:
-        raise ValueError(f"invalid normalization argument '{norm}' (should be 'cola' or 'psd')")
+        raise ValueError(
+            f"invalid normalization argument '{norm}' (should be 'cola' or 'psd')"
+        )
 
     if out is None:
         out = stride_windows.copy()
@@ -533,32 +537,41 @@ def downsample_stft(
     shape = list(xstft.shape)
     shape[ax] = nfft_out
 
-    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
-    if (ilo, ihi) == (None, None):
-        # for now, resampling is centered around the bandpass
-        # center frequency; skip downsampling when it is not
-        # specified 
-        return freqs, xstft
-
     if out is None:
         xout = xp.empty(shape, dtype=xstft.dtype)
     else:
         xout = _truncated_buffer(out, shape)
 
-    # evaluate the index offsets of the passband that center within the downsampled array
-    passband_size = ihi - ilo
+    # filter passband edge indexes
+    ipassin = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
+    ipassin = ((ipassin[0] or 0), (ipassin[1] or xstft.shape[ax]))
+    passband_size = ipassin[1] - ipassin[0]
     stopband_size = nfft_out - passband_size
-    ioutlo = stopband_size // 2 + 1
-    iouthi = ioutlo + (ihi-ilo)
+    if stopband_size < 0:
+        # passband exceeds sampling bandwidth:
+        # use the sampling bandwidth
+        trim_size = xstft.shape[ax] - nfft_out
+        iboundin = (trim_size // 2, trim_size // 2 + nfft_out)
+    else:
+        iboundin = (stopband_size // 2, stopband_size // 2 + nfft_out)
 
-    # truncate to the range of frequency bins, centered within the new sampling bandwidth
-    freqs_out = freqs[ilo:ihi] - freqs[(ilo + ihi) // 2]
+    copy_size = iboundin[1] - iboundin[0]
+    copy_skip = nfft_out - copy_size
+    iboundout = (copy_skip // 2, copy_skip // 2 + copy_size)
 
-    axis_slice(xout, ioutlo, iouthi, axis=ax)[:] = axis_slice(xstft, ilo, ihi, axis=ax)
-    axis_slice(xout, 0, ioutlo, axis=ax)[:] = 0
-    axis_slice(xout, iouthi, None, axis=ax)[:] = 0
+    # truncate to the range of frequency bins, centered within the new sampling band
+    freqs_trimmed = (
+        freqs[iboundin[0] : iboundin[1]]
+        - freqs[iboundin[0] : iboundin[1]][copy_size // 2]
+    )
 
-    return freqs_out, xout
+    axis_slice(xout, iboundout[0], iboundout[1], axis=ax)[:] = axis_slice(
+        xstft, iboundin[0], iboundin[1], axis=ax
+    )
+    axis_slice(xout, 0, iboundout[0], axis=ax)[:] = 0
+    axis_slice(xout, iboundout[1], None, axis=ax)[:] = 0
+
+    return freqs_trimmed, xout
 
 
 def stft(
@@ -631,6 +644,7 @@ def stft(
         w = _get_window(window, nfft, xp=xp, dtype=x.dtype, norm=should_norm)
         if is_torch_array(w):
             import torch
+
             w = torch.asarray(w, dtype=x.dtype, device=x.device)
     elif window is None:
         w = xp.ones(nfft)
@@ -645,7 +659,13 @@ def stft(
 
     else:
         x_ol = _stack_stft_windows(
-            x, window=w/nfft, nperseg=nperseg, noverlap=noverlap, axis=axis, out=out, norm=norm
+            x,
+            window=w / nfft,
+            nperseg=nperseg,
+            noverlap=noverlap,
+            axis=axis,
+            out=out,
+            norm=norm,
         )
 
         X = fft(

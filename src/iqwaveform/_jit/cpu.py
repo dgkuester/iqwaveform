@@ -4,7 +4,9 @@ import numpy as np
 
 
 @nb.njit(parallel=True, cache=True)
-def _corr_at_indices(inds: np.ndarray, x: np.ndarray, nfft: int, ncp: int, norm: bool, out: np.ndarray):
+def _corr_at_indices(
+    inds: np.ndarray, x: np.ndarray, nfft: int, ncp: int, norm: bool, out: np.ndarray
+):
     # j: autocorrelation sequence (output) index
     for j in nb.prange(nfft + ncp):
         accum_corr = nb.complex128(0 + 0j)

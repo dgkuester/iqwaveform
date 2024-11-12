@@ -67,13 +67,13 @@ def to_blocks(y, size, truncate=False):
             )
         )
 
-    new_size = size * (y.shape[-1] // size) 
+    new_size = size * (y.shape[-1] // size)
     new_shape = y.shape[:-1] + (y.shape[-1] // size, size)
 
-    return y[..., : new_size].reshape(new_shape)
+    return y[..., :new_size].reshape(new_shape)
 
 
-def _index_or_all(x, name, size, xp=np):   
+def _index_or_all(x, name, size, xp=np):
     if isinstance(x, str) and x == 'all':
         if size is None:
             raise ValueError('must set max to allow "all" value')
@@ -115,6 +115,7 @@ def corr_at_indices(inds, x, nfft, norm=True, out=None):
     _corr_at_indices(flat_inds, x, int(nfft), int(ncp), bool(norm), out)
 
     return out
+
 
 class PhyOFDM:
     def __init__(
@@ -167,7 +168,7 @@ class PhyOFDM:
             self.cp_idx = xp.concatenate(
                 [idx_range[start : start + size] for start, size in start_and_size]
             )
-            
+
             # indices in the contiguous range that are not CP
             self.symbol_idx = np.setdiff1d(idx_range, self.cp_idx)
 
@@ -212,7 +213,7 @@ class Phy3GPP(PhyOFDM):
         40e6: 61.44e6,
         60e6: 92.16e6,
         80e6: 122.88e6,
-        100e6: 153.6e6
+        100e6: 153.6e6,
     }
 
     # Slot structure including cyclic prefix (CP) indices are specified in
@@ -226,7 +227,9 @@ class Phy3GPP(PhyOFDM):
     # TODO: add 5G FR2 SCS values
     SUBCARRIER_SPACINGS = {15e3, 30e3, 60e3}
 
-    def __init__(self, channel_bandwidth, subcarrier_spacing=15e3, sample_rate=None, xp=np):
+    def __init__(
+        self, channel_bandwidth, subcarrier_spacing=15e3, sample_rate=None, xp=np
+    ):
         if subcarrier_spacing not in self.SUBCARRIER_SPACINGS:
             raise ValueError(
                 f'subcarrier_spacing must be one of {self.SUBCARRIER_SPACINGS}'
@@ -246,7 +249,7 @@ class Phy3GPP(PhyOFDM):
             self.subcarriers = self.FFT_SIZE_TO_SUBCARRIERS[nfft]
 
         cp_sizes = xp.array((nfft * self.MIN_CP_SIZES) // 128)
-        
+
         super().__init__(
             channel_bandwidth=channel_bandwidth,
             nfft=nfft,
@@ -273,9 +276,11 @@ class Phy3GPP(PhyOFDM):
             slots,
             '"slots" argument',
             size=self.SCS_TO_SLOTS_PER_FRAME[self.subcarrier_spacing],
-            xp=xp
+            xp=xp,
         )
-        symbols = _index_or_all(symbols, '"symbols" argument', size=self.FFT_PER_SLOT, xp=xp)
+        symbols = _index_or_all(
+            symbols, '"symbols" argument', size=self.FFT_PER_SLOT, xp=xp
+        )
 
         # first build each grid axis separately
         grid = []
@@ -290,11 +295,7 @@ class Phy3GPP(PhyOFDM):
         grid.append(frames * frame_size)
 
         # axis 3: cp index
-        grid.append(
-            xp.ogrid[
-                0 : self.cp_sizes[1]
-            ]
-        )
+        grid.append(xp.ogrid[0 : self.cp_sizes[1]])
 
         grid = [x.squeeze() for x in grid if x.size > 1]
         # pad the axis dimensions so they can be broadcast together
@@ -348,7 +349,7 @@ class Phy802_16(PhyOFDM):
         frame_duration: float = 5e-3,
         nfft: float = 2048,
         cp_ratio: float = 1 / 8,
-        xp=np
+        xp=np,
     ):
         """
         Args:
@@ -450,11 +451,7 @@ class Phy802_16(PhyOFDM):
         grid.append(frames * self.frame_size)
 
         # axis 2: cp index
-        grid.append(
-            xp.ogrid[
-                0 : self.cp_sizes[1]
-            ]
-        )
+        grid.append(xp.ogrid[0 : self.cp_sizes[1]])
 
         # pad the axis dimensions so they can be broadcast together
         a = xp.meshgrid(*grid, indexing='ij', copy=False)
@@ -498,7 +495,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         sync_window_count: int = 2,  # how many correlation windows to synchronize at a time (suggest >= 2)
         which_cp: str = 'all',  # 'all', 'special', or 'normal'
         subcarrier_spacing=15e3,
-        xp=np
+        xp=np,
     ):
         self.phy = Phy3GPP(channel_bandwidth, subcarrier_spacing=subcarrier_spacing)
         self.correlation_subframes = correlation_subframes
@@ -546,7 +543,7 @@ class BasebandClockSynchronizer:  # other base classes are basic_block, decim_bl
         """Estimate the offset required to align the start of a slot to
         index 0 in the complex sample vector `x`
         """
-        
+
         xp = array_namespace(x)
 
         # Coarse estimate of alignment offset to within coarse_step samples

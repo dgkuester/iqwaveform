@@ -7,7 +7,7 @@ from .util import (
     Domain,
     float_dtype_like,
     isroundmod,
-    is_cupy_array
+    is_cupy_array,
 )
 
 import array_api_compat.numpy as np
@@ -175,9 +175,7 @@ def powtodB(
     return _repackage_arraylike(values, x, unit_transform=unit_linear_to_dB)
 
 
-def dBtopow(
-    x: Union[ArrayLike, Number], out=None
-) -> Any:
+def dBtopow(x: Union[ArrayLike, Number], out=None) -> Any:
     """compute `10**(x/10)` with speed optimizations"""
 
     values, out, xp = _interpret_arraylike(x, out)

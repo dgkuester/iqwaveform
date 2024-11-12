@@ -189,7 +189,7 @@ def cosh(M: int, alpha, sym=True) -> np.ndarray:
 
 def acgw(M: int, sigma_t: float):
     """returns approximate confined gaussian window.
-    
+
     Args:
         M: window size, in samples
         sigma_t: The (3-dB) uncertainy resolution in time bins
@@ -197,7 +197,9 @@ def acgw(M: int, sigma_t: float):
         S. Starosielec, D. Hägele, "Discrete-time windows with minimal RMS bandwidth for given RMS temporal width,
         Signal Processing," Signal Processing Vol. 102, Sept. 2014, Pages 240-246.
     """
+
     def G(k):
-        return np.exp(-((k-(M-1)/2)/sigma_t)**2)
+        return np.exp(-(((k - (M - 1) / 2) / sigma_t) ** 2))
+
     k = np.arange(M)
-    return (G(k+M) + G(k-M))/(G(-0.5+M)+G(-0.5-M))
+    return (G(k + M) + G(k - M)) / (G(-0.5 + M) + G(-0.5 - M))

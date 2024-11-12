@@ -40,52 +40,62 @@ def _corr_at_indices(inds, x, nfft: int, ncp: int, norm: bool, out):
 
         out[j] = accum_corr
 
+
 @cupy.fuse()
 def envtopow(x, out):
-    out[:] = cupy.abs(x)**2
+    out[:] = cupy.abs(x) ** 2
     return out
+
 
 @cupy.fuse()
 def envtodB(x, out):
-    out[:] = 20*cupy.log10(cupy.abs(x))
+    out[:] = 20 * cupy.log10(cupy.abs(x))
     return out
+
 
 @cupy.fuse()
 def envtodB_noabs(x, out):
-    out[:] = 20*cupy.log10(x)
+    out[:] = 20 * cupy.log10(x)
     return out
+
 
 @cupy.fuse()
 def envtodB_eps(x, out, eps):
-    out[:] = 20*cupy.log10(cupy.abs(x)+eps)
+    out[:] = 20 * cupy.log10(cupy.abs(x) + eps)
     return out
+
 
 @cupy.fuse()
 def envtodB_eps_noabs(x, out, eps):
-    out[:] = 20*cupy.log10(x+eps)
+    out[:] = 20 * cupy.log10(x + eps)
     return out
+
 
 @cupy.fuse()
 def powtodB(x, out):
-    out[:] = 10*cupy.log10(cupy.abs(x))
+    out[:] = 10 * cupy.log10(cupy.abs(x))
     return out
+
 
 @cupy.fuse()
 def powtodB_eps_noabs(x, out, eps=0):
-    out[:] = 10*cupy.log10(x+eps)
+    out[:] = 10 * cupy.log10(x + eps)
     return out
+
 
 @cupy.fuse()
 def powtodB_eps(x, out, eps=0):
-    out[:] = 10*cupy.log10(cupy.abs(x)+eps)
+    out[:] = 10 * cupy.log10(cupy.abs(x) + eps)
     return out
+
 
 @cupy.fuse()
 def powtodB_noabs(x, out):
-    out[:] = 10*cupy.log10(x)
+    out[:] = 10 * cupy.log10(x)
     return out
+
 
 @cupy.fuse()
 def dBtopow(x, out):
-    out[:] = 10**(x/10)
+    out[:] = 10 ** (x / 10)
     return out
