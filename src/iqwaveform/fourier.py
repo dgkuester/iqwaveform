@@ -553,17 +553,23 @@ def downsample_stft(
         trim_size = xstft.shape[ax] - nfft_out
         iboundin = (trim_size // 2, trim_size // 2 + nfft_out)
     else:
-        iboundin = (stopband_size // 2, stopband_size // 2 + nfft_out)
+        center_index = round((ipassin[1] + ipassin[0])/2)
+        left_bound = center_index - nfft_out // 2
+        iboundin = left_bound, left_bound + nfft_out
 
     copy_size = iboundin[1] - iboundin[0]
     copy_skip = nfft_out - copy_size
     iboundout = (copy_skip // 2, copy_skip // 2 + copy_size)
+
+    assert iboundout[1] <= xout.shape[ax]
+    assert iboundin[1] <= xstft.shape[ax]
 
     # truncate to the range of frequency bins, centered within the new sampling band
     freqs_trimmed = (
         freqs[iboundin[0] : iboundin[1]]
         - freqs[iboundin[0] : iboundin[1]][copy_size // 2]
     )
+
 
     axis_slice(xout, iboundout[0], iboundout[1], axis=ax)[:] = axis_slice(
         xstft, iboundin[0], iboundin[1], axis=ax
