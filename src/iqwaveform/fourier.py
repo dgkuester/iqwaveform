@@ -36,8 +36,12 @@ OLA_MAX_FFT_SIZE = 128 * 1024
 INF = float('inf')
 
 
-def _truncated_buffer(x: ArrayType, shape):
-    return x.flatten()[: np.prod(shape)].reshape(shape)
+def _truncated_buffer(x: ArrayType, shape, dtype=None):
+    if dtype is not None:
+        x = x.view(dtype)
+    out_size = np.prod(shape)
+    assert x.size >= out_size
+    return x.flatten()[: out_size].reshape(shape)
 
 
 def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
@@ -534,13 +538,13 @@ def downsample_stft(
     axis_slice = signal._arraytools.axis_slice
     ax = axis + 1
 
-    shape = list(xstft.shape)
-    shape[ax] = nfft_out
+    shape_out = list(xstft.shape)
+    shape_out[ax] = nfft_out
 
     if out is None:
-        xout = xp.empty(shape, dtype=xstft.dtype)
+        xout = xp.empty(shape_out, dtype=xstft.dtype)
     else:
-        xout = _truncated_buffer(out, shape)
+        xout = _truncated_buffer(out, shape_out, xstft.dtype)
 
     # passband indexes in the input
     passband_start, passband_end = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
@@ -550,7 +554,6 @@ def downsample_stft(
         passband_end = xstft.shape[ax]
     passband_size = passband_end - passband_start
     passband_center = (passband_end + passband_start) // 2
-    stopband_size = max(nfft_out - passband_size, 0)
 
     # copy input indexes, taken from the passband
     max_copy_size = min(passband_size, nfft_out)
@@ -560,23 +563,29 @@ def downsample_stft(
 
     assert copy_size <= nfft_out, (copy_size, nfft_out)
     assert copy_size >= 0, copy_size
+    assert copy_in_end - copy_in_start == copy_size
 
     # copy output indexes
     output_zeros_size = max(nfft_out - copy_size, 0)
     copy_out_start = output_zeros_size // 2
     copy_out_end = copy_out_start + copy_size
     assert copy_out_end - copy_out_start == copy_size
+    assert copy_out_start >= 0
+    assert copy_out_end <= nfft_out
 
     # output frequencies centered at the passband center
     fc = freqs[passband_center]
     freqs_step = freqs[1] - freqs[0]
     freqs_out = freqs_step * np.arange(-nfft_out//2, nfft_out-nfft_out//2) - fc
 
+    # important: copy before zeroing, in case the input and output buffers overlap
     axis_slice(xout, copy_out_start, copy_out_end, axis=ax)[:] = axis_slice(
         xstft, copy_in_start, copy_in_end, axis=ax
     )
-    axis_slice(xout, 0, copy_out_start, axis=ax)[:] = 0
-    axis_slice(xout, copy_out_end, None, axis=ax)[:] = 0
+
+    if output_zeros_size > 0:
+        axis_slice(xout, 0, copy_out_start, axis=ax)[:] = 0
+        axis_slice(xout, copy_out_end, None, axis=ax)[:] = 0
 
     return freqs_out, xout
 
