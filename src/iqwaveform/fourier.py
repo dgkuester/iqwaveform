@@ -542,42 +542,43 @@ def downsample_stft(
     else:
         xout = _truncated_buffer(out, shape)
 
-    # filter passband edge indexes
-    ipassin = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
-    ipassin = ((ipassin[0] or 0), (ipassin[1] or xstft.shape[ax]))
-    passband_size = ipassin[1] - ipassin[0]
-    stopband_size = nfft_out - passband_size
-    if stopband_size < 0:
-        # passband exceeds sampling bandwidth:
-        # use the sampling bandwidth
-        trim_size = xstft.shape[ax] - nfft_out
-        iboundin = (trim_size // 2, trim_size // 2 + nfft_out)
-    else:
-        center_index = round((ipassin[1] + ipassin[0])/2)
-        left_bound = center_index - nfft_out // 2
-        iboundin = left_bound, left_bound + nfft_out
+    # passband indexes in the input
+    passband_start, passband_end = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
+    if passband_start is None:
+        passband_start = 0
+    if passband_end is None:
+        passband_end = xstft.shape[ax]
+    passband_size = passband_end - passband_start
+    passband_center = (passband_end + passband_start) // 2
+    stopband_size = max(nfft_out - passband_size, 0)
 
-    copy_size = iboundin[1] - iboundin[0]
-    copy_skip = nfft_out - copy_size
-    iboundout = (copy_skip // 2, copy_skip // 2 + copy_size)
+    # copy input indexes, taken from the passband
+    max_copy_size = min(passband_size, nfft_out)
+    copy_in_start = max(passband_center - max_copy_size // 2, 0)
+    copy_in_end = min(passband_center - max_copy_size // 2 + max_copy_size, xstft.shape[ax])
+    copy_size = copy_in_end - copy_in_start
 
-    assert iboundout[1] <= xout.shape[ax]
-    assert iboundin[1] <= xstft.shape[ax]
+    assert copy_size <= nfft_out, (copy_size, nfft_out)
+    assert copy_size >= 0, copy_size
 
-    # truncate to the range of frequency bins, centered within the new sampling band
-    freqs_trimmed = (
-        freqs[iboundin[0] : iboundin[1]]
-        - freqs[iboundin[0] : iboundin[1]][copy_size // 2]
+    # copy output indexes
+    output_zeros_size = max(nfft_out - copy_size, 0)
+    copy_out_start = output_zeros_size // 2
+    copy_out_end = copy_out_start + copy_size
+    assert copy_out_end - copy_out_start == copy_size
+
+    # output frequencies centered at the passband center
+    fc = freqs[passband_center]
+    freqs_step = freqs[1] - freqs[0]
+    freqs_out = freqs_step * np.arange(-nfft_out//2, nfft_out-nfft_out//2) - fc
+
+    axis_slice(xout, copy_out_start, copy_out_end, axis=ax)[:] = axis_slice(
+        xstft, copy_in_start, copy_in_end, axis=ax
     )
+    axis_slice(xout, 0, copy_out_start, axis=ax)[:] = 0
+    axis_slice(xout, copy_out_end, None, axis=ax)[:] = 0
 
-
-    axis_slice(xout, iboundout[0], iboundout[1], axis=ax)[:] = axis_slice(
-        xstft, iboundin[0], iboundin[1], axis=ax
-    )
-    axis_slice(xout, 0, iboundout[0], axis=ax)[:] = 0
-    axis_slice(xout, iboundout[1], None, axis=ax)[:] = 0
-
-    return freqs_trimmed, xout
+    return freqs_out, xout
 
 
 def stft(
