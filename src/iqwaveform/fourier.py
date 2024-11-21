@@ -552,7 +552,7 @@ def _find_downsample_copy_range(nfft_in: int, nfft_out: int, passband_start: int
     return (copy_out_start, copy_out_end), (copy_in_start, copy_in_end), passband_center
 
 
-@functools.lru_cache(100)
+@functools.lru_cache(16)
 def _find_downsampled_freqs(nfft_out, freq_center, freq_step):
     return freq_step * np.arange(-nfft_out//2, nfft_out-nfft_out//2) - freq_center
 
@@ -834,6 +834,8 @@ def _freq_band_edges(freq_min, freq_step, freq_count, cutoff_low, cutoff_hi):
 
     if cutoff_hi is None:
         ihi = None
+    elif cutoff_hi >= freqs[-1]:
+        ihi = freqs.size
     else:
         ihi = np.where(freqs < cutoff_hi)[0][-1]
 
