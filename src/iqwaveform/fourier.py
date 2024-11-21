@@ -509,10 +509,52 @@ def zero_stft_by_freq(
     """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
     axis_slice = signal._arraytools.axis_slice
 
-    ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
+    ilo, ihi = _freq_band_edges(freqs[0], freqs[1]-freqs[0], freqs.size, *passband)
     axis_slice(xstft, start=0, stop=ilo, axis=axis + 1)[:] = 0
     axis_slice(xstft, start=ihi, stop=None, axis=axis + 1)[:] = 0
     return xstft
+
+
+@functools.lru_cache(100)
+def _find_downsample_copy_range(nfft_in: int, nfft_out: int, passband_start: int, passband_end: int):
+    if passband_start is None:
+        passband_start = 0
+    if passband_end is None:
+        passband_end = nfft_in
+    passband_size = passband_end - passband_start
+    passband_center = (passband_end + passband_start) // 2
+    # passband_center_error = (passband_end - passband_start) % 2
+
+    # copy input indexes, taken from the passband
+    max_copy_size = min(passband_size, nfft_out)
+    copy_in_start = max(passband_center - max_copy_size // 2, 0)
+    copy_in_end = min(passband_center - max_copy_size // 2 + max_copy_size, nfft_in)
+    copy_size = copy_in_end - copy_in_start
+
+    if copy_in_start % 2 == 0:
+        # seemed easier to read than extra ceil()
+        copy_in_start += 1
+        copy_in_end += 1
+
+    assert copy_size <= nfft_out, (copy_size, nfft_out)
+    assert copy_size >= 0, copy_size
+    assert copy_in_end - copy_in_start == copy_size
+
+    # copy output indexes
+    output_zeros_size = max(nfft_out - copy_size, 0)
+    copy_out_start = output_zeros_size // 2
+    copy_out_end = copy_out_start + copy_size
+
+    assert copy_out_end - copy_out_start == copy_size
+    assert copy_out_start >= 0
+    assert copy_out_end <= nfft_out
+
+    return (copy_out_start, copy_out_end), (copy_in_start, copy_in_end), passband_center
+
+
+@functools.lru_cache(100)
+def _find_downsampled_freqs(nfft_out, freq_center, freq_step):
+    return freq_step * np.arange(-nfft_out//2, nfft_out-nfft_out//2) - freq_center
 
 
 def downsample_stft(
@@ -547,45 +589,15 @@ def downsample_stft(
         xout = _truncated_buffer(out, shape_out, xstft.dtype)
 
     # passband indexes in the input
-    passband_start, passband_end = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *passband)
-    if passband_start is None:
-        passband_start = 0
-    if passband_end is None:
-        passband_end = xstft.shape[ax]
-    passband_size = passband_end - passband_start
-    passband_center = (passband_end + passband_start) // 2
+    freq_step = freqs[1] - freqs[0]
+    passband_start, passband_end = _freq_band_edges(freqs[0], freq_step, freqs.size, *passband)
+    bounds_out, bounds_in, i_fc = _find_downsample_copy_range(xstft.shape[ax], nfft_out, passband_start, passband_end)
+    freqs_out = _find_downsampled_freqs(nfft_out, freqs[i_fc], freq_step)
 
-    # copy input indexes, taken from the passband
-    max_copy_size = min(passband_size, nfft_out)
-    copy_in_start = max(passband_center - max_copy_size // 2, 0)
-    copy_in_end = min(passband_center - max_copy_size // 2 + max_copy_size, xstft.shape[ax])
-    copy_size = copy_in_end - copy_in_start
-
-    assert copy_size <= nfft_out, (copy_size, nfft_out)
-    assert copy_size >= 0, copy_size
-    assert copy_in_end - copy_in_start == copy_size
-
-    # copy output indexes
-    output_zeros_size = max(nfft_out - copy_size, 0)
-    copy_out_start = output_zeros_size // 2
-    copy_out_end = copy_out_start + copy_size
-    assert copy_out_end - copy_out_start == copy_size
-    assert copy_out_start >= 0
-    assert copy_out_end <= nfft_out
-
-    # output frequencies centered at the passband center
-    fc = freqs[passband_center]
-    freqs_step = freqs[1] - freqs[0]
-    freqs_out = freqs_step * np.arange(-nfft_out//2, nfft_out-nfft_out//2) - fc
-
-    # important: copy before zeroing, in case the input and output buffers overlap
-    axis_slice(xout, copy_out_start, copy_out_end, axis=ax)[:] = axis_slice(
-        xstft, copy_in_start, copy_in_end, axis=ax
-    )
-
-    if output_zeros_size > 0:
-        axis_slice(xout, 0, copy_out_start, axis=ax)[:] = 0
-        axis_slice(xout, copy_out_end, None, axis=ax)[:] = 0
+    # copy first before zeroing, in case of input-output buffer reuse
+    axis_slice(xout, *bounds_out, axis=ax)[:] = axis_slice(xstft, *bounds_in, axis=ax)
+    axis_slice(xout, 0, bounds_out[0], axis=ax)[:] = 0
+    axis_slice(xout, bounds_out[1], None, axis=ax)[:] = 0
 
     return freqs_out, xout
 
@@ -812,18 +824,18 @@ def ola_filter(
 
 
 @functools.lru_cache
-def _freq_band_edges(freq_min, freq_max, freq_count, cutoff_low, cutoff_hi):
-    freq_inds = np.linspace(freq_min, freq_max, freq_count)
+def _freq_band_edges(freq_min, freq_step, freq_count, cutoff_low, cutoff_hi):
+    freqs = freq_min + np.arange(freq_count) * freq_step
 
     if cutoff_low is None:
         ilo = None
     else:
-        ilo = np.where(freq_inds >= cutoff_low)[0][0]
+        ilo = np.where(freqs >= cutoff_low)[0][0]
 
     if cutoff_hi is None:
         ihi = None
     else:
-        ihi = np.where(freq_inds <= cutoff_hi)[0][-1] + 1
+        ihi = np.where(freqs < cutoff_hi)[0][-1]
 
     return ilo, ihi
 
@@ -894,7 +906,7 @@ def persistence_spectrum(
             bw_args = (None, None)
         else:
             bw_args = (-bandwidth / 2, +bandwidth / 2)
-        ilo, ihi = _freq_band_edges(freqs[0], freqs[-1], freqs.size, *bw_args)
+        ilo, ihi = _freq_band_edges(freqs[0], freqs[1]-freqs[0], freqs.size, *bw_args)
         X = X[:, ilo:ihi]
 
     if domain == Domain.TIME:
