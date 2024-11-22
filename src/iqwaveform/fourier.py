@@ -554,7 +554,9 @@ def _find_downsample_copy_range(nfft_in: int, nfft_out: int, passband_start: int
 
 @functools.lru_cache(16)
 def _find_downsampled_freqs(nfft_out, freq_center, freq_step):
-    return freq_step * np.arange(-nfft_out//2, nfft_out-nfft_out//2) - freq_center
+    freqs = freq_step * np.arange(-nfft_out//2, nfft_out-nfft_out//2)
+    freqs = freqs - freqs[freqs.size//2]
+    return freqs
 
 
 def downsample_stft(
