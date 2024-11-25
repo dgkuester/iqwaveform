@@ -102,7 +102,7 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         )
 
 
-def iqfftfreq(n, d, xp=np, dtype='float64') -> ArrayType:
+def fftfreq(n, d, *, xp=np, dtype='float64') -> ArrayType:
     """A replacement for `scipy.fft.fftfreq` that mitigates
     some rounding errors underlying `np.fft.fftfreq`.
 
@@ -178,7 +178,7 @@ def to_blocks(y: ArrayType, size: int, truncate=False, axis=0) -> ArrayType:
 
 
 @functools.lru_cache(64)
-def _get_window(name_or_tuple, N, fftbins=True, norm=True, dtype=None, xp=None):
+def _get_window(name_or_tuple, N, fftbins=True, norm=True, *, dtype=None, xp=None):
     if xp is None:
         w = signal.windows.get_window(name_or_tuple, N, fftbins=fftbins)
 
@@ -212,11 +212,11 @@ def broadcast_onto(a: ArrayType, other: ArrayType, axis: int) -> ArrayType:
 
 @functools.lru_cache(16)
 def _get_stft_axes(
-    fs: float, nfft: int, time_size: int, overlap_frac: float = 0, xp=np
+    fs: float, nfft: int, time_size: int, overlap_frac: float = 0, *, xp=np
 ) -> tuple[ArrayType, ArrayType]:
     """returns stft (freqs, times) array tuple appropriate to the array module xp"""
 
-    freqs = iqfftfreq(nfft, 1/fs, xp=xp)
+    freqs = fftfreq(nfft, 1/fs, xp=xp)
     times = xp.arange(time_size) * ((1 - overlap_frac) * nfft / fs)
 
     return freqs, times
@@ -530,9 +530,13 @@ def zero_stft_by_freq(
     freqs: ArrayType, xstft: ArrayType, *, passband: tuple[float, float], axis=0
 ) -> ArrayType:
     """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
+    xp = array_namespace(xstft)
+    
     axis_slice = signal._arraytools.axis_slice
 
-    ilo, ihi = _freq_band_edges(freqs[0], freqs[1]-freqs[0], freqs.size, *passband)
+    freq_step = freqs[1] - freqs[0]
+    fs = xstft.shape[axis] * freq_step
+    ilo, ihi = _freq_band_edges(freqs.size, fs, *passband, xp=xp)
     axis_slice(xstft, start=0, stop=ilo, axis=axis + 1)[:] = 0
     axis_slice(xstft, start=ihi, stop=None, axis=axis + 1)[:] = 0
     return xstft
@@ -576,10 +580,8 @@ def _find_downsample_copy_range(nfft_in: int, nfft_out: int, passband_start: int
 
 
 @functools.lru_cache(16)
-def _find_downsampled_freqs(nfft_out, freq_center, freq_step):
-    freqs = freq_step * np.arange(-nfft_out//2, nfft_out-nfft_out//2)
-    freqs = freqs - freqs[freqs.size//2]
-    return freqs
+def _find_downsampled_freqs(nfft_out, freq_step, xp=np):
+    return fftfreq(nfft_out, 1./(freq_step * nfft_out), xp=xp)
 
 
 def downsample_stft(
@@ -615,9 +617,10 @@ def downsample_stft(
 
     # passband indexes in the input
     freq_step = freqs[1] - freqs[0]
-    passband_start, passband_end = _freq_band_edges(freqs[0], freq_step, freqs.size, *passband)
-    bounds_out, bounds_in, i_fc = _find_downsample_copy_range(xstft.shape[ax], nfft_out, passband_start, passband_end)
-    freqs_out = _find_downsampled_freqs(nfft_out, freqs[i_fc], freq_step)
+    fs = xstft.shape[ax] * freq_step
+    passband_start, passband_end = _freq_band_edges(xstft.shape[ax], 1/fs, *passband)
+    bounds_out, bounds_in, _ = _find_downsample_copy_range(xstft.shape[ax], nfft_out, passband_start, passband_end)
+    freqs_out = _find_downsampled_freqs(nfft_out, freq_step, xp=xp)
 
     # copy first before zeroing, in case of input-output buffer reuse
     axis_slice(xout, *bounds_out, axis=ax)[:] = axis_slice(xstft, *bounds_in, axis=ax)
@@ -849,20 +852,20 @@ def ola_filter(
 
 
 @functools.lru_cache
-def _freq_band_edges(freq_min, freq_step, freq_count, cutoff_low, cutoff_hi):
-    freqs = freq_min + np.arange(freq_count) * freq_step
+def _freq_band_edges(n, d, cutoff_low, cutoff_hi, *, xp=np):
+    freqs = fftfreq(n, d, xp=xp)
 
     if cutoff_low is None:
         ilo = None
     else:
-        ilo = np.where(freqs >= cutoff_low)[0][0]
+        ilo = xp.where(freqs >= cutoff_low)[0][0]
 
     if cutoff_hi is None:
         ihi = None
     elif cutoff_hi >= freqs[-1]:
         ihi = freqs.size
     else:
-        ihi = np.where(freqs < cutoff_hi)[0][-1]
+        ihi = xp.where(freqs <= cutoff_hi)[0][-1]
 
     return ilo, ihi
 
@@ -933,7 +936,7 @@ def persistence_spectrum(
             bw_args = (None, None)
         else:
             bw_args = (-bandwidth / 2, +bandwidth / 2)
-        ilo, ihi = _freq_band_edges(freqs[0], freqs[1]-freqs[0], freqs.size, *bw_args)
+        ilo, ihi = _freq_band_edges(freqs.size, 1.0/fs, *bw_args)
         X = X[:, ilo:ihi]
 
     if domain == Domain.TIME:
@@ -1113,5 +1116,5 @@ def time_to_frequency(iq, Ts, window=None, axis=0):
         fft(iq * window, axis=0),
         axes=0,
     )
-    fftfreqs = iqfftfreq(X.shape[0], Ts, xp=xp)
+    fftfreqs = fftfreq(X.shape[0], Ts, xp=xp)
     return fftfreqs, X
