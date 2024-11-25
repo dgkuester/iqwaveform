@@ -102,7 +102,7 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         )
 
 
-def fftfreq(n, d, *, xp=np, dtype='float64') -> ArrayType:
+def fftfreq(n, d, *, xp=np, dtype='float128') -> ArrayType:
     """A replacement for `scipy.fft.fftfreq` that mitigates
     some rounding errors underlying `np.fft.fftfreq`.
 
@@ -118,7 +118,7 @@ def fftfreq(n, d, *, xp=np, dtype='float64') -> ArrayType:
     Returns:
         an array of type `xp.ndarray`
     """
-    fnyq = 1/(2*d)
+    fnyq = 1/(2*np.astype(d, dtype))
     if n % 2 == 0:
         return xp.linspace(-fnyq, fnyq-2*fnyq/n, n, dtype=dtype)
     else:
