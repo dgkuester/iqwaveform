@@ -1,8 +1,3 @@
-import os
-
-os.environ.setdefault('NUMEXPR_MAX_THREADS', '4')
-del os
-
 from ._version import __version__
 
 from . import fourier, io, ofdm, power_analysis, util
