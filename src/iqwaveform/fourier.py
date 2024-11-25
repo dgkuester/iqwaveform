@@ -102,6 +102,29 @@ def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         )
 
 
+def iqfftfreq(n, d, xp=np, dtype='float64') -> ArrayType:
+    """A replacement for `scipy.fft.fftfreq` that mitigates
+    some rounding errors underlying `np.fft.fftfreq`.
+
+    Further, no `fftshift` is needed for complex-valued data;
+    the return result is monotonic beginning in the negative
+    frequency half-space.
+
+    Args:
+        n: fft size
+        d: sample spacing (inverse of sample rate)
+        xp: the array module to use, dictating the return type
+
+    Returns:
+        an array of type `xp.ndarray`
+    """
+    fnyq = 1/(2*d)
+    if n % 2 == 0:
+        return xp.linspace(-fnyq, fnyq-2*fnyq/n, n, dtype=dtype)
+    else:
+        return xp.linspace(-fnyq+fnyq/n, fnyq-fnyq/n, n, dtype=dtype)
+
+
 def zero_pad(x: ArrayType, pad_amt: int) -> ArrayType:
     """shortcut for e.g. np.pad(x, pad_amt, mode="constant", constant_values=0)"""
     xp = array_namespace(x)
@@ -193,7 +216,7 @@ def _get_stft_axes(
 ) -> tuple[ArrayType, ArrayType]:
     """returns stft (freqs, times) array tuple appropriate to the array module xp"""
 
-    freqs = xp.fft.fftshift(xp.fft.fftfreq(nfft, d=1 / fs))
+    freqs = iqfftfreq(nfft, 1/fs, xp=xp)
     times = xp.arange(time_size) * ((1 - overlap_frac) * nfft / fs)
 
     return freqs, times
@@ -1090,5 +1113,5 @@ def time_to_frequency(iq, Ts, window=None, axis=0):
         fft(iq * window, axis=0),
         axes=0,
     )
-    fftfreqs = xp.fft.fftshift(xp.fft.fftfreq(X.shape[0], Ts))
+    fftfreqs = iqfftfreq(X.shape[0], Ts, xp=xp)
     return fftfreqs, X
