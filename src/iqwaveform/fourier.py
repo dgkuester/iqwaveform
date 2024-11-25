@@ -118,7 +118,8 @@ def fftfreq(n, d, *, xp=np, dtype='float128') -> ArrayType:
     Returns:
         an array of type `xp.ndarray`
     """
-    fnyq = 1/(2*np.astype(d, dtype))
+    dtype = np.dtype(dtype)
+    fnyq = 1/(2*dtype.type(d))
     if n % 2 == 0:
         return xp.linspace(-fnyq, fnyq-2*fnyq/n, n, dtype=dtype)
     else:
