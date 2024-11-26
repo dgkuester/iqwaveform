@@ -1,5 +1,6 @@
 from __future__ import annotations
 import importlib.util
+import math
 import sys
 import array_api_compat
 from array_api_compat import is_cupy_array
@@ -89,7 +90,11 @@ def _whichfloats(seq: tuple[str | float, ...]) -> list[bool]:
 
 
 def isroundmod(value: float, div, atol=1e-6) -> bool:
-    return np.abs(np.rint(value / div) - value / div) <= atol
+    ratio = value / div
+    try:
+        return abs(math.remainder(ratio, 1)) <= atol
+    except TypeError:
+        return np.abs(np.rint(ratio) - ratio) <= atol
 
 
 class Domain(Enum):
