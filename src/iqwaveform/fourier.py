@@ -559,11 +559,6 @@ def _find_downsample_copy_range(nfft_in: int, nfft_out: int, passband_start: int
     copy_in_end = min(passband_center - max_copy_size // 2 + max_copy_size, nfft_in)
     copy_size = copy_in_end - copy_in_start
 
-    if copy_in_start % 2 == 0:
-        # seemed easier to read than extra ceil()
-        copy_in_start += 1
-        copy_in_end += 1
-
     assert copy_size <= nfft_out, (copy_size, nfft_out)
     assert copy_size >= 0, copy_size
     assert copy_in_end - copy_in_start == copy_size
