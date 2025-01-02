@@ -356,3 +356,19 @@ def to_blocks(y: type_stubs.ArrayType, size: int, truncate=False, axis=0) -> typ
     newshape = y.shape[:axis] + (ax_size // size, size) + y.shape[axis + 1 :]
 
     return y.reshape(newshape)
+
+
+def axis_index(a, mask, axis=-1):
+    """Return a boolean-indexed selection on axis `axis' from `a'.
+
+    Arguments:
+    a: numpy.ndarray
+        The array to be sliced.
+    mask: boolean index array of size a.shape[axis]
+    axis : int, optional
+        The axis of `a` to be sliced.
+    """
+    a_slice = [slice(None)] * a.ndim
+    a_slice[axis] = mask
+    b = a[tuple(a_slice)]
+    return b

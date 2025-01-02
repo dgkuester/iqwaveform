@@ -15,7 +15,8 @@ from .util import (
     Domain,
     _whichfloats,
     lazy_import,
-    to_blocks
+    to_blocks,
+    axis_index
 )
 
 from .type_stubs import ArrayType
@@ -666,7 +667,7 @@ def stft(
         w = xp.array(window)
 
     if noverlap == 0:
-        x = to_blocks(x, nfft, truncate=truncate)
+        x = to_blocks(x, nfft, axis=axis, truncate=truncate)
 
         x = x * broadcast_onto(w / nfft, x, axis=axis + 1)
         X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
@@ -919,15 +920,15 @@ def persistence_spectrum(
 
     quantiles = list(np.asarray(statistics)[isquantile].astype('float32'))
 
-    # TODO: access the proper axis of spg in the output buffer
-    out[isquantile] = xp.quantile(
-        spg, xp.array(quantiles), axis=axis, out=out[isquantile]
+    out_quantiles = axis_index(out, isquantile, axis=axis).swapaxes(0,1)
+    out_quantiles[:] = xp.quantile(
+        spg, xp.array(quantiles), axis=axis
     )
 
     for i, isquantile in enumerate(isquantile):
         if not isquantile:
             ufunc = stat_ufunc_from_shorthand(statistics[i], xp=xp)
-            axis_slice(out, start=i, stop=i + 1, axis=axis)[...] = ufunc(spg, axis=axis)
+            axis_index(out, i, axis=axis)[...] = ufunc(spg, axis=axis)
 
     return out
 
