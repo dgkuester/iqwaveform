@@ -319,6 +319,7 @@ def iq_to_cyclic_power(
     truncate=False,
     detectors=('rms', 'peak'),
     cycle_stats=('min', 'mean', 'max'),
+    axis=0
 ) -> dict[str, dict[str, ArrayType]]:
     """computes a time series of periodic frame power statistics.
 
@@ -406,7 +407,7 @@ def iq_to_cyclic_power(
     for detector, x in power.items():
         ret[detector] = {}
         for cycle_stat, func in cycle_stat_ufunc.items():
-            ret[detector][cycle_stat] = func(x, axis=0)
+            ret[detector][cycle_stat] = func(x, axis=axis)
 
     return ret
 
