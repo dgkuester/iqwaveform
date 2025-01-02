@@ -370,5 +370,19 @@ def axis_index(a, mask, axis=-1):
     """
     a_slice = [slice(None)] * a.ndim
     a_slice[axis] = mask
-    b = a[tuple(a_slice)]
-    return b
+    return a[tuple(a_slice)]
+
+
+def axis_slice(a, start, stop, step, axis=-1):
+    """Return a boolean-indexed selection on axis `axis' from `a'.
+
+    Arguments:
+    a: numpy.ndarray
+        The array to be sliced.
+    mask: boolean index array of size a.shape[axis]
+    axis : int, optional
+        The axis of `a` to be sliced.
+    """
+    a_slice = [slice(None)] * a.ndim
+    a_slice[axis] = slice(start, stop, step)
+    return a[tuple(a_slice)]
