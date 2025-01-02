@@ -317,3 +317,42 @@ def float_dtype_like(x: type_stubs.ArrayType):
     except ValueError:
         ret = np.float32
     return ret
+
+
+def to_blocks(y: type_stubs.ArrayType, size: int, truncate=False, axis=0) -> type_stubs.ArrayType:
+    """Returns a view on y reshaped into blocks along axis `axis`.
+
+    Args:
+        y: an input array of size (N[0], ... N[K-1])
+
+    Raises:
+        TypeError: if not isinstance(size, int)
+
+        IndexError: if y.size == 0
+
+        ValueError: if truncate == False and y.shape[axis] % size != 0
+
+    Returns:
+        view on `y` with shape (..., N[axis]//size, size, ..., N[K-1]])
+    """
+
+    if not isinstance(size, int):
+        raise TypeError('block size must be integer')
+    if y.size == 0:
+        raise IndexError('cannot form blocks on arrays of size 0')
+
+    # ensure the axis dimension is a multiple of the block size
+    ax_size = y.shape[axis]
+    if ax_size % size != 0:
+        if not truncate:
+            raise ValueError(
+                f'axis 0 size {ax_size} is not a factor of block size {size}'
+            )
+
+        slices = len(y.shape) * [slice(None, None)]
+        slices[axis] = slice(None, size * (ax_size // size))
+        y = y.__getitem__(tuple(slices))
+
+    newshape = y.shape[:axis] + (ax_size // size, size) + y.shape[axis + 1 :]
+
+    return y.reshape(newshape)

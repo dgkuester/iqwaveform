@@ -8,6 +8,7 @@ from .util import (
     float_dtype_like,
     isroundmod,
     is_cupy_array,
+    to_blocks
 )
 
 import array_api_compat.numpy as np
@@ -44,7 +45,7 @@ def unit_linear_to_dB(s: str):
     return s
 
 
-def stat_ufunc_from_shorthand(kind, xp=np):
+def stat_ufunc_from_shorthand(kind, xp=np, axis=0):
     NAMED_UFUNCS = {
         'min': xp.min,
         'max': xp.max,
@@ -63,7 +64,7 @@ def stat_ufunc_from_shorthand(kind, xp=np):
         ufunc = NAMED_UFUNCS[kind]
 
     elif isinstance(kind, Number):
-        ufunc = partial(xp.quantile, q=kind)
+        ufunc = partial(xp.quantile, q=kind, axis=axis)
 
     elif callable(kind):
         ufunc = kind
@@ -270,6 +271,7 @@ def iq_to_bin_power(
     randomize: bool = False,
     kind: str = 'mean',
     truncate=False,
+    axis=0
 ):
     """computes power along the rows of `iq` (time axis) on bins of duration Tbin.
 
@@ -291,24 +293,21 @@ def iq_to_bin_power(
             f'bin period ({Tbin} s) must be multiple of waveform sample period ({Ts})'
         )
 
-    detector = stat_ufunc_from_shorthand(kind, xp=xp)
-
     # instantaneous power, reshaped into bins
     if randomize:
+        if axis != 0:
+            raise ValueError('only axis=0 is currently supported when randomize=True')
+        
         size = int(np.floor(iq.shape[0] / N))
         starts = xp.random.randint(0, iq.shape[0] - N, size)
         offsets = xp.arange(N)
-
-        power_bins = envtopow(iq[starts[:, np.newaxis] + offsets[np.newaxis, :]])
-
+        iq_blocks = iq[starts[:, np.newaxis] + offsets[np.newaxis, :]]
     else:
-        size = (iq.shape[0] // N) * N
-        iq = iq[:size]
-        shape01 = (size // N, N)
-        shape2 = iq.shape[1:2] if iq.ndim == 2 else tuple()
-        power_bins = envtopow(iq).reshape(shape01 + shape2)
+        iq_blocks = to_blocks(iq, N, axis=axis, truncate=truncate)
 
-    return detector(power_bins, axis=1).astype(float_dtype_like(iq))
+    detector = stat_ufunc_from_shorthand(kind, xp=xp, axis=axis+1)
+
+    return detector(envtopow(iq_blocks)).astype(float_dtype_like(iq))
 
 
 def iq_to_cyclic_power(
