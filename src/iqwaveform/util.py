@@ -395,12 +395,13 @@ def axis_index(a, index, axis=-1):
 
 
 def axis_slice(a, start, stop=None, step=None, axis=-1):
-    """Return a boolean-indexed selection on axis `axis' from `a'.
+    """Return a slice on the array `a` on the axis index `axis`.
 
     Arguments:
     a: numpy.ndarray
         The array to be sliced.
-    mask: boolean index array of size a.shape[axis]
+    start, stop=None, step:
+        The arguments to `slice` on that axis.
     axis : int, optional
         The axis of `a` to be sliced.
     """
