@@ -12,6 +12,7 @@ from .util import (
 )
 
 import array_api_compat.numpy as np
+import functools
 import re
 import warnings
 from numbers import Number
@@ -45,6 +46,7 @@ def unit_linear_to_dB(s: str):
     return s
 
 
+@functools.lru_cache
 def stat_ufunc_from_shorthand(kind, xp=np, axis=0):
     NAMED_UFUNCS = {
         'min': xp.min,
@@ -61,13 +63,13 @@ def stat_ufunc_from_shorthand(kind, xp=np, axis=0):
         if kind not in NAMED_UFUNCS:
             valid = NAMED_UFUNCS.keys()
             raise ValueError(f'kind argument must be one of {valid}')
-        ufunc = NAMED_UFUNCS[kind]
+        ufunc = partial(NAMED_UFUNCS[kind], axis=axis)
 
     elif isinstance(kind, Number):
         ufunc = partial(xp.quantile, q=kind, axis=axis)
 
     elif callable(kind):
-        ufunc = kind
+        ufunc = partial(kind, axis=axis)
 
     else:
         raise ValueError(f'invalid statistic ufunc "{kind}"')
@@ -306,8 +308,9 @@ def iq_to_bin_power(
         iq_blocks = to_blocks(iq, N, axis=axis, truncate=truncate)
 
     detector = stat_ufunc_from_shorthand(kind, xp=xp, axis=axis+1)
+    power_bins = envtopow(iq_blocks)
 
-    return detector(envtopow(iq_blocks)).astype(float_dtype_like(iq))
+    return detector(power_bins).astype(float_dtype_like(iq))
 
 
 def iq_to_cyclic_power(
@@ -354,7 +357,7 @@ def iq_to_cyclic_power(
             )
 
         power = {
-            d: iq_to_bin_power(x, Ts, detector_period, kind=d, truncate=truncate)
+            d: iq_to_bin_power(x, Ts, detector_period, kind=d, truncate=truncate, axis=axis)
             for d in detectors
         }
 
@@ -378,21 +381,26 @@ def iq_to_cyclic_power(
         )
 
     power_shape = power[detectors[0]].shape
-    if power_shape[0] % cyclic_detector_bins != 0:
+    
+    if power_shape[1] % cyclic_detector_bins != 0:
         if truncate:
-            N = (power_shape[0] // cyclic_detector_bins) * cyclic_detector_bins
+            N = (power_shape[1] // cyclic_detector_bins) * cyclic_detector_bins
             power = {d: x[:N] for d, x in power.items()}
         else:
             raise ValueError(
                 'pass truncate=True to allow truncation to align with cyclic windows'
             )
 
-    shape_by_cycle = (
-        power_shape[0] // cyclic_detector_bins,
-        cyclic_detector_bins,
-        *([x.shape[1]] if x.ndim == 2 else []),
-    )
+    if axis < 0:
+        axis = x.ndim + axis
 
+    shape_by_cycle = (
+        power_shape[:axis]
+        + (power_shape[axis] // cyclic_detector_bins,)
+        + (cyclic_detector_bins,)
+        + (x.shape[axis+1:] if x.ndim > axis else ())
+    )
+    
     power = {d: x.reshape(shape_by_cycle) for d, x in power.items()}
 
     cycle_stat_ufunc = {
