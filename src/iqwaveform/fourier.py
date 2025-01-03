@@ -16,7 +16,8 @@ from .util import (
     _whichfloats,
     lazy_import,
     to_blocks,
-    axis_index
+    axis_index,
+    axis_slice
 )
 
 from .type_stubs import ArrayType
@@ -25,12 +26,11 @@ if typing.TYPE_CHECKING:
     import numpy as np
     import pandas as pd
     import scipy
-    from scipy import special, signal
+    from scipy import signal
 else:
     np = lazy_import('numpy')
     pd = lazy_import('pandas')
     scipy = lazy_import('scipy')
-    special = lazy_import('scipy.special')
     signal = lazy_import('scipy.signal')
 
 CPU_COUNT = cpu_count()
@@ -171,7 +171,7 @@ def broadcast_onto(a: ArrayType, other: ArrayType, axis: int) -> ArrayType:
 
     slices = [xp.newaxis] * len(other.shape)
     slices[axis] = slice(None, None)
-    return a.__getitem__(tuple(slices))
+    return a[tuple(slices)]
 
 
 @functools.lru_cache(16)
@@ -343,13 +343,11 @@ def _stack_stft_windows(
         x: the 1-D waveform (or N-D tensor of waveforms)
         axis: the waveform axis; stft will be evaluated across all other axes
     """
-    axis_slice = signal._arraytools.axis_slice
 
     nfft = nperseg
     hop_size = nperseg - noverlap
 
     strided = sliding_window_view(x, nfft, axis=axis)
-
     stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
 
     if norm is None:
@@ -389,7 +387,6 @@ def _unstack_stft_windows(
     """
 
     xp = array_namespace(y)
-    axis_slice = signal._arraytools.axis_slice
 
     nfft = nperseg
     hop_size = nperseg - noverlap
@@ -495,8 +492,6 @@ def zero_stft_by_freq(
 ) -> ArrayType:
     """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
     xp = array_namespace(xstft)
-    
-    axis_slice = signal._arraytools.axis_slice
 
     freq_step = freqs[1] - freqs[0]
     fs = xstft.shape[axis] * freq_step
@@ -563,7 +558,6 @@ def downsample_stft(
         A tuple containing the new `freqs` range and trimmed `xstft`
     """
     xp = array_namespace(xstft)
-    axis_slice = signal._arraytools.axis_slice
     ax = axis + 1
 
     shape_out = list(xstft.shape)
@@ -668,7 +662,6 @@ def stft(
 
     if noverlap == 0:
         x = to_blocks(x, nfft, axis=axis, truncate=truncate)
-
         x = x * broadcast_onto(w / nfft, x, axis=axis + 1)
         X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
 
@@ -710,7 +703,6 @@ def istft(
     """reconstruct and return a waveform given its STFT and associated parameters"""
 
     xp = array_namespace(xstft)
-    axis_slice = signal._arraytools.axis_slice
 
     x_windows = ifft(
         xp.fft.fftshift(xstft, axes=axis + 1),
@@ -871,7 +863,6 @@ def persistence_spectrum(
         raise ValueError('sample_rate_Hz/resolution must be a counting number')
 
     xp = array_namespace(x)
-    axis_slice = signal._arraytools.axis_slice
     domain = get_input_domain()
 
     if domain == Domain.TIME:

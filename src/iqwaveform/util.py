@@ -1,5 +1,6 @@
 from __future__ import annotations
 import importlib.util
+import functools
 import math
 import sys
 import array_api_compat
@@ -358,7 +359,28 @@ def to_blocks(y: type_stubs.ArrayType, size: int, truncate=False, axis=0) -> typ
     return y.reshape(newshape)
 
 
-def axis_index(a, mask, axis=-1):
+@functools.cache
+def _pad_slices_to_dim(ndim: int, axis: int, /):
+    if not isinstance(axis, int):
+        raise TypeError('axis argument must be integer')
+
+    if axis < 0:
+        axis = ndim + axis
+    
+        if axis < 0:
+            raise ValueError(f'axis {axis} exceeds the number of dimensions')
+
+    if axis <= ndim // 2:
+        before = (slice(None),) * (axis-1)
+        after = ()
+    else:
+        before = (Ellipsis,)
+        after = (slice(None),) * (ndim - axis - 1)
+
+    return before, after
+
+
+def axis_index(a, index, axis=-1):
     """Return a boolean-indexed selection on axis `axis' from `a'.
 
     Arguments:
@@ -368,9 +390,8 @@ def axis_index(a, mask, axis=-1):
     axis : int, optional
         The axis of `a` to be sliced.
     """
-    a_slice = [slice(None)] * a.ndim
-    a_slice[axis] = mask
-    return a[tuple(a_slice)]
+    before, after = _pad_slices_to_dim(a.ndim, axis)
+    return a[before + (index,) + after]
 
 
 def axis_slice(a, start, stop, step, axis=-1):
@@ -383,6 +404,7 @@ def axis_slice(a, start, stop, step, axis=-1):
     axis : int, optional
         The axis of `a` to be sliced.
     """
-    a_slice = [slice(None)] * a.ndim
-    a_slice[axis] = slice(start, stop, step)
-    return a[tuple(a_slice)]
+
+    before, after = _pad_slices_to_dim(a.ndim, axis)
+    sl = slice(start, stop, step),
+    return a[before + (sl,) + after]
