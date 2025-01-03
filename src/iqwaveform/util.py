@@ -371,7 +371,7 @@ def _pad_slices_to_dim(ndim: int, axis: int, /):
             raise ValueError(f'axis {axis} exceeds the number of dimensions')
 
     if axis <= ndim // 2:
-        before = (slice(None),) * (axis-1)
+        before = (slice(None),) * (axis)
         after = ()
     else:
         before = (Ellipsis,)
