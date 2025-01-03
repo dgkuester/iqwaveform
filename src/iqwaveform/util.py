@@ -394,7 +394,7 @@ def axis_index(a, index, axis=-1):
     return a[before + (index,) + after]
 
 
-def axis_slice(a, start, stop, step, axis=-1):
+def axis_slice(a, start, stop=None, step=None, axis=-1):
     """Return a boolean-indexed selection on axis `axis' from `a'.
 
     Arguments:
