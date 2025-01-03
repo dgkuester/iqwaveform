@@ -406,5 +406,5 @@ def axis_slice(a, start, stop=None, step=None, axis=-1):
     """
 
     before, after = _pad_slices_to_dim(a.ndim, axis)
-    sl = slice(start, stop, step),
+    sl = slice(start, stop, step)
     return a[before + (sl,) + after]
