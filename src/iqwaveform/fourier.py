@@ -887,17 +887,17 @@ def persistence_spectrum(
         else:
             bw_args = (-bandwidth / 2, +bandwidth / 2)
         ilo, ihi = _freq_band_edges(freqs.size, 1.0/fs, *bw_args)
-        X = X[:, ilo:ihi]
+        X = axis_slice(X, ilo, ihi, axis=axis+1)
 
     if domain == Domain.TIME:
         if dB:
-            spg = power_analysis.powtodB(X, eps=1e-25, out=X.real)
+            spg = power_analysis.powtodB(X, eps=1e-25, out=X).real
         else:
             spg = X.astype('float32')
     elif domain == Domain.FREQUENCY:
         if dB:
             # here X is complex-valued; use the first-half of its buffer
-            spg = power_analysis.envtodB(X, eps=1e-25, out=X.real)
+            spg = power_analysis.envtodB(X, eps=1e-25, out=X).real
         else:
             spg = power_analysis.envtopow(X, out=X.real)
     else:
