@@ -1,5 +1,7 @@
 """Transformations and statistical tools for power time series"""
 
+from __future__ import annotations
+
 from .util import (
     lazy_import,
     array_namespace,
