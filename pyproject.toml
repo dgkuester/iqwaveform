@@ -1,17 +1,16 @@
 [project]
 name = "iqwaveform"
-version = "0.38.0"
+version = "0.39.0"
 description = "tools for IQ waveform analysis and visualization"
 authors = [
     {name = "Dan Kuester", email = "daniel.kuester@nist.gov"},
 ]
 dependencies = [
-    "pandas>=1.1",
+    "pandas>=1.5",
     "scipy>=1.9.2",
     "numpy>=1.21",
     "matplotlib>=3.7",
     "numexpr>=2.7",
-    "scikit-learn>=1.1,<2.0",
     "methodtools",
     "xarray",
     "array-api-compat>=1.6",
@@ -21,6 +20,11 @@ dependencies = [
 requires-python = ">=3.9"
 readme = "README.md"
 license = {file = "LICENSE.md"}
+
+[project.optional-dependencies]
+cellular = [
+    "scikit-learn>=1.1,<2.0"
+]
 
 [build-system]
 requires = ["pdm-pep517>=1.0"]
