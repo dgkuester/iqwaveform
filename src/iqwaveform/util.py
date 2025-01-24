@@ -76,7 +76,7 @@ def empty_shared(shape: tuple | int, dtype: np.dtype, xp=np):
 
 
 @lru_cache
-def _whichfloats(seq: tuple[str | float, ...]) -> list[bool]:
+def find_float_inds(seq: tuple[str | float, ...]) -> list[bool]:
     """return a list to flag whether each element can be converted to float"""
 
     ret = []

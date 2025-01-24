@@ -13,7 +13,7 @@ from .util import (
     sliding_window_view,
     get_input_domain,
     Domain,
-    _whichfloats,
+    find_float_inds,
     lazy_import,
     to_blocks,
     axis_index,
@@ -840,7 +840,7 @@ def spectrogram(
     return freqs, times, spg
 
 
-def persistence_spectrum(
+def power_spectral_density(
     x: ArrayType,
     *,
     fs: float,
@@ -903,7 +903,7 @@ def persistence_spectrum(
     else:
         raise ValueError(f'unhandled dB and domain: {dB}, {domain}')
 
-    isquantile = _whichfloats(tuple(statistics))
+    isquantile = find_float_inds(tuple(statistics))
 
     shape = list(spg.shape)
     shape[axis] = len(statistics)
