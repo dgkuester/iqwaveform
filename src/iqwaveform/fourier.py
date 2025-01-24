@@ -344,6 +344,8 @@ def _stack_stft_windows(
         axis: the waveform axis; stft will be evaluated across all other axes
     """
 
+    xp = array_namespace(x)
+
     nfft = nperseg
     hop_size = nperseg - noverlap
 
@@ -363,7 +365,7 @@ def _stack_stft_windows(
         out = stride_windows.copy()
     else:
         out = _truncated_buffer(out, stride_windows.shape)
-        out[:] = stride_windows
+        xp.copyto(out, stride_windows)
 
     out *= broadcast_onto(window / scale, stride_windows, axis=axis + 1)
 
@@ -405,7 +407,7 @@ def _unstack_stft_windows(
         stop=noverlap,
         axis=axis,
     )
-    xr_slice[:] = 0
+    xp.copyto(xr_slice, 0)
 
     xr_slice = axis_slice(
         xr,
@@ -413,7 +415,7 @@ def _unstack_stft_windows(
         stop=None,
         axis=axis,
     )
-    xr_slice[:] = 0
+    xp.copyto(xr_slice, 0)
 
     # for speed, sum up in groups of non-overlapping windows
     for offs in range(nfft // hop_size):
@@ -431,7 +433,7 @@ def _unstack_stft_windows(
         )
 
         if offs == 0:
-            xr_slice[:] = yslice[: xr_slice.size]
+            xp.copyto(xr_slice, yslice[: xr_slice.size])
         else:
             xr_slice += yslice[: xr_slice.size]
 
@@ -496,8 +498,8 @@ def zero_stft_by_freq(
     freq_step = freqs[1] - freqs[0]
     fs = xstft.shape[axis] * freq_step
     ilo, ihi = _freq_band_edges(freqs.size, fs, *passband, xp=xp)
-    axis_slice(xstft, start=0, stop=ilo, axis=axis + 1)[:] = 0
-    axis_slice(xstft, start=ihi, stop=None, axis=axis + 1)[:] = 0
+    xp.copyto(axis_slice(xstft, 0, ilo, axis=axis + 1), 0)
+    xp.copyto(axis_slice(xstft, ihi, None, axis=axis + 1), 0)
     return xstft
 
 
@@ -576,9 +578,12 @@ def downsample_stft(
     freqs_out = _find_downsampled_freqs(nfft_out, freq_step, xp=xp)
 
     # copy first before zeroing, in case of input-output buffer reuse
-    axis_slice(xout, *bounds_out, axis=ax)[:] = axis_slice(xstft, *bounds_in, axis=ax)
-    axis_slice(xout, 0, bounds_out[0], axis=ax)[:] = 0
-    axis_slice(xout, bounds_out[1], None, axis=ax)[:] = 0
+    xp.copyto(
+        axis_slice(xout, *bounds_out, axis=ax),
+        axis_slice(xstft, *bounds_in, axis=ax)
+    )
+    xp.copyto(axis_slice(xout, 0, bounds_out[0], axis=ax), 0)
+    xp.copyto(axis_slice(xout, bounds_out[1], None, axis=ax), 0)
 
     return freqs_out, xout
 
@@ -698,17 +703,25 @@ def stft(
 
 
 def istft(
-    xstft: ArrayType, size=None, *, nfft: int, noverlap: int, out=None, axis=0
+    xstft: ArrayType, size=None, *, nfft: int, noverlap: int, out=None, overwrite_x=False, axis=0
 ) -> ArrayType:
     """reconstruct and return a waveform given its STFT and associated parameters"""
 
     xp = array_namespace(xstft)
 
+    xstft = xp.fft.fftshift(xstft, axes=axis + 1)
+    if out is None and overwrite_x:
+        ifft_out = xstft
+    elif out is not None:
+        ifft_out = _truncated_buffer(out, xstft.shape)
+    else:
+        ifft_out = None
+
     x_windows = ifft(
-        xp.fft.fftshift(xstft, axes=axis + 1),
+        xstft,
         axis=axis + 1,
-        overwrite_x=True,
-        out=None if out is None else _truncated_buffer(out, xstft.shape),
+        overwrite_x=overwrite_x,
+        out=ifft_out,
     )
 
     y = _unstack_stft_windows(
@@ -853,8 +866,6 @@ def power_spectral_density(
     dB=True,
     axis=0,
 ) -> ArrayType:
-    # TODO: support other persistence statistics, such as mean
-
     if power_analysis.isroundmod(fs, resolution):
         nfft = round(fs / resolution)
         noverlap = round(fractional_overlap * nfft)
