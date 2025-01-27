@@ -585,7 +585,8 @@ def downsample_stft(
 
     # copy first before zeroing, in case of input-output buffer reuse
     xp.copyto(
-        axis_slice(xout, *bounds_out, axis=ax), axis_slice(y, *bounds_in, axis=ax)
+        axis_slice(xout, *bounds_out, axis=ax), #
+        axis_slice(y, *bounds_in, axis=ax)
     )
     xp.copyto(axis_slice(xout, 0, bounds_out[0], axis=ax), 0)
     xp.copyto(axis_slice(xout, bounds_out[1], None, axis=ax), 0)
