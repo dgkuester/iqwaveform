@@ -174,7 +174,7 @@ def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True)
 
 
 def broadcast_onto(a: ArrayType, other: ArrayType, axis: int) -> ArrayType:
-    """broadcast a 1-D array onto a specified axis of `other`"""
+    """reshape a 1-D array to support broadcasting onto a specified axis of `other`"""
     xp = array_namespace(a)
 
     slices = [xp.newaxis] * len(other.shape)
@@ -673,9 +673,11 @@ def stft(
 
     if noverlap == 0:
         xstack = to_blocks(x, nfft, axis=axis, truncate=truncate)
+        del x
+        wstack = broadcast_onto(w / nfft, xstack, axis=axis + 1)
         xstack = xp.multiply(
             xstack,
-            broadcast_onto(w / nfft, x, axis=axis + 1),
+            wstack,
             out=xstack if overwrite_x else None,
         )
 
@@ -856,7 +858,6 @@ def spectrogram(
     noverlap: int = 0,
     axis: int = 0,
     truncate: bool = True,
-    out=None,
 ):
     kws = dict(locals())
 
