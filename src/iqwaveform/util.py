@@ -320,7 +320,9 @@ def float_dtype_like(x: type_stubs.ArrayType):
     return ret
 
 
-def to_blocks(y: type_stubs.ArrayType, size: int, truncate=False, axis=0) -> type_stubs.ArrayType:
+def to_blocks(
+    y: type_stubs.ArrayType, size: int, truncate=False, axis=0
+) -> type_stubs.ArrayType:
     """Returns a view on y reshaped into blocks along axis `axis`.
 
     Args:
@@ -366,7 +368,7 @@ def _pad_slices_to_dim(ndim: int, axis: int, /):
 
     if axis < 0:
         axis = ndim + axis
-    
+
         if axis < 0:
             raise ValueError(f'axis {axis} exceeds the number of dimensions')
 

@@ -198,7 +198,7 @@ class GammaLogitFormatter(mpl.ticker.LogitFormatter):
             s = self._one_half
         elif np.any(np.isclose(x, np.array([0.9, 0.99]), rtol=1e-5)):
             if x < 0.15:
-                s = f'{round_places(x,1):f}'
+                s = f'{round_places(x, 1):f}'
             else:
                 s = str(x)
         elif x < 0.1 and is_decade(x, rtol=1e-5):
@@ -499,11 +499,11 @@ def plot_spectrogram_heatmap_from_iq(
     if freq_res < 1e3:
         freq_res_name = f'{freq_res:0.1f}'
     elif freq_res < 1e6:
-        freq_res_name = f'{freq_res/1e3:0.1f} kHz'
+        freq_res_name = f'{freq_res / 1e3:0.1f} kHz'
     elif freq_res < 1e9:
-        freq_res_name = f'{freq_res/1e6:0.1f} MHz'
+        freq_res_name = f'{freq_res / 1e6:0.1f} MHz'
     else:
-        freq_res_name = f'{freq_res/1e9:0.1f} GHz'
+        freq_res_name = f'{freq_res / 1e9:0.1f} GHz'
 
     plt.colorbar(
         c,
@@ -566,11 +566,11 @@ def plot_spectrogram_heatmap(
     if freq_res < 1e3:
         freq_res_name = f'{freq_res:0.1f}'
     elif freq_res < 1e6:
-        freq_res_name = f'{freq_res/1e3:0.1f} kHz'
+        freq_res_name = f'{freq_res / 1e3:0.1f} kHz'
     elif freq_res < 1e9:
-        freq_res_name = f'{freq_res/1e6:0.1f} MHz'
+        freq_res_name = f'{freq_res / 1e6:0.1f} MHz'
     else:
-        freq_res_name = f'{freq_res/1e9:0.1f} GHz'
+        freq_res_name = f'{freq_res / 1e9:0.1f} GHz'
 
     if colorbar:
         plt.colorbar(

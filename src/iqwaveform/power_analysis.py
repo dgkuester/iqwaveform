@@ -10,7 +10,7 @@ from .util import (
     float_dtype_like,
     isroundmod,
     is_cupy_array,
-    to_blocks
+    to_blocks,
 )
 
 import array_api_compat.numpy as np
@@ -275,7 +275,7 @@ def iq_to_bin_power(
     randomize: bool = False,
     kind: str = 'mean',
     truncate=False,
-    axis=0
+    axis=0,
 ):
     """computes power along the rows of `iq` (time axis) on bins of duration Tbin.
 
@@ -301,7 +301,7 @@ def iq_to_bin_power(
     if randomize:
         if axis != 0:
             raise ValueError('only axis=0 is currently supported when randomize=True')
-        
+
         size = int(np.floor(iq.shape[0] / N))
         starts = xp.random.randint(0, iq.shape[0] - N, size)
         offsets = xp.arange(N)
@@ -309,7 +309,7 @@ def iq_to_bin_power(
     else:
         iq_blocks = to_blocks(iq, N, axis=axis, truncate=truncate)
 
-    detector = stat_ufunc_from_shorthand(kind, xp=xp, axis=axis+1)
+    detector = stat_ufunc_from_shorthand(kind, xp=xp, axis=axis + 1)
     power_bins = envtopow(iq_blocks)
 
     return detector(power_bins).astype(float_dtype_like(iq))
@@ -323,7 +323,7 @@ def iq_to_cyclic_power(
     truncate=False,
     detectors=('rms', 'peak'),
     cycle_stats=('min', 'mean', 'max'),
-    axis=0
+    axis=0,
 ) -> dict[str, dict[str, ArrayType]]:
     """computes a time series of periodic frame power statistics.
 
@@ -359,7 +359,9 @@ def iq_to_cyclic_power(
             )
 
         power = {
-            d: iq_to_bin_power(x, Ts, detector_period, kind=d, truncate=truncate, axis=axis)
+            d: iq_to_bin_power(
+                x, Ts, detector_period, kind=d, truncate=truncate, axis=axis
+            )
             for d in detectors
         }
 
@@ -383,7 +385,7 @@ def iq_to_cyclic_power(
         )
 
     power_shape = power[detectors[0]].shape
-    
+
     if power_shape[1] % cyclic_detector_bins != 0:
         if truncate:
             N = (power_shape[1] // cyclic_detector_bins) * cyclic_detector_bins
@@ -400,7 +402,7 @@ def iq_to_cyclic_power(
         power_shape[:axis]
         + (power_shape[axis] // cyclic_detector_bins,)
         + (cyclic_detector_bins,)
-        + (x.shape[axis+1:] if x.ndim > axis else ())
+        + (x.shape[axis + 1 :] if x.ndim > axis else ())
     )
 
     power = {d: x.reshape(shape_by_cycle) for d, x in power.items()}
@@ -477,7 +479,9 @@ def unstack_series_to_bins(
     return df
 
 
-def sample_ccdf(a: type_stubs.ArrayType, edges: type_stubs.ArrayType, density: bool = True) -> type_stubs.ArrayType:
+def sample_ccdf(
+    a: type_stubs.ArrayType, edges: type_stubs.ArrayType, density: bool = True
+) -> type_stubs.ArrayType:
     """computes the fraction (or total number) of samples in `a` that
     exceed each edge value.
 
@@ -506,7 +510,9 @@ def sample_ccdf(a: type_stubs.ArrayType, edges: type_stubs.ArrayType, density: b
     return ccdf
 
 
-def hist_laxis(x: type_stubs.ArrayType, bins: int|type_stubs.ArrayType, range: tuple=None) -> type_stubs.ArrayType:
+def hist_laxis(
+    x: type_stubs.ArrayType, bins: int | type_stubs.ArrayType, range: tuple = None
+) -> type_stubs.ArrayType:
     """computes a histogram along the last axis of an input array.
 
     For reference see https://stackoverflow.com/questions/44152436/calculate-histograms-along-axis

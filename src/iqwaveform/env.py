@@ -95,7 +95,7 @@ def set_matplotlib_formats(formats, *args, **kws):
 
         ret = pylabtools._print_figure(fig, fmt=fmt, *a, **k)
 
-        markup = f'<tt>{label}.{fmt}:</tt>{"<br>"+caption_text if caption_text else " (no caption data)"}'
+        markup = f'<tt>{label}.{fmt}:</tt>{"<br>" + caption_text if caption_text else " (no caption data)"}'
         display(HTML(markup))
 
         return ret

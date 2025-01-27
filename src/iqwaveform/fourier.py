@@ -3,7 +3,7 @@ import functools
 import typing
 
 from os import cpu_count
-from array_api_compat import is_cupy_array, is_torch_array
+from array_api_compat import is_cupy_array
 from math import ceil
 
 from . import power_analysis
@@ -17,7 +17,7 @@ from .util import (
     lazy_import,
     to_blocks,
     axis_index,
-    axis_slice
+    axis_slice,
 )
 
 from .type_stubs import ArrayType
@@ -43,7 +43,7 @@ def _truncated_buffer(x: ArrayType, shape, dtype=None):
         x = x.view(dtype)
     out_size = np.prod(shape)
     assert x.size >= out_size
-    return x.flatten()[: out_size].reshape(shape)
+    return x.flatten()[:out_size].reshape(shape)
 
 
 def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
@@ -121,11 +121,11 @@ def fftfreq(n, d, *, xp=np, dtype='float64') -> ArrayType:
         an array of type `xp.ndarray`
     """
     dtype = np.dtype(dtype)
-    fnyq = 1/(2*dtype.type(d))
+    fnyq = 1 / (2 * dtype.type(d))
     if n % 2 == 0:
-        return xp.linspace(-fnyq, fnyq-2*fnyq/n, n, dtype=dtype)
+        return xp.linspace(-fnyq, fnyq - 2 * fnyq / n, n, dtype=dtype)
     else:
-        return xp.linspace(-fnyq+fnyq/n, fnyq-fnyq/n, n, dtype=dtype)
+        return xp.linspace(-fnyq + fnyq / n, fnyq - fnyq / n, n, dtype=dtype)
 
 
 def zero_pad(x: ArrayType, pad_amt: int) -> ArrayType:
@@ -141,21 +141,29 @@ def tile_axis0(x: ArrayType, N) -> ArrayType:
     return xp.tile(x.T, N).T
 
 
-@functools.lru_cache(64)
-def _get_window(name_or_tuple, N, fftbins=True, norm=True, *, dtype=None, xp=None):
-    if xp is None:
-        w = signal.windows.get_window(name_or_tuple, N, fftbins=fftbins)
-
-        if norm:
-            w /= np.sqrt(np.mean(np.abs(w) ** 2))
-        return w
-    else:
+@functools.lru_cache(128)
+def _get_window(
+    name_or_tuple, N, *, fftshift=False, fftbins=True, norm=True, dtype=None, xp=None
+):
+    if xp is not None:
         w = _get_window(name_or_tuple, N)
         if hasattr(xp, 'asarray'):
             w = xp.asarray(w, dtype=dtype)
         else:
             w = xp.array(w).astype(dtype)
         return w
+
+    w = signal.windows.get_window(name_or_tuple, N, fftbins=fftbins)
+
+    if norm:
+        w /= np.sqrt(np.mean(np.abs(w) ** 2))
+
+    if fftshift:
+        from scipy import ndimage
+
+        w = ndimage.fourier_shift(w, N // 2)
+
+    return w
 
 
 @functools.lru_cache
@@ -180,7 +188,7 @@ def _get_stft_axes(
 ) -> tuple[ArrayType, ArrayType]:
     """returns stft (freqs, times) array tuple appropriate to the array module xp"""
 
-    freqs = fftfreq(nfft, 1/fs, xp=xp)
+    freqs = fftfreq(nfft, 1 / fs, xp=xp)
     times = xp.arange(time_size) * ((1 - overlap_frac) * nfft / fs)
 
     return freqs, times
@@ -238,8 +246,8 @@ def design_cola_resampler(
     if fs_base > fs_target:
         if shift and fs_sdr_min > fs_base:
             msg = f"""LO frequency shift with the requested parameters
-            requires running the radio at a minimum {fs_sdr_min/1e6:0.2f} MS/s,
-            but its maximum rate is {fs_base/1e6:0.2f} MS/s"""
+            requires running the radio at a minimum {fs_sdr_min / 1e6:0.2f} MS/s,
+            but its maximum rate is {fs_base / 1e6:0.2f} MS/s"""
 
             raise ValueError(msg)
 
@@ -329,10 +337,8 @@ def _stack_stft_windows(
     window: ArrayType,
     nperseg: int,
     noverlap: int,
-    pad_mode='constant',
     norm=None,
     axis=0,
-    out=None,
 ) -> ArrayType:
     """add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform.
 
@@ -344,13 +350,11 @@ def _stack_stft_windows(
         axis: the waveform axis; stft will be evaluated across all other axes
     """
 
-    xp = array_namespace(x)
-
     nfft = nperseg
     hop_size = nperseg - noverlap
 
     strided = sliding_window_view(x, nfft, axis=axis)
-    stride_windows = axis_slice(strided, start=0, step=hop_size, axis=axis)
+    xstacked = axis_slice(strided, start=0, step=hop_size, axis=axis)
 
     if norm is None:
         scale = _cola_scale(window, hop_size)
@@ -361,15 +365,8 @@ def _stack_stft_windows(
             f"invalid normalization argument '{norm}' (should be 'cola' or 'psd')"
         )
 
-    if out is None:
-        out = stride_windows.copy()
-    else:
-        out = _truncated_buffer(out, stride_windows.shape)
-        xp.copyto(out, stride_windows)
-
-    out *= broadcast_onto(window / scale, stride_windows, axis=axis + 1)
-
-    return out
+    w = broadcast_onto(window / scale, xstacked, axis=axis + 1)
+    return xstacked * w
 
 
 def _unstack_stft_windows(
@@ -504,7 +501,9 @@ def zero_stft_by_freq(
 
 
 @functools.lru_cache(100)
-def _find_downsample_copy_range(nfft_in: int, nfft_out: int, passband_start: int, passband_end: int):
+def _find_downsample_copy_range(
+    nfft_in: int, nfft_out: int, passband_start: int, passband_end: int
+):
     if passband_start is None:
         passband_start = 0
     if passband_end is None:
@@ -537,12 +536,12 @@ def _find_downsample_copy_range(nfft_in: int, nfft_out: int, passband_start: int
 
 @functools.lru_cache(16)
 def _find_downsampled_freqs(nfft_out, freq_step, xp=np):
-    return fftfreq(nfft_out, 1./(freq_step * nfft_out), xp=xp)
+    return fftfreq(nfft_out, 1.0 / (freq_step * nfft_out), xp=xp)
 
 
 def downsample_stft(
     freqs: ArrayType,
-    xstft: ArrayType,
+    y: ArrayType,
     nfft_out: int,
     *,
     passband: tuple[float, float],
@@ -556,31 +555,37 @@ def downsample_stft(
     * One approach to selecting `nfft_out` for this purpose is the use
       of `design_ola_filter`.
 
+    Arguments:
+        freqs: the list of FFT bin center frequencies
+        y: the stft
+        nfft_out: the number of points in the output fft
+
     Returns:
         A tuple containing the new `freqs` range and trimmed `xstft`
     """
-    xp = array_namespace(xstft)
+    xp = array_namespace(y)
     ax = axis + 1
 
-    shape_out = list(xstft.shape)
+    shape_out = list(y.shape)
     shape_out[ax] = nfft_out
 
     if out is None:
-        xout = xp.empty(shape_out, dtype=xstft.dtype)
+        xout = xp.empty(shape_out, dtype=y.dtype)
     else:
-        xout = _truncated_buffer(out, shape_out, xstft.dtype)
+        xout = _truncated_buffer(out, shape_out, y.dtype)
 
     # passband indexes in the input
     freq_step = freqs[1] - freqs[0]
-    fs = xstft.shape[ax] * freq_step
-    passband_start, passband_end = _freq_band_edges(xstft.shape[ax], 1/fs, *passband)
-    bounds_out, bounds_in, _ = _find_downsample_copy_range(xstft.shape[ax], nfft_out, passband_start, passband_end)
+    fs = y.shape[ax] * freq_step
+    passband_start, passband_end = _freq_band_edges(y.shape[ax], 1 / fs, *passband)
+    bounds_out, bounds_in, _ = _find_downsample_copy_range(
+        y.shape[ax], nfft_out, passband_start, passband_end
+    )
     freqs_out = _find_downsampled_freqs(nfft_out, freq_step, xp=xp)
 
     # copy first before zeroing, in case of input-output buffer reuse
     xp.copyto(
-        axis_slice(xout, *bounds_out, axis=ax),
-        axis_slice(xstft, *bounds_in, axis=ax)
+        axis_slice(xout, *bounds_out, axis=ax), axis_slice(y, *bounds_in, axis=ax)
     )
     xp.copyto(axis_slice(xout, 0, bounds_out[0], axis=ax), 0)
     xp.copyto(axis_slice(xout, bounds_out[1], None, axis=ax), 0)
@@ -598,7 +603,8 @@ def stft(
     axis: int = 0,
     truncate: bool = True,
     norm: str | None = None,
-    out=None,
+    overwrite_x=False,
+    return_axis_arrays=True,
 ) -> tuple[ArrayType, ArrayType, ArrayType]:
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
     some overhead that comes with its generality and allow use of the generic
@@ -653,87 +659,96 @@ def stft(
     if norm not in ('power', None):
         raise TypeError('norm must be "power" or None')
 
+    if window is None:
+        window = 'rect'
+
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
         should_norm = norm == 'power'
-        w = _get_window(window, nfft, xp=xp, dtype=x.dtype, norm=should_norm)
-        if is_torch_array(w):
-            import torch
-
-            w = torch.asarray(w, dtype=x.dtype, device=x.device)
-    elif window is None:
-        w = xp.ones(nfft)
+        w = _get_window(
+            window, nfft, xp=xp, dtype=x.dtype, norm=should_norm, fftshift=True
+        )
     else:
         w = xp.array(window)
+        w = w * _get_window('rect', nfft, xp=xp, dtype=x.dtype, fftshift=True)
 
     if noverlap == 0:
-        x = to_blocks(x, nfft, axis=axis, truncate=truncate)
-        x = x * broadcast_onto(w / nfft, x, axis=axis + 1)
-        X = fft(x, axis=axis + 1, overwrite_x=True, out=out)
+        xstack = to_blocks(x, nfft, axis=axis, truncate=truncate)
+        xstack = xp.multiply(
+            xstack,
+            broadcast_onto(w / nfft, x, axis=axis + 1),
+            out=xstack if overwrite_x else None,
+        )
 
     else:
-        x_ol = _stack_stft_windows(
+        xstack = _stack_stft_windows(
             x,
             window=w / nfft,
             nperseg=nperseg,
             noverlap=noverlap,
             axis=axis,
-            out=out,
             norm=norm,
         )
+        del x
 
-        X = fft(
-            x_ol,
-            axis=axis + 1,
-            overwrite_x=True,
-            out=None if out is None else _truncated_buffer(out, x_ol.shape),
-        )
+    # no fftshift needed since it was baked into the window
+    y = fft(xstack, axis=axis + 1, overwrite_x=True, out=xstack)
 
-    # interleave the overlaps in time
-    X = xp.fft.fftshift(X, axes=axis + 1)
+    if not return_axis_arrays:
+        return y
 
     freqs, times = _get_stft_axes(
         fs,
         nfft=nfft,
-        time_size=X.shape[axis],
+        time_size=y.shape[axis],
         overlap_frac=noverlap / nfft,
         xp=np,
     )
 
-    return freqs, times, X
+    return freqs, times, y
 
 
 def istft(
-    xstft: ArrayType, size=None, *, nfft: int, noverlap: int, out=None, overwrite_x=False, axis=0
+    y: ArrayType,
+    size=None,
+    *,
+    nfft: int,
+    noverlap: int,
+    out=None,
+    overwrite_x=False,
+    axis=0,
 ) -> ArrayType:
     """reconstruct and return a waveform given its STFT and associated parameters"""
 
-    xp = array_namespace(xstft)
+    xp = array_namespace(y)
 
-    xstft = xp.fft.fftshift(xstft, axes=axis + 1)
-    if out is None and overwrite_x:
-        ifft_out = xstft
-    elif out is not None:
-        ifft_out = _truncated_buffer(out, xstft.shape)
-    else:
-        ifft_out = None
-
-    x_windows = ifft(
-        xstft,
+    # give the stacked NFFT-sized time domain vectors in axis + 1
+    xstack = ifft(
+        y,
         axis=axis + 1,
         overwrite_x=overwrite_x,
-        out=ifft_out,
+        out=y if overwrite_x else None,
     )
 
-    y = _unstack_stft_windows(
-        x_windows, noverlap=noverlap, nperseg=nfft, axis=axis, out=out
+    # correct the fft shift in the time domain, since the
+    # multiply operation can be applied in-place
+    w = _get_window('rect', nfft, xp=xp, dtype=y.dtype, fftshift=True)
+    xstack = xp.multiply(
+        xstack,
+        broadcast_onto(w, xstack, axis=axis + 1),
+        out=xstack,
+        dtype=xstack.dtype,
+    )
+
+    x = _unstack_stft_windows(
+        xstack, noverlap=noverlap, nperseg=nfft, axis=axis, out=out
     )
 
     if size is not None:
-        trim = y.shape[axis] - size
+        trim = x.shape[axis] - size
         if trim > 0:
-            y = axis_slice(y, start=trim // 2, stop=-trim // 2, axis=axis)
+            x = axis_slice(x, start=trim // 2, stop=-trim // 2, axis=axis)
 
-    return y
+    return x
 
 
 def ola_filter(
@@ -748,6 +763,7 @@ def ola_filter(
     axis=0,
     extend=False,
     out=None,
+    overwrite_x=False
 ):
     """apply a bandpass filter implemented through STFT overlap-and-add.
 
@@ -766,7 +782,6 @@ def ola_filter(
     Returns:
         an Array of the same shape as X
     """
-    xp = array_namespace(x)
 
     nfft_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
         x.size,
@@ -778,39 +793,37 @@ def ola_filter(
 
     enbw = equivalent_noise_bandwidth(window, nfft_out, fftbins=False)
 
-    w = _get_window(window, nfft, fftbins=False, xp=xp)
-
-    freqs, _, xstft = stft(
+    freqs, _, y = stft(
         x,
         fs=fs,
-        window=w,
+        window=window,
         nperseg=nfft,
         noverlap=round(nfft * overlap_scale),
         axis=axis,
         truncate=False,
-        out=out,
+        overwrite_x=overwrite_x
     )
 
     zero_stft_by_freq(
-        freqs, xstft, passband=(passband[0] + enbw, passband[1] - enbw), axis=axis
+        freqs, y, passband=(passband[0] + enbw, passband[1] - enbw), axis=axis
     )
 
     if nfft_out != nfft or frequency_shift:
-        freqs, xstft = downsample_stft(
+        freqs, y = downsample_stft(
             freqs,
-            xstft,
+            y,
             nfft_out=nfft_out,
             passband=passband,
             axis=axis,
-            out=xstft,
+            out=y,
         )
 
     return istft(
-        xstft,
+        y,
         round(x.shape[axis] * nfft_out / nfft),
         nfft=nfft_out,
         noverlap=noverlap,
-        out=out,
+        overwrite_x=True,
         axis=axis,
     )
 
@@ -848,7 +861,7 @@ def spectrogram(
     kws = dict(locals())
 
     freqs, times, X = stft(norm='power', **kws)
-    spg = power_analysis.envtopow(X, out=X).real
+    spg = power_analysis.envtopow(X)
 
     return freqs, times, spg
 
@@ -897,8 +910,8 @@ def power_spectral_density(
             bw_args = (None, None)
         else:
             bw_args = (-bandwidth / 2, +bandwidth / 2)
-        ilo, ihi = _freq_band_edges(freqs.size, 1.0/fs, *bw_args)
-        X = axis_slice(X, ilo, ihi, axis=axis+1)
+        ilo, ihi = _freq_band_edges(freqs.size, 1.0 / fs, *bw_args)
+        X = axis_slice(X, ilo, ihi, axis=axis + 1)
 
     if domain == Domain.TIME:
         if dB:
@@ -922,10 +935,8 @@ def power_spectral_density(
 
     quantiles = list(np.asarray(statistics)[isquantile].astype('float32'))
 
-    out_quantiles = axis_index(out, isquantile, axis=axis).swapaxes(0,1)
-    out_quantiles[:] = xp.quantile(
-        spg, xp.array(quantiles), axis=axis
-    )
+    out_quantiles = axis_index(out, isquantile, axis=axis).swapaxes(0, 1)
+    out_quantiles[:] = xp.quantile(spg, xp.array(quantiles), axis=axis)
 
     for i, isquantile in enumerate(isquantile):
         if not isquantile:
