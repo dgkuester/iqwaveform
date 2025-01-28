@@ -146,9 +146,9 @@ def _get_window(
     name_or_tuple, N, *, fftshift=False, fftbins=True, norm=True, dtype=None, xp=None
 ):
     if xp is not None:
-        w = _get_window(name_or_tuple, N)
+        w = _get_window(name_or_tuple, N, fftbins=fftbins, norm=norm, fftshift=fftshift, dtype=dtype)
         if hasattr(xp, 'asarray'):
-            w = xp.asarray(w, dtype=dtype)
+            w = xp.asarray(w)
         else:
             w = xp.array(w).astype(dtype)
         return w
@@ -159,9 +159,7 @@ def _get_window(
         w /= np.sqrt(np.mean(np.abs(w) ** 2))
 
     if fftshift:
-        from scipy import ndimage
-
-        w = ndimage.fourier_shift(w, N // 2)
+        w = scipy.ndimage.fourier_shift(w, N // 2)
 
     return w
 
@@ -323,13 +321,13 @@ def design_cola_resampler(
 def _cola_scale(window, hop_size):
     if (window.size - hop_size) % 2 == 0:
         # scaling correction based on the shape of the window where it intersects with its neighbor
-        cola_scale = 2 * window[(window.size - hop_size) // 2]
+        cola_scale = 2 * np.abs(window[(window.size - hop_size) // 2])
     else:
         cola_scale = (
-            window[(window.size - hop_size) // 2]
-            + window[(window.size - hop_size) // 2 + 1]
+            np.abs(window[(window.size - hop_size) // 2])
+            + np.abs(window[(window.size - hop_size) // 2 + 1])
         )
-    return cola_scale.real
+    return np.abs(cola_scale)
 
 
 def _stack_stft_windows(
@@ -664,12 +662,11 @@ def stft(
         window = 'rect'
 
     if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
-        should_norm = norm == 'power'
+        should_norm = (norm == 'power')
         w = _get_window(
             window, nfft, xp=xp, dtype=x.dtype, norm=should_norm, fftshift=True
         )
     else:
-        w = xp.array(window)
         w = w * _get_window('rect', nfft, xp=xp, dtype=x.dtype, fftshift=True)
 
     if noverlap == 0:
@@ -859,13 +856,22 @@ def spectrogram(
     noverlap: int = 0,
     axis: int = 0,
     truncate: bool = True,
+    return_axis_arrays: bool = True
 ):
     kws = dict(locals())
 
-    freqs, times, X = stft(norm='power', **kws)
+    ret = stft(norm='power', **kws)
+    if return_axis_arrays:
+        freqs, times, X = ret
+    else:
+        X = ret
+
     spg = power_analysis.envtopow(X)
 
-    return freqs, times, spg
+    if return_axis_arrays:
+        return freqs, times, spg
+    else:
+        return spg
 
 
 def power_spectral_density(
