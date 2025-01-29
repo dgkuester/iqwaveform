@@ -363,7 +363,7 @@ def _stack_stft_windows(
             f"invalid normalization argument '{norm}' (should be 'cola' or 'psd')"
         )
 
-    w = broadcast_onto(window / scale, xstacked, axis=axis + 1)
+    w = broadcast_onto(window / scale, xstacked, axis=axis + 1).astype(xstacked.dtype)
     return xstacked * w
 
 
