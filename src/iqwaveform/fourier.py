@@ -371,8 +371,8 @@ def _stack_stft_windows(
             f"invalid normalization argument '{norm}' (should be 'cola' or 'psd')"
         )
 
-    w = broadcast_onto(window / scale, xstacked, axis=axis + 1).astype(xstacked.dtype)
-    return xp.multiply(xstacked, w, out=out)
+    w = broadcast_onto(window / scale, xstacked, axis=axis + 1)
+    return xp.multiply(xstacked, w.astype(xstacked.dtype), out=out)
 
 
 def _unstack_stft_windows(
@@ -702,7 +702,6 @@ def stft(
             norm=norm,
             out=out
         )
-
     assert xstack.dtype == x.dtype
     del x
 
@@ -748,16 +747,19 @@ def istft(
     # correct the fft shift in the time domain, since the
     # multiply operation can be applied in-place
     w = _get_window('rect', nfft, xp=xp, dtype=y.dtype, fftshift=True)
+    wstack = broadcast_onto(w, xstack, axis=axis + 1)
     xstack = xp.multiply(
         xstack,
-        broadcast_onto(w, xstack, axis=axis + 1),
+        wstack,
         out=xstack,
         dtype=xstack.dtype,
     )
+    assert xstack.dtype == y.dtype
 
     x = _unstack_stft_windows(
         xstack, noverlap=noverlap, nperseg=nfft, axis=axis, out=out
     )
+    assert x.dtype == y.dtype
 
     if size is not None:
         trim = x.shape[axis] - size
