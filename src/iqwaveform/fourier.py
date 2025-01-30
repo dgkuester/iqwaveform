@@ -498,7 +498,7 @@ def zero_stft_by_freq(
     """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
     xp = array_namespace(xstft)
 
-    freq_step = freqs[1] - freqs[0]
+    freq_step = float(freqs[1] - freqs[0])
     fs = xstft.shape[axis] * freq_step
     ilo, ihi = _freq_band_edges(freqs.size, fs, *passband, xp=xp)
     xp.copyto(axis_slice(xstft, 0, ilo, axis=axis + 1), 0)
