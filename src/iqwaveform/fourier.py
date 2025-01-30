@@ -581,7 +581,7 @@ def downsample_stft(
         xout = _truncated_buffer(out, shape_out, y.dtype)
 
     # passband indexes in the input
-    freq_step = freqs[1] - freqs[0]
+    freq_step = float(freqs[1] - freqs[0])
     fs = y.shape[ax] * freq_step
     passband_start, passband_end = _freq_band_edges(y.shape[ax], 1 / fs, *passband)
     bounds_out, bounds_in, _ = _find_downsample_copy_range(
