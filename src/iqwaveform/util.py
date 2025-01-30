@@ -181,6 +181,21 @@ def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
     return xp.pad(a, pre_pad + pad_width, *args, **kws)
 
 
+def sliding_window_output_shape(array_shape: tuple|int, window_shape: tuple, axis):
+    """return the shape of the output of sliding_window_view, for example
+    to pre-create an output buffer."""
+    window_shape = (tuple(window_shape)
+                    if np.iterable(window_shape)
+                    else (window_shape,))
+    x_shape_trimmed = list(array_shape)
+    for ax, dim in zip(axis, window_shape):
+        if x_shape_trimmed[ax] < dim:
+            raise ValueError(
+                'window shape cannot be larger than input array shape')
+        x_shape_trimmed[ax] -= dim - 1
+    return tuple(x_shape_trimmed) + window_shape    
+
+
 def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=False):
     """
     Create a sliding window view into the array with the given window shape.
@@ -288,14 +303,7 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
             )
 
     out_strides = x.strides + tuple(x.strides[ax] for ax in axis)
-
-    # note: same axis can be windowed repeatedly
-    x_shape_trimmed = list(x.shape)
-    for ax, dim in zip(axis, window_shape):
-        if x_shape_trimmed[ax] < dim:
-            raise ValueError('window shape cannot be larger than input array shape')
-        x_shape_trimmed[ax] -= dim - 1
-    out_shape = tuple(x_shape_trimmed) + window_shape
+    out_shape = sliding_window_output_shape(x.shape, window_shape, axis)
     return _cupy.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
 
 

@@ -343,6 +343,7 @@ def _stack_stft_windows(
     noverlap: int,
     norm=None,
     axis=0,
+    out=None
 ) -> ArrayType:
     """add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform.
 
@@ -353,6 +354,8 @@ def _stack_stft_windows(
         x: the 1-D waveform (or N-D tensor of waveforms)
         axis: the waveform axis; stft will be evaluated across all other axes
     """
+
+    xp = array_namespace(x)
 
     hop_size = nperseg - noverlap
 
@@ -369,7 +372,7 @@ def _stack_stft_windows(
         )
 
     w = broadcast_onto(window / scale, xstacked, axis=axis + 1).astype(xstacked.dtype)
-    return xstacked * w
+    return xp.multiply(xstacked, w, out=out)
 
 
 def _unstack_stft_windows(
@@ -609,6 +612,7 @@ def stft(
     norm: str | None = None,
     overwrite_x=False,
     return_axis_arrays=True,
+    out=None
 ) -> tuple[ArrayType, ArrayType, ArrayType]:
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
     some overhead that comes with its generality and allow use of the generic
@@ -666,7 +670,7 @@ def stft(
     if window is None:
         window = 'rect'
 
-    if isinstance(window, str) or (isinstance(window, tuple) and len(window) == 2):
+    if isinstance(window, str) or (isinstance(window, tuple) and isinstance(window[0], str)):
         should_norm = (norm == 'power')
         w = _get_window(
             window, nfft, xp=xp, dtype=x.dtype, norm=should_norm, fftshift=True
@@ -675,13 +679,17 @@ def stft(
         w = w * _get_window('rect', nfft, xp=xp, dtype=x.dtype, fftshift=True)
 
     if noverlap == 0:
+        # special case for speed
         xstack = to_blocks(x, nfft, axis=axis, truncate=truncate)
-        del x
         wstack = broadcast_onto(w / nfft, xstack, axis=axis + 1)
+
+        if out is None and overwrite_x:
+            out = xstack
+
         xstack = xp.multiply(
             xstack,
             wstack,
-            out=xstack if overwrite_x else None,
+            out=xstack if overwrite_x else out,
         )
 
     else:
@@ -692,8 +700,11 @@ def stft(
             noverlap=noverlap,
             axis=axis,
             norm=norm,
+            out=out
         )
-        del x
+
+    assert xstack.dtype == x.dtype
+    del x
 
     # no fftshift needed since it was baked into the window
     y = fft(xstack, axis=axis + 1, overwrite_x=True, out=xstack)
