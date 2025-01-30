@@ -152,7 +152,7 @@ def array_stream(obj: type_stubs.ArrayType, null=False, non_blocking=False, ptds
         return NonStreamContext()
 
 
-def array_namespace(a, use_compat=None):
+def array_namespace(a, use_compat=False):
     try:
         return array_api_compat.array_namespace(a, use_compat=use_compat)
     except TypeError:
