@@ -181,6 +181,7 @@ def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
     return xp.pad(a, pre_pad + pad_width, *args, **kws)
 
 
+@lru_cache
 def sliding_window_output_shape(array_shape: tuple|int, window_shape: tuple, axis):
     """return the shape of the output of sliding_window_view, for example
     to pre-create an output buffer."""
@@ -205,7 +206,7 @@ def sliding_window_output_shape(array_shape: tuple|int, window_shape: tuple, axi
                              f'got {len(window_shape)} window_shape elements '
                              f'and `x.ndim` is {x.ndim}.')
     else:
-        axis = stride_tricks.normalize_axis_indices(axis, ndim, allow_duplicate=True)
+        axis = stride_tricks.normalize_axis_tuple(axis, ndim, allow_duplicate=True)
         if len(window_shape) != len(axis):
             raise ValueError(f'Must provide matching length window_shape and '
                              f'axis; got {len(window_shape)} window_shape '
@@ -311,7 +312,7 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
     x = xp.array(x, copy=False, subok=subok)
 
     out_shape = sliding_window_output_shape(x.shape, window_shape, axis)
-    axis = stride_tricks.normalize_axis_indices(axis, x.ndim)
+    axis = stride_tricks.normalize_axis_tuple(axis, x.ndim)
     out_strides = x.strides + tuple(x.strides[ax] for ax in axis)
 
     return xp.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
