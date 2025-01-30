@@ -184,6 +184,23 @@ def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
 def sliding_window_output_shape(array_shape: tuple|int, window_shape: tuple, axis):
     """return the shape of the output of sliding_window_view, for example
     to pre-create an output buffer."""
+    import cupy as _cupy
+
+    ndim = len(array_shape)
+    if axis is None:
+        axis = tuple(range(ndim))
+        if len(window_shape) != len(axis):
+            raise ValueError(f'Since axis is `None`, must provide '
+                             f'window_shape for all dimensions of `x`; '
+                             f'got {len(window_shape)} window_shape elements '
+                             f'and `x.ndim` is {x.ndim}.')
+    else:
+        axis = _cupy._core.internal._normalize_axis_indices(axis, ndim, allow_duplicate=True)
+        if len(window_shape) != len(axis):
+            raise ValueError(f'Must provide matching length window_shape and '
+                             f'axis; got {len(window_shape)} window_shape '
+                             f'elements and {len(axis)} axes elements.')
+            
     window_shape = (tuple(window_shape)
                     if np.iterable(window_shape)
                     else (window_shape,))
