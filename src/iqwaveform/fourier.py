@@ -688,7 +688,7 @@ def stft(
 
         xstack = xp.multiply(
             xstack,
-            wstack,
+            wstack.astype(xstack.dtype),
             out=xstack if overwrite_x else out,
         )
 

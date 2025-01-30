@@ -152,9 +152,9 @@ def array_stream(obj: type_stubs.ArrayType, null=False, non_blocking=False, ptds
         return NonStreamContext()
 
 
-def array_namespace(a):
+def array_namespace(a, use_compat=None):
     try:
-        return array_api_compat.array_namespace(a)
+        return array_api_compat.array_namespace(a, use_compat=use_compat)
     except TypeError:
         pass
 
@@ -300,7 +300,7 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
         # numpy >= 2?
         from numpy.lib import _stride_tricks_impl as stride_tricks
 
-    xp = array_namespace(x)
+    xp = array_namespace(x, use_compat=False)
 
     window_shape = tuple(window_shape) if np.iterable(window_shape) else (window_shape,)
 
