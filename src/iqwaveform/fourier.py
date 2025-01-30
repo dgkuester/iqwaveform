@@ -159,7 +159,13 @@ def _get_window(
         w /= np.sqrt(np.mean(np.abs(w) ** 2))
 
     if fftshift:
-        w = scipy.ndimage.fourier_shift(w, N // 2)
+        delay = scipy.ndimage.fourier_shift(np.ones_like(w), N // 2)
+
+        if N % 2 == 0:
+            # takes the form [1, -1, 1, -1, 1, ...]
+            delay = delay.real
+
+        w = delay * w
 
     return w
 
@@ -348,10 +354,9 @@ def _stack_stft_windows(
         axis: the waveform axis; stft will be evaluated across all other axes
     """
 
-    nfft = nperseg
     hop_size = nperseg - noverlap
 
-    strided = sliding_window_view(x, nfft, axis=axis)
+    strided = sliding_window_view(x, nperseg, axis=axis)
     xstacked = axis_slice(strided, start=0, step=hop_size, axis=axis)
 
     if norm is None:
