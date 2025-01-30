@@ -184,7 +184,17 @@ def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
 def sliding_window_output_shape(array_shape: tuple|int, window_shape: tuple, axis):
     """return the shape of the output of sliding_window_view, for example
     to pre-create an output buffer."""
-    import cupy as _cupy
+    try:
+        # numpy < 2?
+        from numpy.lib import stride_tricks
+    except ImportError:
+        # numpy >= 2?
+        from numpy.lib import _stride_tricks_impl as stride_tricks
+    
+    window_shape = tuple(window_shape) if np.iterable(window_shape) else (window_shape,)
+    
+    if min(window_shape) < 0:
+        raise ValueError('`window_shape` cannot contain negative values')       
 
     ndim = len(array_shape)
     if axis is None:
@@ -195,12 +205,12 @@ def sliding_window_output_shape(array_shape: tuple|int, window_shape: tuple, axi
                              f'got {len(window_shape)} window_shape elements '
                              f'and `x.ndim` is {x.ndim}.')
     else:
-        axis = _cupy._core.internal._normalize_axis_indices(axis, ndim, allow_duplicate=True)
+        axis = stride_tricks.normalize_axis_indices(axis, ndim, allow_duplicate=True)
         if len(window_shape) != len(axis):
             raise ValueError(f'Must provide matching length window_shape and '
                              f'axis; got {len(window_shape)} window_shape '
                              f'elements and {len(axis)} axes elements.')
-            
+
     window_shape = (tuple(window_shape)
                     if np.iterable(window_shape)
                     else (window_shape,))
@@ -282,10 +292,14 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
 
     """
 
-    if not is_cupy_array(x):
-        return np.lib.stride_tricks.sliding_window_view(**locals())
+    try:
+        # numpy < 2?
+        from numpy.lib import stride_tricks
+    except ImportError:
+        # numpy >= 2?
+        from numpy.lib import _stride_tricks_impl as stride_tricks
 
-    import cupy as _cupy
+    xp = array_namespace(x)
 
     window_shape = tuple(window_shape) if np.iterable(window_shape) else (window_shape,)
 
@@ -294,34 +308,13 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
         raise NotImplementedError('Writeable views are not supported.')
 
     # first convert input to array, possibly keeping subclass
-    x = _cupy.array(x, copy=False, subok=subok)
+    x = xp.array(x, copy=False, subok=subok)
 
-    window_shape_array = _cupy.array(window_shape)
-    for dim in window_shape_array:
-        if dim < 0:
-            raise ValueError('`window_shape` cannot contain negative values')
-
-    if axis is None:
-        axis = tuple(range(x.ndim))
-        if len(window_shape) != len(axis):
-            raise ValueError(
-                f'Since axis is `None`, must provide '
-                f'window_shape for all dimensions of `x`; '
-                f'got {len(window_shape)} window_shape elements '
-                f'and `x.ndim` is {x.ndim}.'
-            )
-    else:
-        axis = _cupy._core.internal._normalize_axis_indices(axis, x.ndim)
-        if len(window_shape) != len(axis):
-            raise ValueError(
-                f'Must provide matching length window_shape and '
-                f'axis; got {len(window_shape)} window_shape '
-                f'elements and {len(axis)} axes elements.'
-            )
-
-    out_strides = x.strides + tuple(x.strides[ax] for ax in axis)
     out_shape = sliding_window_output_shape(x.shape, window_shape, axis)
-    return _cupy.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
+    axis = stride_tricks.normalize_axis_indices(axis, x.ndim)
+    out_strides = x.strides + tuple(x.strides[ax] for ax in axis)
+
+    return xp.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
 
 
 def float_dtype_like(x: type_stubs.ArrayType):
