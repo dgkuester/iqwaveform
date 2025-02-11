@@ -53,28 +53,6 @@ def lazy_import(module_name: str):
 _input_domain = []
 
 
-def empty_shared(shape: tuple | int, dtype: np.dtype, xp=np):
-    """allocate pinned CUDA memory that is shared between GPU/CPU on supported architectures"""
-
-    import numba
-    import numba.cuda
-
-    x = numba.cuda.mapped_array(
-        shape,
-        dtype=dtype,
-        strides=None,
-        order='C',
-        stream=0,
-        portable=False,
-        wc=False,
-    )
-
-    if xp == np:
-        return x
-    else:
-        return xp.array(x, copy=False)
-
-
 @lru_cache
 def find_float_inds(seq: tuple[str | float, ...]) -> list[bool]:
     """return a list to flag whether each element can be converted to float"""
@@ -186,12 +164,12 @@ def sliding_window_output_shape(array_shape: tuple|int, window_shape: tuple, axi
     """return the shape of the output of sliding_window_view, for example
     to pre-create an output buffer."""
     try:
-        # numpy < 2?
-        from numpy.lib import stride_tricks
-    except ImportError:
         # numpy >= 2?
         from numpy.lib import _stride_tricks_impl as stride_tricks
-    
+    except ImportError:
+        # numpy < 2?
+        from numpy.lib import stride_tricks
+
     window_shape = tuple(window_shape) if np.iterable(window_shape) else (window_shape,)
     
     if min(window_shape) < 0:
@@ -294,11 +272,11 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
     """
 
     try:
-        # numpy < 2?
-        from numpy.lib import stride_tricks
-    except ImportError:
         # numpy >= 2?
         from numpy.lib import _stride_tricks_impl as stride_tricks
+    except ImportError:
+        # numpy < 2?
+        from numpy.lib import stride_tricks
 
     xp = array_namespace(x, use_compat=False)
 
