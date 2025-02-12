@@ -498,12 +498,39 @@ def zero_stft_by_freq(
     """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
     xp = array_namespace(xstft)
 
+    print(xstft.shape)
     freq_step = float(freqs[1] - freqs[0])
     fs = xstft.shape[axis] * freq_step
     ilo, ihi = _freq_band_edges(freqs.size, fs, *passband, xp=xp)
+
     xp.copyto(axis_slice(xstft, 0, ilo, axis=axis + 1), 0)
     xp.copyto(axis_slice(xstft, ihi, None, axis=axis + 1), 0)
     return xstft
+
+
+@functools.lru_cache()
+def _fir_lowpass_fft(size: int, sample_rate: float, *, cutoff: float, transition_bandwidth: float, window='hamming', xp=np):
+    freqs = [
+        0,cutoff-transition_bandwidth/2,cutoff,cutoff+transition_bandwidth/2,sample_rate/2
+    ]
+    h = signal.firwin2(size, freqs, [1.0, 1, 0.5, 0.0, 0.0], window=window, fs=sample_rate)
+    taps = xp.array(h)
+    return xp.fft.fftshift(xp.fft.fft(taps))
+
+
+def stft_fir_lowpass(xstft: ArrayType, *, sample_rate: float, bandwidth: float, transition_bandwidth: float, axis=0, out=None):
+    xp = array_namespace(xstft)
+
+    H = _fir_lowpass_fft(
+        xstft.shape[axis+1],
+        sample_rate=sample_rate,
+        cutoff=bandwidth/2,
+        transition_bandwidth=transition_bandwidth/2
+    )
+
+    H = broadcast_onto(H, xstft, axis=axis+1)
+
+    return xp.multiply(xstft, H, out=out)
 
 
 @functools.lru_cache(100)
