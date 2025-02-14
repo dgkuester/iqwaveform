@@ -325,14 +325,13 @@ def design_cola_resampler(
 
 
 def _cola_scale(window, hop_size):
+    wmag = np.abs(window)
+    loc_floor = (window.size - hop_size) // 2
+    # scaling correction based on the shape of the window where it intersects with its neighbor
     if (window.size - hop_size) % 2 == 0:
-        # scaling correction based on the shape of the window where it intersects with its neighbor
-        cola_scale = 2 * np.abs(window[(window.size - hop_size) // 2])
+        cola_scale = 2 * wmag[loc_floor]
     else:
-        cola_scale = (
-            np.abs(window[(window.size - hop_size) // 2])
-            + np.abs(window[(window.size - hop_size) // 2 + 1])
-        )
+        cola_scale = wmag[loc_floor] + wmag[loc_floor + 1]
     return np.abs(cola_scale)
 
 
@@ -498,7 +497,6 @@ def zero_stft_by_freq(
     """apply a bandpass filter in the STFT domain by zeroing frequency indices"""
     xp = array_namespace(xstft)
 
-    print(xstft.shape)
     freq_step = float(freqs[1] - freqs[0])
     fs = xstft.shape[axis] * freq_step
     ilo, ihi = _freq_band_edges(freqs.size, fs, *passband, xp=xp)
@@ -509,13 +507,26 @@ def zero_stft_by_freq(
 
 
 @functools.lru_cache()
-def _fir_lowpass_fft(size: int, sample_rate: float, *, cutoff: float, transition_bandwidth: float, window='hamming', xp=np):
+def _fir_lowpass_fft(size: int, sample_rate: float, *, cutoff: float, transition: float, window='hamming', xp=np, dtype='complex64'):
+    """returns the complex frequency response of an FIR filter suited for filtering in the frequency domain
+
+    Arguments:
+        size: window size
+        sample_rate: sample rate (in Hz)
+        cutoff: filter cutoff (in Hz)
+        transition: bandwidth of the transition (in Hz)
+
+    Returns:
+        a frequency-domain window
+    """
     freqs = [
-        0,cutoff-transition_bandwidth/2,cutoff,cutoff+transition_bandwidth/2,sample_rate/2
+        0,cutoff-transition/2,cutoff,cutoff+transition/2,sample_rate/2
     ]
     h = signal.firwin2(size, freqs, [1.0, 1, 0.5, 0.0, 0.0], window=window, fs=sample_rate)
-    taps = xp.array(h)
-    return xp.fft.fftshift(xp.fft.fft(taps))
+    taps = xp.array(h).astype(dtype)
+    H = xp.fft.fftshift(xp.fft.fft(taps))
+    w = _get_window('rect', size, xp=xp, dtype=dtype, fftshift=True)
+    return H*w
 
 
 def stft_fir_lowpass(xstft: ArrayType, *, sample_rate: float, bandwidth: float, transition_bandwidth: float, axis=0, out=None):
@@ -525,7 +536,8 @@ def stft_fir_lowpass(xstft: ArrayType, *, sample_rate: float, bandwidth: float, 
         xstft.shape[axis+1],
         sample_rate=sample_rate,
         cutoff=bandwidth/2,
-        transition_bandwidth=transition_bandwidth/2
+        transition=transition_bandwidth,
+        dtype=xstft.dtype
     )
 
     H = broadcast_onto(H, xstft, axis=axis+1)
