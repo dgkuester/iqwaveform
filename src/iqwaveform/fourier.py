@@ -537,7 +537,8 @@ def stft_fir_lowpass(xstft: ArrayType, *, sample_rate: float, bandwidth: float, 
         sample_rate=sample_rate,
         cutoff=bandwidth/2,
         transition=transition_bandwidth,
-        dtype=xstft.dtype
+        dtype=xstft.dtype,
+        xp=xp
     )
 
     H = broadcast_onto(H, xstft, axis=axis+1)
