@@ -101,7 +101,7 @@ def corr_at_indices(inds, x, nfft, norm=True, out=None):
 
     if out is None:
         out = xp.empty(nfft + ncp, dtype=x.dtype)
-    
+
     if array_api_compat.is_numpy_array(x):
         from ._jit.cpu import _corr_at_indices
     else:

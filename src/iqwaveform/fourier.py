@@ -38,6 +38,56 @@ OLA_MAX_FFT_SIZE = 128 * 1024
 INF = float('inf')
 
 
+@functools.lru_cache(128)
+def _get_window(
+    name_or_tuple,
+    nfft: int,
+    nzero: int = 0,
+    *,
+    fftshift: bool = False,
+    fftbins=True,
+    norm=True,
+    dtype=None,
+    xp=None,
+):
+    """build an analysis window with an option to zero-pad to total size `nfft + nzeros`"""
+    if xp is not None:
+        w = _get_window(
+            name_or_tuple,
+            nfft,
+            fftbins=fftbins,
+            norm=norm,
+            fftshift=fftshift,
+            dtype=dtype,
+        )
+        if hasattr(xp, 'asarray'):
+            w = xp.asarray(w)
+        else:
+            w = xp.array(w).astype(dtype)
+        return w
+
+    w = np.empty(nfft + nzero, dtype=dtype)
+
+    w[:nfft] = signal.windows.get_window(name_or_tuple, nfft, fftbins=fftbins)
+
+    if nzero > 0:
+        w[nfft:] = 0
+
+    if norm:
+        w /= np.sqrt(np.mean(np.abs(w) ** 2))
+
+    if fftshift:
+        delay = scipy.ndimage.fourier_shift(np.ones_like(w), nfft // 2)
+
+        if nfft % 2 == 0:
+            # takes the form [1, -1, 1, -1, 1, ...]
+            delay = delay.real
+
+        w = delay * w
+
+    return w
+
+
 def _truncated_buffer(x: ArrayType, shape, dtype=None):
     if dtype is not None:
         x = x.view(dtype)
@@ -126,48 +176,6 @@ def fftfreq(n, d, *, xp=np, dtype='float64') -> ArrayType:
         return xp.linspace(-fnyq, fnyq - 2 * fnyq / n, n, dtype=dtype)
     else:
         return xp.linspace(-fnyq + fnyq / n, fnyq - fnyq / n, n, dtype=dtype)
-
-
-def zero_pad(x: ArrayType, pad_amt: int) -> ArrayType:
-    """shortcut for e.g. np.pad(x, pad_amt, mode="constant", constant_values=0)"""
-    xp = array_namespace(x)
-
-    return xp.pad(x, pad_amt, mode='constant', constant_values=0)
-
-
-def tile_axis0(x: ArrayType, N) -> ArrayType:
-    """returns N copies of x along axis 0"""
-    xp = array_namespace(x)
-    return xp.tile(x.T, N).T
-
-
-@functools.lru_cache(128)
-def _get_window(
-    name_or_tuple, N, *, fftshift=False, fftbins=True, norm=True, dtype=None, xp=None
-):
-    if xp is not None:
-        w = _get_window(name_or_tuple, N, fftbins=fftbins, norm=norm, fftshift=fftshift, dtype=dtype)
-        if hasattr(xp, 'asarray'):
-            w = xp.asarray(w)
-        else:
-            w = xp.array(w).astype(dtype)
-        return w
-
-    w = signal.windows.get_window(name_or_tuple, N, fftbins=fftbins)
-
-    if norm:
-        w /= np.sqrt(np.mean(np.abs(w) ** 2))
-
-    if fftshift:
-        delay = scipy.ndimage.fourier_shift(np.ones_like(w), N // 2)
-
-        if N % 2 == 0:
-            # takes the form [1, -1, 1, -1, 1, ...]
-            delay = delay.real
-
-        w = delay * w
-
-    return w
 
 
 @functools.lru_cache
@@ -342,7 +350,7 @@ def _stack_stft_windows(
     noverlap: int,
     norm=None,
     axis=0,
-    out=None
+    out=None,
 ) -> ArrayType:
     """add overlapping windows at appropriate offset _to_overlapping_windows, returning a waveform.
 
@@ -507,7 +515,16 @@ def zero_stft_by_freq(
 
 
 @functools.lru_cache()
-def _fir_lowpass_fft(size: int, sample_rate: float, *, cutoff: float, transition: float, window='hamming', xp=np, dtype='complex64'):
+def _fir_lowpass_fft(
+    size: int,
+    sample_rate: float,
+    *,
+    cutoff: float,
+    transition: float,
+    window='hamming',
+    xp=np,
+    dtype='complex64',
+):
     """returns the complex frequency response of an FIR filter suited for filtering in the frequency domain
 
     Arguments:
@@ -520,28 +537,42 @@ def _fir_lowpass_fft(size: int, sample_rate: float, *, cutoff: float, transition
         a frequency-domain window
     """
     freqs = [
-        0,cutoff-transition/2,cutoff,cutoff+transition/2,sample_rate/2
+        0,
+        cutoff - transition / 2,
+        cutoff,
+        cutoff + transition / 2,
+        sample_rate / 2,
     ]
-    h = signal.firwin2(size, freqs, [1.0, 1, 0.5, 0.0, 0.0], window=window, fs=sample_rate)
+    h = signal.firwin2(
+        size, freqs, [1.0, 1, 0.5, 0.0, 0.0], window=window, fs=sample_rate
+    )
     taps = xp.array(h).astype(dtype)
     H = xp.fft.fftshift(xp.fft.fft(taps))
     w = _get_window('rect', size, xp=xp, dtype=dtype, fftshift=True)
-    return H*w
+    return H * w
 
 
-def stft_fir_lowpass(xstft: ArrayType, *, sample_rate: float, bandwidth: float, transition_bandwidth: float, axis=0, out=None):
+def stft_fir_lowpass(
+    xstft: ArrayType,
+    *,
+    sample_rate: float,
+    bandwidth: float,
+    transition_bandwidth: float,
+    axis=0,
+    out=None,
+):
     xp = array_namespace(xstft)
 
     H = _fir_lowpass_fft(
-        xstft.shape[axis+1],
+        xstft.shape[axis + 1],
         sample_rate=sample_rate,
-        cutoff=bandwidth/2,
+        cutoff=bandwidth / 2,
         transition=transition_bandwidth,
         dtype=xstft.dtype,
-        xp=xp
+        xp=xp,
     )
 
-    H = broadcast_onto(H, xstft, axis=axis+1)
+    H = broadcast_onto(H, xstft, axis=axis + 1)
 
     return xp.multiply(xstft, H, out=out)
 
@@ -631,8 +662,8 @@ def downsample_stft(
 
     # copy first before zeroing, in case of input-output buffer reuse
     xp.copyto(
-        axis_slice(xout, *bounds_out, axis=ax), #
-        axis_slice(y, *bounds_in, axis=ax)
+        axis_slice(xout, *bounds_out, axis=ax),  #
+        axis_slice(y, *bounds_in, axis=ax),
     )
     xp.copyto(axis_slice(xout, 0, bounds_out[0], axis=ax), 0)
     xp.copyto(axis_slice(xout, bounds_out[1], None, axis=ax), 0)
@@ -652,7 +683,7 @@ def stft(
     norm: str | None = None,
     overwrite_x=False,
     return_axis_arrays=True,
-    out=None
+    out=None,
 ) -> tuple[ArrayType, ArrayType, ArrayType]:
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
     some overhead that comes with its generality and allow use of the generic
@@ -710,8 +741,10 @@ def stft(
     if window is None:
         window = 'rect'
 
-    if isinstance(window, str) or (isinstance(window, tuple) and isinstance(window[0], str)):
-        should_norm = (norm == 'power')
+    if isinstance(window, str) or (
+        isinstance(window, tuple) and isinstance(window[0], str)
+    ):
+        should_norm = norm == 'power'
         w = _get_window(
             window, nfft, xp=xp, dtype=x.dtype, norm=should_norm, fftshift=True
         )
@@ -740,7 +773,7 @@ def stft(
             noverlap=noverlap,
             axis=axis,
             norm=norm,
-            out=out
+            out=out,
         )
     assert xstack.dtype == x.dtype
     del x
@@ -821,7 +854,7 @@ def ola_filter(
     axis=0,
     extend=False,
     out=None,
-    overwrite_x=False
+    overwrite_x=False,
 ):
     """apply a bandpass filter implemented through STFT overlap-and-add.
 
@@ -859,7 +892,7 @@ def ola_filter(
         noverlap=round(nfft * overlap_scale),
         axis=axis,
         truncate=False,
-        overwrite_x=overwrite_x
+        overwrite_x=overwrite_x,
     )
 
     zero_stft_by_freq(
@@ -914,7 +947,7 @@ def spectrogram(
     noverlap: int = 0,
     axis: int = 0,
     truncate: bool = True,
-    return_axis_arrays: bool = True
+    return_axis_arrays: bool = True,
 ):
     kws = dict(locals())
 
