@@ -66,12 +66,12 @@ def _get_window(
             w = xp.array(w).astype(dtype)
         return w
 
-    w = np.empty(nfft + nzero, dtype=dtype)
+    w = np.empty(nfft, dtype=dtype)
 
-    w[:nfft] = signal.windows.get_window(name_or_tuple, nfft, fftbins=fftbins)
+    w[:nfft-nzero] = signal.windows.get_window(name_or_tuple, nfft, fftbins=fftbins)
 
     if nzero > 0:
-        w[nfft:] = 0
+        w[nfft-nzero:] = 0
 
     if norm:
         w /= np.sqrt(np.mean(np.abs(w) ** 2))
@@ -748,7 +748,7 @@ def stft(
     ):
         should_norm = norm == 'power'
         w = _get_window(
-            window, nfft-nzero, nzero=nzero, xp=xp, dtype=x.dtype, norm=should_norm, fftshift=True
+            window, nfft, nzero=nzero, xp=xp, dtype=x.dtype, norm=should_norm, fftshift=True
         )
     else:
         w = w * _get_window('rect', nfft, nzero=nzero, xp=xp, dtype=x.dtype, fftshift=True)
