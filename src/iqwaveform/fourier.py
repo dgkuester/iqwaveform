@@ -333,9 +333,10 @@ def design_cola_resampler(
 
 
 def _cola_scale(window, hop_size):
+    """ scaling correction based on the shape of the window where it intersects with its neighbor """
+
     wmag = np.abs(window)
     loc_floor = (window.size - hop_size) // 2
-    # scaling correction based on the shape of the window where it intersects with its neighbor
     if (window.size - hop_size) % 2 == 0:
         cola_scale = 2 * wmag[loc_floor]
     else:
@@ -678,6 +679,7 @@ def stft(
     window: ArrayType | str | tuple[str, float],
     nperseg: int = 256,
     noverlap: int = 0,
+    nzero: int = 0,
     axis: int = 0,
     truncate: bool = True,
     norm: str | None = None,
@@ -746,10 +748,10 @@ def stft(
     ):
         should_norm = norm == 'power'
         w = _get_window(
-            window, nfft, xp=xp, dtype=x.dtype, norm=should_norm, fftshift=True
+            window, nfft-nzero, nzero=nzero, xp=xp, dtype=x.dtype, norm=should_norm, fftshift=True
         )
     else:
-        w = w * _get_window('rect', nfft, xp=xp, dtype=x.dtype, fftshift=True)
+        w = w * _get_window('rect', nfft, nzero=nzero, xp=xp, dtype=x.dtype, fftshift=True)
 
     if noverlap == 0:
         # special case for speed
@@ -945,6 +947,7 @@ def spectrogram(
     window: ArrayType | str | tuple[str, float],
     nperseg: int = 256,
     noverlap: int = 0,
+    nzero: int = 0,
     axis: int = 0,
     truncate: bool = True,
     return_axis_arrays: bool = True,
