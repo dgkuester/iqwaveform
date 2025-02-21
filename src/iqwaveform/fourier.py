@@ -41,7 +41,7 @@ INF = float('inf')
 @functools.lru_cache(128)
 def _get_window(
     name_or_tuple,
-    nfft: int,
+    nwindow: int,
     nzero: int = 0,
     *,
     fftshift: bool = False,
@@ -54,7 +54,7 @@ def _get_window(
     if xp is not None:
         w = _get_window(
             name_or_tuple,
-            nfft,
+            nwindow,
             fftbins=fftbins,
             norm=norm,
             fftshift=fftshift,
@@ -66,20 +66,21 @@ def _get_window(
             w = xp.array(w).astype(dtype)
         return w
 
-    w = np.empty(nfft, dtype=dtype)
+    w = np.empty(nwindow, dtype=dtype)
 
-    w[:nfft-nzero] = signal.windows.get_window(name_or_tuple, nfft, fftbins=fftbins)
+    w[nzero//2:nzero//2+nwindow] = signal.windows.get_window(name_or_tuple, nwindow, fftbins=fftbins)
 
     if nzero > 0:
-        w[nfft-nzero:] = 0
+        w[:nzero//2] = 0
+        w[nzero//2+nwindow:] = 0
 
     if norm:
         w /= np.sqrt(np.mean(np.abs(w) ** 2))
 
     if fftshift:
-        delay = scipy.ndimage.fourier_shift(np.ones_like(w), nfft // 2)
+        delay = scipy.ndimage.fourier_shift(np.ones_like(w), nwindow // 2)
 
-        if nfft % 2 == 0:
+        if nwindow % 2 == 0:
             # takes the form [1, -1, 1, -1, 1, ...]
             delay = delay.real
 
@@ -976,6 +977,7 @@ def power_spectral_density(
     window,
     resolution: float,
     fractional_overlap=0,
+    fractional_window: float = 1,
     statistics: list[float],
     truncate=True,
     dB=True,
@@ -988,12 +990,17 @@ def power_spectral_density(
         # need sample_rate_Hz/resolution to give us a counting number
         raise ValueError('sample_rate_Hz/resolution must be a counting number')
 
+    if iqwaveform.isroundmod((1 - fractional_window) * nfft, 1):
+        nzero = round((1 - fractional_window) * nfft)
+    else:
+        raise ValueError('(1-fractional_window) * (sample_rate/frequency_resolution) must be a counting number')
+
     xp = array_namespace(x)
     domain = get_input_domain()
 
     if domain == Domain.TIME:
         freqs, _, X = spectrogram(
-            x, window=window, fs=fs, nperseg=nfft, noverlap=noverlap, axis=axis
+            x, window=window, fs=fs, nperseg=nfft, nzero=nzero, noverlap=noverlap, axis=axis
         )
     elif domain == Domain.FREQUENCY:
         X = x
