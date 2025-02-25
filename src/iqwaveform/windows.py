@@ -210,6 +210,7 @@ def acg(M: int, sigma_t: float, sym=True, dtype='float32'):
 
     k = np.arange(M, dtype=dtype)
     w = G(k) - G(-0.5) * (G(k + M) + G(k - M)) / (G(-0.5 + M) + G(-0.5 - M))
+    w /= w.max()
 
     return _truncate(w, needs_trunc)
 
