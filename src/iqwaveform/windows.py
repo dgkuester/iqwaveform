@@ -4,6 +4,7 @@ import numpy as np
 from .util import lazy_import
 
 special = lazy_import('scipy.special')
+signal = lazy_import('scipy.signal')
 
 
 def _len_guards(M):
@@ -187,7 +188,7 @@ def cosh(M: int, alpha, sym=True) -> np.ndarray:
     return _truncate(w, needs_trunc)
 
 
-def acgw(M: int, sigma_t: float):
+def acgw(M: int, sigma_t: float, sym=True):
     """returns approximate confined gaussian window.
 
     Args:
@@ -198,8 +199,27 @@ def acgw(M: int, sigma_t: float):
         Signal Processing," Signal Processing Vol. 102, Sept. 2014, Pages 240-246.
     """
 
+    if _len_guards(M):
+        return np.ones(M)
+
+    M, needs_trunc = _extend(M, sym)
+
     def G(k):
         return np.exp(-(((k - (M - 1) / 2) / sigma_t) ** 2))
 
     k = np.arange(M)
-    return (G(k + M) + G(k - M)) / (G(-0.5 + M) + G(-0.5 - M))
+    w = (G(k + M) + G(k - M)) / (G(-0.5 + M) + G(-0.5 - M))
+
+    return _truncate(w, needs_trunc)
+
+
+def register_extra_windows():
+    """add 'acgw', 'cosh', 'modified_bessel', 'knab', and 'taylor' windows to
+    the window functions registered for access by `scipy.signal.get_window`.
+    """
+    registry = signal.windows._windows._win_equiv
+    registry['acgw'] = acgw
+    registry['cosh'] = cosh
+    registry['modified_bessel'] = modified_bessel
+    registry['knab'] = knab
+    registry['taylor'] = taylor
