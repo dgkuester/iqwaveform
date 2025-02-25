@@ -990,7 +990,7 @@ def power_spectral_density(
         # need sample_rate_Hz/resolution to give us a counting number
         raise ValueError('sample_rate_Hz/resolution must be a counting number')
 
-    if iqwaveform.isroundmod((1 - fractional_window) * nfft, 1):
+    if power_analysis.isroundmod((1 - fractional_window) * nfft, 1):
         nzero = round((1 - fractional_window) * nfft)
     else:
         raise ValueError('(1-fractional_window) * (sample_rate/frequency_resolution) must be a counting number')

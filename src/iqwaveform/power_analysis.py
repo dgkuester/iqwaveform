@@ -133,7 +133,7 @@ def _repackage_arraylike(
         ret = obj.copy(deep=False, data=values)
         units = ret.attrs.get('units', None)
         if units is not None and unit_transform is not None:
-            ret.attrs = dict(units=unit_transform(units))
+            ret.attrs[units] = unit_transform(units)
         return ret
     else:
         raise TypeError(f'unrecognized input type {type(obj)}')
