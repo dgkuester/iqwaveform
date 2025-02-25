@@ -188,7 +188,7 @@ def cosh(M: int, alpha, sym=True) -> np.ndarray:
     return _truncate(w, needs_trunc)
 
 
-def acg(M: int, sigma_t: float, sym=True, dtype='float32'):
+def acg(M: int, sigma_t: float, sym=True, dtype='float64'):
     """returns approximate confined gaussian window.
 
     Args:
