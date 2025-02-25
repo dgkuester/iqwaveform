@@ -188,7 +188,7 @@ def cosh(M: int, alpha, sym=True) -> np.ndarray:
     return _truncate(w, needs_trunc)
 
 
-def acgw(M: int, sigma_t: float, sym=True):
+def acg(M: int, sigma_t: float, sym=True, dtype='float32'):
     """returns approximate confined gaussian window.
 
     Args:
@@ -204,21 +204,22 @@ def acgw(M: int, sigma_t: float, sym=True):
 
     M, needs_trunc = _extend(M, sym)
 
-    def G(k):
-        return np.exp(-(((k - (M - 1) / 2) / sigma_t) ** 2))
+    def G(k, sigma_t=sigma_t):
+        inner = (k - (M - 1) / 2) / (2 * M * sigma_t)
+        return np.exp(-inner**2)
 
-    k = np.arange(M)
-    w = (G(k + M) + G(k - M)) / (G(-0.5 + M) + G(-0.5 - M))
+    k = np.arange(M, dtype=dtype)
+    w = G(k) - G(-0.5) * (G(k + M) + G(k - M)) / (G(-0.5 + M) + G(-0.5 - M))
 
     return _truncate(w, needs_trunc)
 
 
 def register_extra_windows():
-    """add 'acgw', 'cosh', 'modified_bessel', 'knab', and 'taylor' windows to
+    """add 'acg', 'cosh', 'modified_bessel', 'knab', and 'taylor' windows to
     the window functions registered for access by `scipy.signal.get_window`.
     """
     registry = signal.windows._windows._win_equiv
-    registry['acgw'] = acgw
+    registry['acg'] = acg
     registry['cosh'] = cosh
     registry['modified_bessel'] = modified_bessel
     registry['knab'] = knab
