@@ -47,6 +47,7 @@ def _get_window(
     nzero: int = 0,
     *,
     fftshift: bool = False,
+    center_zeros = False,
     fftbins=True,
     norm=True,
     dtype=None,
@@ -70,14 +71,22 @@ def _get_window(
             w = xp.array(w).astype(dtype)
         return w
 
-    w = np.empty(nwindow, dtype=dtype)
-    w[nzero // 2 : nzero // 2 + nwindow] = signal.windows.get_window(
+    
+    ws = signal.windows.get_window(
         name_or_tuple, nwindow, fftbins=fftbins
     )
 
-    if nzero > 0:
+    if nzero == 0:
+        w = ws
+    elif center_zeros:
+        w = np.empty(nwindow, dtype=dtype)
+        w[nzero // 2 : nzero // 2 + nwindow] = ws
         w[: nzero // 2] = 0
         w[nzero // 2 + nwindow :] = 0
+    else:
+        w = np.empty(nwindow, dtype=dtype)
+        w[:nwindow] = w
+        w[-nzero:] = 0
 
     if norm:
         w /= np.sqrt(np.mean(np.abs(w) ** 2))
