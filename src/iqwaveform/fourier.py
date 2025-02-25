@@ -20,6 +20,8 @@ from .util import (
     axis_slice,
 )
 
+from .windows import register_extra_windows
+
 from .type_stubs import ArrayType
 
 if typing.TYPE_CHECKING:
@@ -50,6 +52,8 @@ def _get_window(
     dtype=None,
     xp=None,
 ):
+    register_extra_windows()
+
     """build an analysis window with an option to zero-pad to total size `nfft + nzeros`"""
     if xp is not None:
         w = _get_window(
@@ -67,12 +71,13 @@ def _get_window(
         return w
 
     w = np.empty(nwindow, dtype=dtype)
-
-    w[nzero//2:nzero//2+nwindow] = signal.windows.get_window(name_or_tuple, nwindow, fftbins=fftbins)
+    w[nzero // 2 : nzero // 2 + nwindow] = signal.windows.get_window(
+        name_or_tuple, nwindow, fftbins=fftbins
+    )
 
     if nzero > 0:
-        w[:nzero//2] = 0
-        w[nzero//2+nwindow:] = 0
+        w[: nzero // 2] = 0
+        w[nzero // 2 + nwindow :] = 0
 
     if norm:
         w /= np.sqrt(np.mean(np.abs(w) ** 2))
@@ -334,7 +339,7 @@ def design_cola_resampler(
 
 
 def _cola_scale(window, hop_size):
-    """ scaling correction based on the shape of the window where it intersects with its neighbor """
+    """scaling correction based on the shape of the window where it intersects with its neighbor"""
 
     wmag = np.abs(window)
     loc_floor = (window.size - hop_size) // 2
@@ -749,10 +754,18 @@ def stft(
     ):
         should_norm = norm == 'power'
         w = _get_window(
-            window, nfft, nzero=nzero, xp=xp, dtype=x.dtype, norm=should_norm, fftshift=True
+            window,
+            nfft,
+            nzero=nzero,
+            xp=xp,
+            dtype=x.dtype,
+            norm=should_norm,
+            fftshift=True,
         )
     else:
-        w = w * _get_window('rect', nfft, nzero=nzero, xp=xp, dtype=x.dtype, fftshift=True)
+        w = w * _get_window(
+            'rect', nfft, nzero=nzero, xp=xp, dtype=x.dtype, fftshift=True
+        )
 
     if noverlap == 0:
         # special case for speed
@@ -993,14 +1006,22 @@ def power_spectral_density(
     if power_analysis.isroundmod((1 - fractional_window) * nfft, 1):
         nzero = round((1 - fractional_window) * nfft)
     else:
-        raise ValueError('(1-fractional_window) * (sample_rate/frequency_resolution) must be a counting number')
+        raise ValueError(
+            '(1-fractional_window) * (sample_rate/frequency_resolution) must be a counting number'
+        )
 
     xp = array_namespace(x)
     domain = get_input_domain()
 
     if domain == Domain.TIME:
         freqs, _, X = spectrogram(
-            x, window=window, fs=fs, nperseg=nfft, nzero=nzero, noverlap=noverlap, axis=axis
+            x,
+            window=window,
+            fs=fs,
+            nperseg=nfft,
+            nzero=nzero,
+            noverlap=noverlap,
+            axis=axis,
         )
     elif domain == Domain.FREQUENCY:
         X = x

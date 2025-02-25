@@ -206,7 +206,7 @@ def acg(M: int, sigma_t: float, sym=True, dtype='float64'):
 
     def G(k, sigma_t=sigma_t):
         inner = (k - (M - 1) / 2) / (2 * M * sigma_t)
-        return np.exp(-inner**2)
+        return np.exp(-(inner**2))
 
     k = np.arange(M, dtype=dtype)
     w = G(k) - G(-0.5) * (G(k + M) + G(k - M)) / (G(-0.5 + M) + G(-0.5 - M))
