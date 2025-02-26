@@ -60,6 +60,7 @@ def _get_window(
         w = _get_window(
             name_or_tuple,
             nwindow,
+            nzero=nzero,
             fftbins=fftbins,
             norm=norm,
             fftshift=fftshift,
@@ -68,10 +69,10 @@ def _get_window(
         if hasattr(xp, 'asarray'):
             w = xp.asarray(w)
         else:
-            w = xp.array(w).astype(dtype)
-        return w
+            w = xp.array(w)
 
-    
+        return w.astype(dtype)
+
     ws = signal.windows.get_window(
         name_or_tuple, nwindow, fftbins=fftbins
     )
@@ -79,26 +80,29 @@ def _get_window(
     if nzero == 0:
         w = ws
     elif center_zeros:
-        w = np.empty(nwindow, dtype=dtype)
+        w = np.empty(nwindow + nzero, dtype=ws.dtype)
         w[nzero // 2 : nzero // 2 + nwindow] = ws
         w[: nzero // 2] = 0
         w[nzero // 2 + nwindow :] = 0
     else:
-        w = np.empty(nwindow, dtype=dtype)
-        w[:nwindow] = w
-        w[-nzero:] = 0
+        w = np.empty(nwindow + nzero, dtype=ws.dtype)
+        w[:nwindow] = ws
+        w[nwindow:] = 0
 
     if norm:
         w /= np.sqrt(np.mean(np.abs(w) ** 2))
 
     if fftshift:
-        delay = scipy.ndimage.fourier_shift(np.ones_like(w), nwindow // 2)
+        delay = scipy.ndimage.fourier_shift(np.ones_like(w), (nwindow + nzero) // 2)
 
         if nwindow % 2 == 0:
             # takes the form [1, -1, 1, -1, 1, ...]
             delay = delay.real
 
         w = delay * w
+
+    if dtype is not None:
+        w = w.astype(dtype)
 
     return w
 
@@ -764,7 +768,7 @@ def stft(
         should_norm = norm == 'power'
         w = _get_window(
             window,
-            nfft,
+            nfft - nzero,
             nzero=nzero,
             xp=xp,
             dtype=x.dtype,
@@ -773,7 +777,7 @@ def stft(
         )
     else:
         w = w * _get_window(
-            'rect', nfft, nzero=nzero, xp=xp, dtype=x.dtype, fftshift=True
+            'rect', nfft - nzero, nzero=nzero, xp=xp, dtype=x.dtype, fftshift=True
         )
 
     if noverlap == 0:
