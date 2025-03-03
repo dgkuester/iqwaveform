@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from .util import (
-    lazy_import,
     array_namespace,
-    get_input_domain,
     Domain,
     float_dtype_like,
-    isroundmod,
+    get_input_domain,
+    histogram_last_axis,
     is_cupy_array,
+    isroundmod,
+    lazy_import,
     to_blocks,
 )
 
@@ -510,54 +511,6 @@ def sample_ccdf(
     return ccdf
 
 
-def hist_laxis(
-    x: type_stubs.ArrayType, bins: int | type_stubs.ArrayType, range: tuple = None
-) -> type_stubs.ArrayType:
-    """computes a histogram along the last axis of an input array.
-
-    For reference see https://stackoverflow.com/questions/44152436/calculate-histograms-along-axis
-
-    Args:
-        x: input data of shape (M[0], ..., M[K-1], N)
-        bins: Number of bins in the histogram, or a vector of bin edges
-        range: Bounds on the histogram bins [lower bound, upper bound] inclusive
-
-    Returns:
-        np.ndarray of shape (M[0], ..., M[K-1], n_bins)
-    """
-
-    xp = array_namespace(x)
-
-    # Setup bins and determine the bin location for each element for the bins
-    hist_size = x.shape[-1]
-
-    if isinstance(bins, int):
-        if range is None:
-            range = x.min(), x.max()
-        bins = xp.linspace(range[0], range[1], bins + 1)
-    else:
-        bins = xp.asarray(bins)
-    data2D = x.reshape(-1, hist_size)
-    idx = xp.searchsorted(bins, data2D, 'right') - 1
-
-    # Some elements would be off limits, so get a mask for those
-    bad_mask = (idx == -1) | (idx == bins.size)
-
-    # We need to use bincount to get bin based counts. To have unique IDs for
-    # each row and not get confused by the ones from other rows, we need to
-    # offset each row by a scale (using row length for this).
-    scaled_idx = bins.size * xp.arange(data2D.shape[0])[:, None] + idx
-
-    # Set the bad ones to be last possible index+1 : n_bins*data2D.shape[0]
-    limit = bins.size * data2D.shape[0]
-    scaled_idx[bad_mask] = limit
-
-    # Get the counts and reshape to multi-dim
-    counts = xp.bincount(scaled_idx.ravel(), minlength=limit + 1)[:-1]
-    counts.shape = x.shape[:-1] + (bins.size,)
-    return counts
-
-
 def power_histogram_along_axis(
     pvt: type_stubs.DataFrameType,
     bounds: tuple[float, float],
@@ -614,7 +567,7 @@ def power_histogram_along_axis(
     shape = pvt.shape[0] // resolution_axis, pvt.shape[1] * resolution_axis
     reshaped = pvt.values.reshape(shape)
     n_bins = 1 + int((bounds[1] - bounds[0]) / resolution_db)
-    h = hist_laxis(reshaped, n_bins, bounds).astype(dtype)
+    h = histogram_last_axis(reshaped, n_bins, bounds).astype(dtype)
 
     # pack a DataFrame with the bin labels
     #     timestamps = pvt.index.get_level_values('Time')

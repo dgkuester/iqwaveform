@@ -20,7 +20,6 @@ from .power_analysis import (
     dBtopow,
     envtodB,
     envtopow,
-    hist_laxis,
     iq_to_bin_power,
     iq_to_cyclic_power,
     power_histogram_along_axis,
@@ -28,4 +27,6 @@ from .power_analysis import (
     sample_ccdf,
 )
 
-from .util import isroundmod
+from .util import (
+    histogram_last_axis, isroundmod
+)
