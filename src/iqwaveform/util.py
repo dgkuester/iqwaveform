@@ -354,7 +354,11 @@ def to_blocks(
         slices[axis] = slice(None, size * (ax_size // size))
         y = y.__getitem__(tuple(slices))
 
-    newshape = y.shape[:axis] + (ax_size // size, size) + y.shape[axis + 1 :]
+    if axis == -1:
+        shape_after = ()
+    else:
+        shape_after = y.shape[axis + 1 :]
+    newshape = y.shape[:axis] + (ax_size // size, size) + shape_after
 
     return y.reshape(newshape)
 
