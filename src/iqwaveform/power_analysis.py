@@ -573,6 +573,7 @@ def power_histogram_along_axis(
     #     timestamps = pvt.index.get_level_values('Time')
     #     time_bins = pd.to_datetime(timestamps[::resolution_axis])
     power_bins = np.linspace(bounds[0], bounds[1], n_bins).astype('float64')
+    power_bins = 0.5 * (power_bins[:-1] + power_bins[1:])
     df = pd.DataFrame(h, index=pvt.index[::resolution_axis], columns=power_bins)
 
     return df
