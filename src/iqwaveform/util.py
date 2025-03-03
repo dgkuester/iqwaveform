@@ -442,8 +442,8 @@ def histogram_last_axis(
         bins = xp.linspace(range[0], range[1], bins + 1)
     else:
         bins = xp.asarray(bins)
-    data2D = x.reshape(-1, hist_size)
-    idx = xp.searchsorted(bins, data2D, 'right') - 1
+    flat = x.reshape(-1, hist_size)
+    idx = xp.searchsorted(bins, flat, 'right') - 1
 
     # Some elements would be off limits, so get a mask for those
     bad_mask = (idx == -1) | (idx == bins.size)
@@ -451,13 +451,13 @@ def histogram_last_axis(
     # We need to use bincount to get bin based counts. To have unique IDs for
     # each row and not get confused by the ones from other rows, we need to
     # offset each row by a scale (using row length for this).
-    scaled_idx = bins.size * xp.arange(data2D.shape[0])[:, None] + idx
+    scaled_idx = bins.size * xp.arange(flat.shape[0])[:, None] + idx
 
     # Set the bad ones to be last possible index+1 : n_bins*data2D.shape[0]
-    limit = bins.size * data2D.shape[0]
+    limit = bins.size * flat.shape[0]
     scaled_idx[bad_mask] = limit
 
     # Get the counts and reshape to multi-dim
-    counts = xp.bincount(scaled_idx.ravel(), minlength=limit + 1)[:-1]
+    counts = xp.bincount(scaled_idx.ravel(), minlength=limit)[:-1]
     counts.shape = x.shape[:-1] + (bins.size,)
-    return counts
+    return counts, bins

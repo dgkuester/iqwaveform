@@ -567,7 +567,7 @@ def power_histogram_along_axis(
     shape = pvt.shape[0] // resolution_axis, pvt.shape[1] * resolution_axis
     reshaped = pvt.values.reshape(shape)
     n_bins = 1 + int((bounds[1] - bounds[0]) / resolution_db)
-    h = histogram_last_axis(reshaped, n_bins, bounds).astype(dtype)
+    h, _ = histogram_last_axis(reshaped, n_bins, bounds).astype(dtype)
 
     # pack a DataFrame with the bin labels
     #     timestamps = pvt.index.get_level_values('Time')
