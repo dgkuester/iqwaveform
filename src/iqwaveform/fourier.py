@@ -316,7 +316,7 @@ def design_cola_resampler(
     nfft_out = valid_noverlap_out[0]
     nfft_in = int(np.rint(resample_ratio * nfft_out))
 
-    if force_even and nfft_out % 2 == 1 or nfft_in % 2 == 1:
+    if force_even and (nfft_out % 2 == 1 or nfft_in % 2 == 1):
         nfft_out *= 2
         nfft_in *= 2
 
@@ -346,8 +346,8 @@ def design_cola_resampler(
 
     ola_resample_kws = {
         'window': window,
-        'nfft': nfft_in,
-        'nfft_out': nfft_out,
+        'nfft': int(nfft_in),
+        'nfft_out': int(nfft_out),
         'frequency_shift': shift,
         'passband': passband,
         'fs': fs_sdr,
@@ -356,7 +356,47 @@ def design_cola_resampler(
     return fs_sdr, lo_offset, ola_resample_kws
 
 
-def design_fir_resampler(fs_base, )
+def design_fir_resampler(
+    fs_base: float,
+    fs_target: float,
+    bw: float = INF,
+    bw_lo: float = 0,
+    min_oversampling: float = 1.04,
+) -> tuple[float, dict]:
+    """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
+
+    The result includes the integer-divided SDR sample rate to request from the SDR, the LO frequency offset,
+    and the keyword arguments needed to realize resampling with `ola_filter`.
+
+    Args:
+        fs_base: the base clock rate (sometimes known as master clock rate, MCR) of the receiver
+        fs_target: the desired sample rate after resampling
+        bw: the analysis bandwidth to protect from LO leakage
+        bw_lo: the spectral leakage/phase noise bandwidth of the LO
+        shift: the direction to shift the LO
+        avoid_primes: whether to avoid large prime numbered FFTs for performance reasons
+
+    Returns:
+        (SDR sample rate, upfirdn keywords)
+    """
+
+    fs, _, cola_params = design_cola_resampler(
+        fs_base,
+        fs_target,
+        bw=bw,
+        bw_lo=bw_lo,
+        min_oversampling=min_oversampling,
+        min_fft_size=1,
+        avoid_primes=False,
+        force_even=False,
+    )
+
+    fir_params = {
+        'up': cola_params['nfft_out'],
+        'down': cola_params['nfft'],
+    }
+
+    return fs, fir_params
 
 
 def _cola_scale(window, hop_size):
@@ -555,9 +595,7 @@ def design_fir_lpf(
     bands = list(zip(edges[:-1], edges[1:]))
     desired = [1, 1, 1, 0, 0, 0]
 
-    b = signal.firls(
-        numtaps, bands=bands, desired=desired, weight=[0.5, 0.5, 1], fs=sample_rate
-    )
+    b = signal.firls(numtaps, bands=bands, desired=desired, fs=sample_rate)
 
     return xp.asarray(b)
 
@@ -1285,16 +1323,8 @@ def time_to_frequency(iq, Ts, window=None, axis=0):
     fftfreqs = fftfreq(X.shape[0], Ts, xp=xp)
     return fftfreqs, X
 
-def upfirdn(
-    h,
-    x,
-    up=1,
-    down=1,
-    axis=-1,
-    mode="constant",
-    cval=0,
-    overwrite_x=False
-):
+
+def upfirdn(h, x, up=1, down=1, axis=-1, mode='constant', cval=0, overwrite_x=False):
     kws = dict(locals())
     del kws['overwrite_x']
 
@@ -1302,12 +1332,13 @@ def upfirdn(
 
     if is_cupy_array(x):
         from . import cuda
+
         del kws['x'], kws['axis']
         if overwrite_x and 2 * up > down > up:
             # skip new allocation if possible and not "too" wasteful
             kws['out'] = x
 
-        func = lambda array: cuda.upfirdn(x=array, **kws) # noqa: E731
+        func = lambda array: cuda.upfirdn(x=array, **kws)  # noqa: E731
         y = xp.apply_along_axis(func, axis, x)
     else:
         y = signal.upfirdn(**kws)
