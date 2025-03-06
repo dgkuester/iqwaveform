@@ -18,6 +18,7 @@ from .util import (
     to_blocks,
     axis_index,
     axis_slice,
+    dtype_change_float,
 )
 
 from .windows import register_extra_windows
@@ -41,23 +42,23 @@ INF = float('inf')
 
 
 @functools.lru_cache(128)
-def _get_window(
+def get_window(
     name_or_tuple,
     nwindow: int,
     nzero: int = 0,
     *,
     fftshift: bool = False,
-    center_zeros = False,
+    center_zeros=False,
     fftbins=True,
     norm=True,
-    dtype=None,
+    dtype='float32',
     xp=None,
 ):
     register_extra_windows()
 
     """build an analysis window with an option to zero-pad to total size `nfft + nzeros`"""
     if xp is not None:
-        w = _get_window(
+        w = get_window(
             name_or_tuple,
             nwindow,
             nzero=nzero,
@@ -66,43 +67,46 @@ def _get_window(
             fftshift=fftshift,
             dtype=dtype,
         )
+
         if hasattr(xp, 'asarray'):
             w = xp.asarray(w)
         else:
             w = xp.array(w)
 
-        return w.astype(dtype)
+        return w
 
-    ws = signal.windows.get_window(
-        name_or_tuple, nwindow, fftbins=fftbins
-    )
+    ws = signal.windows.get_window(name_or_tuple, nwindow, fftbins=fftbins)
+
+    ntotal = nwindow + nzero
 
     if nzero == 0:
         w = ws
     elif center_zeros:
-        w = np.empty(nwindow + nzero, dtype=ws.dtype)
+        w = np.empty(ntotal, dtype=ws.dtype)
         w[nzero // 2 : nzero // 2 + nwindow] = ws
         w[: nzero // 2] = 0
         w[nzero // 2 + nwindow :] = 0
     else:
-        w = np.empty(nwindow + nzero, dtype=ws.dtype)
+        w = np.empty(ntotal, dtype=ws.dtype)
         w[:nwindow] = ws
         w[nwindow:] = 0
 
     if norm:
+        # scale the time-averaged power to 1
         w /= np.sqrt(np.mean(np.abs(w) ** 2))
 
     if fftshift:
-        delay = scipy.ndimage.fourier_shift(np.ones_like(w), (nwindow + nzero) // 2)
+        delay = scipy.ndimage.fourier_shift(np.ones_like(w), ntotal // 2)
 
-        if nwindow % 2 == 0:
-            # takes the form [1, -1, 1, -1, 1, ...]
+        if ntotal % 2 == 0:
+            # really just [1, -1, 1, -1, 1, ...]
             delay = delay.real
 
         w = delay * w
 
     if dtype is not None:
-        w = w.astype(dtype)
+        dtype_out = dtype_change_float(w.dtype, dtype)
+        w = w.astype(dtype_out)
 
     return w
 
@@ -200,7 +204,7 @@ def fftfreq(n, d, *, xp=np, dtype='float64') -> ArrayType:
 @functools.lru_cache
 def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True):
     """return the equivalent noise bandwidth (ENBW) of a window, in bins"""
-    w = _get_window(window, N, fftbins=fftbins)
+    w = get_window(window, N, fftbins=fftbins)
     return len(w) * np.sum(w**2) / np.sum(w) ** 2
 
 
@@ -535,6 +539,26 @@ def zero_stft_by_freq(
 
 
 @functools.lru_cache()
+def design_fir_lpf(
+    bandwidth, sample_rate, *, numtaps=4001, transition_bandwidth=250e3, xp=np
+):
+    edges = [
+        0,
+        bandwidth / 2,
+        bandwidth / 2 + transition_bandwidth,
+        sample_rate / 2,
+    ]
+    bands = list(zip(edges[:-1], edges[1:]))
+    desired = [1, 1, 1, 0, 0, 0]
+
+    b = signal.firls(
+        numtaps, bands=bands, desired=desired, weight=[0.5, 0.5, 1], fs=sample_rate
+    )
+
+    return xp.asarray(b)
+
+
+@functools.lru_cache()
 def _fir_lowpass_fft(
     size: int,
     sample_rate: float,
@@ -556,19 +580,24 @@ def _fir_lowpass_fft(
     Returns:
         a frequency-domain window
     """
-    freqs = [
-        0,
-        cutoff - transition / 2,
-        cutoff,
-        cutoff + transition / 2,
-        sample_rate / 2,
-    ]
-    h = signal.firwin2(
-        size, freqs, [1.0, 1, 0.5, 0.0, 0.0], window=window, fs=sample_rate
-    )
+
+    if cutoff == float('inf'):
+        h = np.ones(size, dtype=dtype)
+    else:
+        freqs = [
+            0,
+            # cutoff - transition / 2,
+            cutoff,
+            cutoff + transition,
+            sample_rate / 2,
+        ]
+        h = signal.firwin2(
+            size, freqs, [1.0, 1, 0.0, 0.0], window=window, fs=sample_rate
+        )
+
     taps = xp.array(h).astype(dtype)
-    H = xp.fft.fftshift(xp.fft.fft(taps))
-    w = _get_window('rect', size, xp=xp, dtype=dtype, fftshift=True)
+    w = get_window('rect', size, xp=xp, dtype=dtype, fftshift=True)
+    H = xp.fft.fft(taps * w)
     return H * w
 
 
@@ -589,6 +618,7 @@ def stft_fir_lowpass(
         cutoff=bandwidth / 2,
         transition=transition_bandwidth,
         dtype=xstft.dtype,
+        window='rect',
         xp=xp,
     )
 
@@ -636,12 +666,23 @@ def _find_downsampled_freqs(nfft_out, freq_step, xp=np):
     return fftfreq(nfft_out, 1.0 / (freq_step * nfft_out), xp=xp)
 
 
+def _same_base_memory(a: ArrayType, b: ArrayType) -> bool:
+    if b is None:
+        return False
+    elif a is b:
+        return True
+    elif getattr(b, 'base', None) is a:
+        return True
+    else:
+        return False
+
+
 def downsample_stft(
     freqs: ArrayType,
     y: ArrayType,
     nfft_out: int,
     *,
-    passband: tuple[float, float],
+    passband: tuple[float, float] = (None, None),
     axis=0,
     out=None,
 ) -> tuple[ArrayType, ArrayType]:
@@ -666,11 +707,6 @@ def downsample_stft(
     shape_out = list(y.shape)
     shape_out[ax] = nfft_out
 
-    if out is None:
-        xout = xp.empty(shape_out, dtype=y.dtype)
-    else:
-        xout = _truncated_buffer(out, shape_out, y.dtype)
-
     # passband indexes in the input
     freq_step = float(freqs[1] - freqs[0])
     fs = y.shape[ax] * freq_step
@@ -680,11 +716,22 @@ def downsample_stft(
     )
     freqs_out = _find_downsampled_freqs(nfft_out, freq_step, xp=xp)
 
+    if tuple(bounds_out) == (0, shape_out[ax]) and _same_base_memory(y, out):
+        # fast path: a view if both no zeroing is needed and the
+        # output buffer shares underlying y
+        return freqs_out, axis_slice(y, *bounds_in, axis=ax)
+
+    if out is None:
+        xout = xp.empty(shape_out, dtype=y.dtype)
+    else:
+        xout = _truncated_buffer(out, shape_out[ax], y.dtype)
+
     # copy first before zeroing, in case of input-output buffer reuse
     xp.copyto(
         axis_slice(xout, *bounds_out, axis=ax),  #
         axis_slice(y, *bounds_in, axis=ax),
     )
+
     xp.copyto(axis_slice(xout, 0, bounds_out[0], axis=ax), 0)
     xp.copyto(axis_slice(xout, bounds_out[1], None, axis=ax), 0)
 
@@ -766,7 +813,7 @@ def stft(
         isinstance(window, tuple) and isinstance(window[0], str)
     ):
         should_norm = norm == 'power'
-        w = _get_window(
+        w = get_window(
             window,
             nfft - nzero,
             nzero=nzero,
@@ -776,7 +823,7 @@ def stft(
             fftshift=True,
         )
     else:
-        w = w * _get_window(
+        w = w * get_window(
             'rect', nfft - nzero, nzero=nzero, xp=xp, dtype=x.dtype, fftshift=True
         )
 
@@ -848,7 +895,7 @@ def istft(
 
     # correct the fft shift in the time domain, since the
     # multiply operation can be applied in-place
-    w = _get_window('rect', nfft, xp=xp, dtype=y.dtype, fftshift=True)
+    w = get_window('rect', nfft, xp=xp, dtype=y.dtype, fftshift=True)
     wstack = broadcast_onto(w, xstack, axis=axis + 1)
     xstack = xp.multiply(
         xstack,

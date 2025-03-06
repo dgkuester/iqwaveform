@@ -27,6 +27,4 @@ from .power_analysis import (
     sample_ccdf,
 )
 
-from .util import (
-    histogram_last_axis, isroundmod
-)
+from .util import histogram_last_axis, isroundmod

@@ -461,3 +461,29 @@ def histogram_last_axis(
     counts = xp.bincount(scaled_idx.ravel(), minlength=limit + 1)[:-1]
     counts.shape = x.shape[:-1] + (bins.size,)
     return counts[..., :-1], bins
+
+
+@functools.lru_cache()
+def dtype_change_float(dtype, float_basis_dtype) -> np.dtype:
+    """return a complex or float dtype similar to `dtype`, but
+    with a float backing with size matching `float_basis_dtype`.
+
+    Examples:
+        dtype_change_float(np.complex128, np.float32) -> np.complex64
+        dtype_change_float(np.float64, np.float32) -> np.float32
+    """
+
+    np_input_type = np.dtype(dtype).type
+    np_float_type = np.finfo(np.dtype(float_basis_dtype)).dtype.type
+
+    if np_input_type in (np.complex128, np.complex64):
+        if np_float_type is np.float32:
+            return np.complex64
+        elif np_float_type is np.float64:
+            return np.complex128
+    elif np_input_type in (np.float16, np.float32, np.float64):
+        return np_float_type
+
+    raise ValueError(
+        f'unable to identify output dtype similar to {dtype} matching floating point {float_basis_dtype}'
+    )
