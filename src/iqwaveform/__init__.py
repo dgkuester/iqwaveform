@@ -4,7 +4,14 @@ from . import fourier, io, ofdm, power_analysis, util, windows
 
 figures = util.lazy_import('iqwaveform.figures')
 
-from .fourier import to_blocks, stft, iq_to_stft_spectrogram
+from .fourier import (
+    design_fir_lpf,
+    iq_to_stft_spectrogram,
+    oaconvolve,
+    power_spectral_density,
+    stft,
+    to_blocks,
+)
 
 from .figures import (
     pcolormesh_df,
