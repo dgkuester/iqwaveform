@@ -9,6 +9,7 @@ from .fourier import (
     design_cola_resampler,
     fftfreq,
     iq_to_stft_spectrogram,
+    istft,
     oaconvolve,
     power_spectral_density,
     stft,
