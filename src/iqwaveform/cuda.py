@@ -381,6 +381,7 @@ class _UpFIRDn(object):
         self,
         x,
         axis,
+        out=None
     ):
         """Apply the prepared filter to the specified axis of a nD signal x"""
 
@@ -390,7 +391,8 @@ class _UpFIRDn(object):
             self._h_len_orig, x.shape[axis], self._up, self._down)
         output_shape = list(x.shape)
         output_shape[axis] = output_len
-        out = cupy.empty(output_shape, dtype=self._output_type, order="C")
+        if out is None:
+            out = cupy.empty(output_shape, dtype=self._output_type, order="C")
         axis = axis % x.ndim
 
         # Precompute variables on CPU
@@ -462,7 +464,8 @@ def upfirdn(
     down=1,
     axis=-1,
     mode="constant",
-    cval=0
+    cval=0,
+    out=None
 ):
     """
     Upsample, FIR filter, and downsample.
@@ -519,7 +522,7 @@ def upfirdn(
 
     ufd = _UpFIRDn(h, x.dtype, int(up), int(down))
     # This is equivalent to (but faster than) using cp.apply_along_axis
-    return ufd.apply_filter(x, axis)
+    return ufd.apply_filter(x, axis, out=out)
 
 
 def build():

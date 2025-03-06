@@ -1280,3 +1280,30 @@ def time_to_frequency(iq, Ts, window=None, axis=0):
     )
     fftfreqs = fftfreq(X.shape[0], Ts, xp=xp)
     return fftfreqs, X
+
+
+def upfirdn(
+    h,
+    x,
+    up=1,
+    down=1,
+    axis=-1,
+    mode="constant",
+    cval=0,
+    overwrite_x=False
+):
+    xp = array_namespace(x)
+
+    kws = dict(locals())
+    del kws['overwrite_x']
+
+    if is_cupy_array(x):
+        from . import cuda
+        kws['out'] = x if overwrite_x else None
+        del kws['x'], kws['axis']
+        func = lambda array: cuda.upfirdn(x=array, **kws) # noqa: E731
+        y = xp.apply_along_axis(func, axis, x)
+    else:
+        y = signal.upfirdn(**locals())
+
+    return y
