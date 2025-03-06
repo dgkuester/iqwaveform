@@ -7,6 +7,7 @@ figures = util.lazy_import('iqwaveform.figures')
 from .fourier import (
     design_fir_lpf,
     design_cola_resampler,
+    fftfreq,
     iq_to_stft_spectrogram,
     oaconvolve,
     power_spectral_density,
