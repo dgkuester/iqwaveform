@@ -250,6 +250,7 @@ def design_cola_resampler(
     min_fft_size=2 * 4096 - 1,
     shift=False,
     avoid_primes=True,
+    force_even=True,
 ) -> tuple[float, float, dict]:
     """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
 
@@ -315,7 +316,7 @@ def design_cola_resampler(
     nfft_out = valid_noverlap_out[0]
     nfft_in = int(np.rint(resample_ratio * nfft_out))
 
-    if nfft_out % 2 == 1 or nfft_in % 2 == 1:
+    if force_even and nfft_out % 2 == 1 or nfft_in % 2 == 1:
         nfft_out *= 2
         nfft_in *= 2
 
@@ -353,6 +354,9 @@ def design_cola_resampler(
     }
 
     return fs_sdr, lo_offset, ola_resample_kws
+
+
+def design_fir_resampler(fs_base, )
 
 
 def _cola_scale(window, hop_size):
@@ -1281,7 +1285,6 @@ def time_to_frequency(iq, Ts, window=None, axis=0):
     fftfreqs = fftfreq(X.shape[0], Ts, xp=xp)
     return fftfreqs, X
 
-
 def upfirdn(
     h,
     x,
@@ -1292,18 +1295,21 @@ def upfirdn(
     cval=0,
     overwrite_x=False
 ):
-    xp = array_namespace(x)
-
     kws = dict(locals())
     del kws['overwrite_x']
 
+    xp = array_namespace(x)
+
     if is_cupy_array(x):
         from . import cuda
-        kws['out'] = x if overwrite_x else None
         del kws['x'], kws['axis']
+        if overwrite_x and 2 * up > down > up:
+            # skip new allocation if possible and not "too" wasteful
+            kws['out'] = x
+
         func = lambda array: cuda.upfirdn(x=array, **kws) # noqa: E731
         y = xp.apply_along_axis(func, axis, x)
     else:
-        y = signal.upfirdn(**locals())
+        y = signal.upfirdn(**kws)
 
     return y
