@@ -584,7 +584,7 @@ def zero_stft_by_freq(
 
 @functools.lru_cache()
 def design_fir_lpf(
-    bandwidth, sample_rate, *, numtaps=4001, transition_bandwidth=250e3, xp=np
+    bandwidth, sample_rate, *, numtaps=4001, transition_bandwidth=250e3, dtype='float32', xp=np
 ):
     edges = [
         0,
@@ -597,7 +597,7 @@ def design_fir_lpf(
 
     b = signal.firls(numtaps, bands=bands, desired=desired, fs=sample_rate)
 
-    return xp.asarray(b)
+    return xp.asarray(b.astype(dtype))
 
 
 @functools.lru_cache()
@@ -1347,10 +1347,10 @@ def upfirdn(h, x, up=1, down=1, axis=-1, mode='constant', cval=0, overwrite_x=Fa
 
 
 @functools.wraps(signal.oaconvolve)
-def oaconvolve(x1, *args, **kws):
+def oaconvolve(x1, x2, mode='full', axes=-1):
     if is_cupy_array(x1):
-        from cupyx.scipy.signal import oaconvolve
+        from cupyx.scipy.signal import oaconvolve as func
     else:
-        from scipy.signal import oaconvolve
+        from scipy.signal import oaconvolve as func
 
-    return oaconvolve(x1, *args, **kws)
+    return func(x1, x2, mode=mode, axes=axes)
