@@ -41,6 +41,15 @@ OLA_MAX_FFT_SIZE = 128 * 1024
 INF = float('inf')
 
 
+# required divisors
+_COLA_WINDOW_SIZE_DIVISOR = {
+    None: 1,
+    'rect': 1,
+    'hamming': 2,
+    'blackman': 3,
+    'blackmanharris': 5
+}
+
 @functools.lru_cache(128)
 def get_window(
     name_or_tuple,
@@ -250,7 +259,7 @@ def design_cola_resampler(
     min_fft_size=2 * 4096 - 1,
     shift=False,
     avoid_primes=True,
-    force_even=True,
+    window=None,
 ) -> tuple[float, float, dict]:
     """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
 
@@ -316,9 +325,10 @@ def design_cola_resampler(
     nfft_out = valid_noverlap_out[0]
     nfft_in = round(resample_ratio * nfft_out)
 
-    if force_even and (nfft_out % 2 == 1 or nfft_in % 2 == 1):
-        nfft_out *= 2
-        nfft_in *= 2
+    divisor = _COLA_WINDOW_SIZE_DIVISOR[window]
+    if nfft_out % divisor > 0 or nfft_in % divisor > 0:
+        nfft_out *= divisor
+        nfft_in *= divisor
 
     # the following LO shift arguments assume that a hamming COLA window is used
     if shift == 'left':
@@ -387,8 +397,7 @@ def design_fir_resampler(
         bw_lo=bw_lo,
         min_oversampling=min_oversampling,
         min_fft_size=1,
-        avoid_primes=False,
-        force_even=False,
+        avoid_primes=False
     )
 
     fir_params = {
@@ -525,22 +534,26 @@ def _ola_filter_parameters(
     if nfft_out is None:
         nfft_out = nfft
 
-    if window == 'hamming':
-        if nfft_out % 2 != 0:
-            raise ValueError('hamming window COLA requires output nfft_out % 2 == 0')
-        overlap_scale = 1 / 2
-    elif window == 'blackman':
-        if nfft_out % 3 != 0:
-            raise ValueError('blackman window COLA requires output nfft_out % 3 == 0')
-        overlap_scale = 2 / 3
-    elif window == 'blackmanharris':
-        if nfft_out % 5 != 0:
-            raise ValueError('blackmanharris window requires output nfft_out % 5 == 0')
-        overlap_scale = 4 / 5
-    else:
+    try:
+        divisor = _COLA_WINDOW_SIZE_DIVISOR[window]
+    except KeyError:
         raise TypeError(
             'ola_filter argument "window" must be one of ("hamming", "blackman", or "blackmanharris")'
         )
+
+    if nfft_out % divisor != 0:
+        raise ValueError(f'{window!r} window COLA requires output nfft_out % 2 == 0')
+
+    if window is None or window == 'rect':
+        overlap_scale = 1
+    if window == 'hamming':
+        overlap_scale = 1 / 2
+    elif window == 'blackman':
+        overlap_scale = 2 / 3
+    elif window == 'blackmanharris':
+        overlap_scale = 4 / 5
+    else:
+        raise ValueError('unexpected matching error')
 
     noverlap = round(nfft_out * overlap_scale)
 
