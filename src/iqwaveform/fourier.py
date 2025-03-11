@@ -408,18 +408,6 @@ def design_fir_resampler(
     return fs, fir_params
 
 
-def _cola_scale(window, hop_size):
-    """scaling correction based on the shape of the window where it intersects with its neighbor"""
-
-    wmag = np.abs(window)
-    loc_floor = (window.size - hop_size) // 2
-    if (window.size - hop_size) % 2 == 0:
-        cola_scale = 2 * wmag[loc_floor]
-    else:
-        cola_scale = wmag[loc_floor] + wmag[loc_floor + 1]
-    return np.abs(cola_scale)
-
-
 def _stack_stft_windows(
     x: ArrayType,
     window: ArrayType,
@@ -447,7 +435,7 @@ def _stack_stft_windows(
     xstacked = axis_slice(strided, start=0, step=hop_size, axis=axis)
 
     if norm is None:
-        scale = _cola_scale(window, hop_size)
+        scale = xp.abs(window[::hop_size]).sum()
     elif norm == 'power':
         scale = 1
     else:
