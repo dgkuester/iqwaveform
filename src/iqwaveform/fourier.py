@@ -314,7 +314,7 @@ def design_cola_resampler(
         raise ValueError('no rational FFT sizes satisfied design constraints')
 
     nfft_out = valid_noverlap_out[0]
-    nfft_in = int(np.rint(resample_ratio * nfft_out))
+    nfft_in = round(resample_ratio * nfft_out)
 
     if force_even and (nfft_out % 2 == 1 or nfft_in % 2 == 1):
         nfft_out *= 2
@@ -527,7 +527,7 @@ def _ola_filter_parameters(
 
     if window == 'hamming':
         if nfft_out % 2 != 0:
-            raise ValueError('blackman window COLA requires output nfft_out % 2 == 0')
+            raise ValueError('hamming window COLA requires output nfft_out % 2 == 0')
         overlap_scale = 1 / 2
     elif window == 'blackman':
         if nfft_out % 3 != 0:
