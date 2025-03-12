@@ -1483,8 +1483,6 @@ def oaresample(
     nfft_out = down
     size_in = iq.size
 
-    print(up / down)
-
     nfft_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
         iq.size,
         window=window,
@@ -1508,7 +1506,7 @@ def oaresample(
     if nfft_out < nfft:
         # downsample
         bounds = _find_downsample_copy_range(nfft, nfft_out, None, None)[1]
-        y = axis_slice(y, *bounds, axis=axis)
+        y = axis_slice(y, *bounds, axis=axis+1)
 
     elif nfft_out > nfft:
         # upsample
