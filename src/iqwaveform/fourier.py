@@ -1444,3 +1444,77 @@ def resample(x, num, axis=0, window=None, domain="time", overwrite_x=False, scal
     xout = ifft(y, axis=axis, overwrite_x=True, out=y)
 
     return time_ifftshift(xout, overwrite_x=True, axis=axis)
+
+
+def oaresample(
+    iq: ArrayType,
+    up,
+    down,
+    fs,
+    # analysis_filter: dict,
+    *,
+    window='hamming',
+    overwrite_x=False,
+    axis=1,
+):
+    """apply a bandpass filter implemented through STFT overlap-and-add.
+
+    Args:
+        iq: the input waveform, as a pinned array
+        capture: the capture filter specification structure
+        radio: the radio instance that performed the capture
+        force_calibration: if specified, this calibration dataset is used rather than loading from file
+        axis: the axis of `x` along which to compute the filter
+
+    Returns:
+        the filtered IQ capture
+    """
+
+    nfft = up
+    nfft_out = down
+    size_in = iq.size
+
+    print(up/down)
+
+    nfft_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
+        iq.size,
+        window=window,
+        nfft_out=nfft_out,
+        nfft=nfft,
+        extend=True,
+    )
+
+    y = stft(
+        iq,
+        fs=fs,
+        window=window,
+        nperseg=nfft,
+        noverlap=round(nfft * overlap_scale),
+        axis=axis,
+        truncate=False,
+        overwrite_x=overwrite_x,
+        return_axis_arrays=False,
+    )
+
+    if nfft_out < nfft:
+        # downsample
+        bounds = _find_downsample_copy_range(nfft, nfft_out, None, None)[1]       
+        y = axis_slice(y, *bounds, axis=axis)
+
+    elif nfft_out > nfft:
+        # upsample
+        pad_left = (nfft_out - nfft) // 2
+        pad_right = pad_left + (nfft_out - nfft) % 2
+
+        y = pad_along_axis(y, [[pad_left, pad_right]], axis=axis + 1)
+
+    del iq
+
+    # reconstruct into a resampled waveform
+    iq = istft(
+        y, nfft=nfft_out, noverlap=noverlap, axis=axis, overwrite_x=True
+    )
+
+    iq *= iq.size/size_in
+
+    return iq
