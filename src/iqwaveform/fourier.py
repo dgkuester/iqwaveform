@@ -48,8 +48,9 @@ _COLA_WINDOW_SIZE_DIVISOR = {
     'rect': 1,
     'hamming': 2,
     'blackman': 3,
-    'blackmanharris': 5
+    'blackmanharris': 5,
 }
+
 
 @functools.lru_cache(128)
 def get_window(
@@ -398,7 +399,7 @@ def design_fir_resampler(
         bw_lo=bw_lo,
         min_oversampling=min_oversampling,
         min_fft_size=1,
-        avoid_primes=False
+        avoid_primes=False,
     )
 
     fir_params = {
@@ -586,7 +587,13 @@ def zero_stft_by_freq(
 
 @functools.lru_cache()
 def design_fir_lpf(
-    bandwidth, sample_rate, *, numtaps=4001, transition_bandwidth=250e3, dtype='float32', xp=np
+    bandwidth,
+    sample_rate,
+    *,
+    numtaps=4001,
+    transition_bandwidth=250e3,
+    dtype='float32',
+    xp=np,
 ):
     edges = [
         0,
@@ -1357,6 +1364,7 @@ def oaconvolve(x1, x2, mode='full', axes=-1):
 
     return func(x1, x2, mode=mode, axes=axes)
 
+
 def time_fftshift(x, scale=None, overwrite_x=False, axis=0):
     if scale is None and overwrite_x:
         # short path: no scale and write directly to x
@@ -1374,7 +1382,7 @@ def time_fftshift(x, scale=None, overwrite_x=False, axis=0):
     xview = to_blocks(x, 2, axis=axis)
     outview = to_blocks(x, 2, axis=axis)
     scale = scale * xp.array([1, -1])
-    scale = broadcast_onto(scale, outview, axis=axis+1)
+    scale = broadcast_onto(scale, outview, axis=axis + 1)
     xp.multiply(xview, scale, out=outview)
     return out
 
@@ -1382,16 +1390,17 @@ def time_fftshift(x, scale=None, overwrite_x=False, axis=0):
 time_ifftshift = time_fftshift
 
 
-def resample(x, num, axis=0, window=None, domain="time", overwrite_x=False, scale=1):
+def resample(x, num, axis=0, window=None, domain='time', overwrite_x=False, scale=1):
     """limited reimplementation of scipy.signal.resample optimized for reduced memory.
-    
+
     No new buffers are allocated when downsampling if `overwrite_x` is `False`.
 
     The window argument is not supported.
     """
     if domain not in ('time', 'freq'):
-        raise ValueError("Acceptable domain flags are 'time' or"
-                         " 'freq', not domain={}".format(domain))
+        raise ValueError(
+            "Acceptable domain flags are 'time' or 'freq', not domain={}".format(domain)
+        )
 
     if x.shape[axis] == num:
         return x
@@ -1429,7 +1438,7 @@ def resample(x, num, axis=0, window=None, domain="time", overwrite_x=False, scal
 
     if nfft_out < nfft_in:
         # downsample by trimming frequency
-        bounds = _find_downsample_copy_range(nfft_in, nfft_out, None, None)[1]       
+        bounds = _find_downsample_copy_range(nfft_in, nfft_out, None, None)[1]
         y = axis_slice(y, *bounds, axis=axis)
 
     elif nfft_out > nfft_in:
@@ -1474,7 +1483,7 @@ def oaresample(
     nfft_out = down
     size_in = iq.size
 
-    print(up/down)
+    print(up / down)
 
     nfft_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
         iq.size,
@@ -1498,7 +1507,7 @@ def oaresample(
 
     if nfft_out < nfft:
         # downsample
-        bounds = _find_downsample_copy_range(nfft, nfft_out, None, None)[1]       
+        bounds = _find_downsample_copy_range(nfft, nfft_out, None, None)[1]
         y = axis_slice(y, *bounds, axis=axis)
 
     elif nfft_out > nfft:
@@ -1511,10 +1520,8 @@ def oaresample(
     del iq
 
     # reconstruct into a resampled waveform
-    iq = istft(
-        y, nfft=nfft_out, noverlap=noverlap, axis=axis, overwrite_x=True
-    )
+    iq = istft(y, nfft=nfft_out, noverlap=noverlap, axis=axis, overwrite_x=True)
 
-    iq *= iq.size/size_in
+    iq *= iq.size / size_in
 
     return iq
