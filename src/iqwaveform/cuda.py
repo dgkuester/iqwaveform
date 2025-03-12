@@ -1,9 +1,6 @@
 # cupy backports
 
 import cupy as cp
-from cupy.fft import rfft, fft, fftfreq, ifftshift, irfft, ifft, get_window
-from math import gcd
-from cupyx.scipy.signal import firwin
 
 """
 upfirdn implementation.
