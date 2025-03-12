@@ -10,15 +10,16 @@ from . import power_analysis
 from .power_analysis import stat_ufunc_from_shorthand
 from .util import (
     array_namespace,
-    sliding_window_view,
-    get_input_domain,
-    Domain,
-    find_float_inds,
-    lazy_import,
-    to_blocks,
     axis_index,
     axis_slice,
+    Domain,
     dtype_change_float,
+    find_float_inds,
+    get_input_domain,
+    lazy_import,
+    pad_along_axis,
+    sliding_window_view,
+    to_blocks,
 )
 
 from .windows import register_extra_windows
@@ -1355,3 +1356,91 @@ def oaconvolve(x1, x2, mode='full', axes=-1):
         from scipy.signal import oaconvolve as func
 
     return func(x1, x2, mode=mode, axes=axes)
+
+def time_fftshift(x, scale=None, overwrite_x=False, axis=0):
+    if scale is None and overwrite_x:
+        # short path: no scale and write directly to x
+        xview = axis_slice(x, start=1, step=2, axis=axis)
+        xview *= -1
+        return x
+
+    xp = array_namespace(x)
+
+    if overwrite_x:
+        out = x
+    else:
+        out = xp.empty_like(x)
+
+    xview = to_blocks(x, 2, axis=axis)
+    outview = to_blocks(x, 2, axis=axis)
+    scale = scale * xp.array([1, -1])
+    scale = broadcast_onto(scale, outview, axis=axis+1)
+    xp.multiply(xview, scale, out=outview)
+    return out
+
+
+time_ifftshift = time_fftshift
+
+
+def resample(x, num, axis=0, window=None, domain="time", overwrite_x=False, scale=1):
+    """limited reimplementation of scipy.signal.resample optimized for reduced memory.
+    
+    No new buffers are allocated when downsampling if `overwrite_x` is `False`.
+
+    The window argument is not supported.
+    """
+    if domain not in ('time', 'freq'):
+        raise ValueError("Acceptable domain flags are 'time' or"
+                         " 'freq', not domain={}".format(domain))
+
+    if x.shape[axis] == num:
+        return x
+
+    xp = array_namespace(x)
+
+    x = xp.asarray(x)
+    nfft_in = x.shape[axis]
+    nfft_out = num
+    newshape = list(x.shape)
+    newshape[axis] = nfft_out
+
+    if nfft_in % 2 != 0:
+        raise ValueError('x.shape[axis] must be even')
+
+    if window is not None:
+        raise ValueError('window argument is not supported')
+
+    resample_scale = float(nfft_out) / float(nfft_in) * scale
+
+    if domain == 'time':
+        # apply fftshift in the time domain, where we can avoid a copy.
+        # the fftshift is needed to enable clean slice-driven downsampling
+        x = time_fftshift(x, resample_scale, overwrite_x=overwrite_x, axis=axis)
+
+        y = fft(x, axis=axis, overwrite_x=overwrite_x, out=x)
+    else:  # domain == 'freq'
+        if overwrite_x:
+            out = x
+        else:
+            out = None
+        y = xp.multiply(x, resample_scale, out=out)
+
+    del x
+
+    if nfft_out < nfft_in:
+        # downsample by trimming frequency
+        bounds = _find_downsample_copy_range(nfft_in, nfft_out, None, None)[1]       
+        y = axis_slice(y, *bounds, axis=axis)
+
+    elif nfft_out > nfft_in:
+        # upsample by zero-padding frequency.
+        # this requires a copy, since not all platforms support the
+        # fft `out` argument is non-standard
+        pad_left = (nfft_out - nfft_in) // 2
+        pad_right = pad_left + (nfft_out - nfft_in) % 2
+        y = pad_along_axis(y, [[pad_left, pad_right]], axis=axis)
+
+    # Inverse transform
+    xout = ifft(y, axis=axis, overwrite_x=True, out=y)
+
+    return time_ifftshift(xout, overwrite_x=True, axis=axis)
