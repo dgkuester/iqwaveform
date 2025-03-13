@@ -13,15 +13,17 @@ def _corr_at_indices(
         accum_power_a = nb.float64(0.0)
         accum_power_b = nb.float64(0.0)
 
-        # i: the sample index of each waveform sample to compare against its cyclic shift
+        # i: the sample index of each waveform sample to compare against its shift
         for i in range(inds.shape[0]):
             ix = inds[i] + j
+            ix_next = ix + nfft
 
-            if ix > x.shape[0]:
+            if ix_next >= x.shape[0]:
                 break
 
             a = x[ix]
-            b = x[ix + nfft]
+            b = x[ix_next]
+
             bconj = b.conjugate()
             accum_corr += a * bconj
             if norm:
