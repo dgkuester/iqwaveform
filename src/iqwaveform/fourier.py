@@ -251,7 +251,7 @@ def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
     return s[(s > min)]
 
 
-@functools.lru_cache
+@functools.lru_cache()
 def design_cola_resampler(
     fs_base: float,
     fs_target: float,
@@ -262,6 +262,7 @@ def design_cola_resampler(
     shift=False,
     avoid_primes=True,
     window=None,
+    fs_sdr: typing.Optional[float] = None,
 ) -> tuple[float, float, dict]:
     """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
 
@@ -275,6 +276,7 @@ def design_cola_resampler(
         bw_lo: the spectral leakage/phase noise bandwidth of the LO
         shift: the direction to shift the LO
         avoid_primes: whether to avoid large prime numbered FFTs for performance reasons
+        fs_sdr: force the given sample rate (in Hz), or None to select automatically
 
     Returns:
         (SDR sample rate, RF LO frequency offset in Hz, ola_filter_kws)
@@ -290,18 +292,21 @@ def design_cola_resampler(
     else:
         fs_sdr_min = fs_target
 
-    if fs_base > fs_target:
-        if shift and fs_sdr_min > fs_base:
-            msg = f"""LO frequency shift with the requested parameters
-            requires running the radio at a minimum {fs_sdr_min / 1e6:0.2f} MS/s,
-            but its maximum rate is {fs_base / 1e6:0.2f} MS/s"""
+    if fs_sdr is not None:
+        if fs_sdr < fs_target:
+            raise ValueError('input sample rate is below target rate')
+    elif fs_base <= fs_target:
+        fs_sdr = fs_base
+    elif shift and fs_sdr_min > fs_base:
+        msg = f"""LO frequency shift with the requested parameters
+        requires running the radio at a minimum {fs_sdr_min / 1e6:0.2f} MS/s,
+        but its maximum rate is {fs_base / 1e6:0.2f} MS/s"""
 
-            raise ValueError(msg)
-
+        raise ValueError(msg)
+    else:
+        # the source permits arbitrary sample rates
         decimation = int(fs_base / fs_sdr_min)
         fs_sdr = fs_base / decimation
-    else:
-        fs_sdr = fs_base
 
     if bw != INF and bw > fs_base:
         raise ValueError(
@@ -1506,7 +1511,7 @@ def oaresample(
     if nfft_out < nfft:
         # downsample
         bounds = _find_downsample_copy_range(nfft, nfft_out, None, None)[1]
-        y = axis_slice(y, *bounds, axis=axis+1)
+        y = axis_slice(y, *bounds, axis=axis + 1)
 
     elif nfft_out > nfft:
         # upsample

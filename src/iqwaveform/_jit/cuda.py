@@ -20,12 +20,11 @@ def _corr_at_indices(inds, x, nfft: int, ncp: int, norm: bool, out):
             ix = inds[i] + j
             ix_next = ix + nfft
 
-            if ix_next < x.shape[0]:
-                a = x[ix]
-                b = x[ix_next]
-            else:
-                a = 0
-                b = 0
+            if ix_next >= x.shape[0]:
+                break
+
+            a = x[ix]
+            b = x[ix_next]
 
             bconj = b.conjugate()
             accum_corr += a * bconj
