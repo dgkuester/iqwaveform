@@ -14,6 +14,8 @@ from .fourier import (
     power_spectral_density,
     stft,
     to_blocks,
+    resample,
+    oaresample,
 )
 
 from .figures import (

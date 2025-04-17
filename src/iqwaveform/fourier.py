@@ -20,6 +20,7 @@ from .util import (
     pad_along_axis,
     sliding_window_view,
     to_blocks,
+    isroundmod,
 )
 
 from .windows import register_extra_windows
@@ -317,7 +318,7 @@ def design_cola_resampler(
 
     # the following returns the modulos closest to either 0 or 1, accommodating downward rounding errors (e.g., 0.999)
     trial_noverlap = resample_ratio * np.arange(1, OLA_MAX_FFT_SIZE + 1)
-    check_mods = power_analysis.isroundmod(trial_noverlap, 1) & (
+    check_mods = isroundmod(trial_noverlap, 1) & (
         trial_noverlap > min_fft_size * resample_ratio
     )
 
@@ -358,8 +359,6 @@ def design_cola_resampler(
             bw / 2 + bw_lo / 2
         )  # fs_sdr / nfft_in * (nfft_in - nfft_out)
         passband = (lo_offset - bw / 2, lo_offset + bw / 2)
-
-    window = 'hamming'
 
     ola_resample_kws = {
         'window': window,
@@ -537,7 +536,9 @@ def _ola_filter_parameters(
         )
 
     if nfft_out % divisor != 0:
-        raise ValueError(f'{window!r} window COLA requires output nfft_out % 2 == 0')
+        raise ValueError(
+            f'{window!r} window COLA requires output nfft_out % {divisor} == 0'
+        )
 
     if window is None or window == 'rect':
         overlap_scale = 1
@@ -685,14 +686,15 @@ def stft_fir_lowpass(
 
 @functools.lru_cache(100)
 def _find_downsample_copy_range(
-    nfft_in: int, nfft_out: int, passband_start: int, passband_end: int
+    nfft_in: int, nfft_out: int, edge_in_start: int, edge_in_end: int
 ):
-    if passband_start is None:
-        passband_start = 0
-    if passband_end is None:
-        passband_end = nfft_in
-    passband_size = passband_end - passband_start
-    passband_center = (passband_end + passband_start) // 2
+    if edge_in_start is None:
+        edge_in_start = 0
+    if edge_in_end is None:
+        edge_in_end = nfft_in
+    passband_size = edge_in_end - edge_in_start
+    passband_center = (edge_in_end + edge_in_start) // 2
+
     # passband_center_error = (passband_end - passband_start) % 2
 
     # copy input indexes, taken from the passband
@@ -1112,14 +1114,14 @@ def power_spectral_density(
     dB=True,
     axis=0,
 ) -> ArrayType:
-    if power_analysis.isroundmod(fs, resolution):
+    if isroundmod(fs, resolution):
         nfft = round(fs / resolution)
         noverlap = round(fractional_overlap * nfft)
     else:
         # need sample_rate_Hz/resolution to give us a counting number
         raise ValueError('sample_rate_Hz/resolution must be a counting number')
 
-    if power_analysis.isroundmod((1 - fractional_window) * nfft, 1):
+    if isroundmod((1 - fractional_window) * nfft, 1):
         nzero = round((1 - fractional_window) * nfft)
     else:
         raise ValueError(
@@ -1395,7 +1397,9 @@ def time_fftshift(x, scale=None, overwrite_x=False, axis=0):
 time_ifftshift = time_fftshift
 
 
-def resample(x, num, axis=0, window=None, domain='time', overwrite_x=False, scale=1):
+def resample(
+    x, num, axis=0, window=None, domain='time', overwrite_x=False, scale=1, shift=0
+):
     """limited reimplementation of scipy.signal.resample optimized for reduced memory.
 
     No new buffers are allocated when downsampling if `overwrite_x` is `False`.
@@ -1424,6 +1428,20 @@ def resample(x, num, axis=0, window=None, domain='time', overwrite_x=False, scal
     if window is not None:
         raise ValueError('window argument is not supported')
 
+    if shift == 0:
+        # no frequency shift
+        edge_low = edge_high = None
+    elif num >= x.shape[axis]:
+        raise ValueError('frequency_shift must be 0 unless downsampling')
+    else:
+        edge_low = x.shape[axis] // 2 - num // 2 + shift
+        edge_high = edge_low + num
+
+        if edge_low < 0:
+            raise ValueError('frequency_shift is too small')
+        if edge_high > x.shape[axis]:
+            raise ValueError('frequency_shift is too large')
+
     resample_scale = float(nfft_out) / float(nfft_in) * scale
 
     if domain == 'time':
@@ -1443,7 +1461,7 @@ def resample(x, num, axis=0, window=None, domain='time', overwrite_x=False, scal
 
     if nfft_out < nfft_in:
         # downsample by trimming frequency
-        bounds = _find_downsample_copy_range(nfft_in, nfft_out, None, None)[1]
+        bounds = _find_downsample_copy_range(nfft_in, nfft_out, edge_low, edge_high)[1]
         y = axis_slice(y, *bounds, axis=axis)
 
     elif nfft_out > nfft_in:
@@ -1461,7 +1479,7 @@ def resample(x, num, axis=0, window=None, domain='time', overwrite_x=False, scal
 
 
 def oaresample(
-    iq: ArrayType,
+    x: ArrayType,
     up,
     down,
     fs,
@@ -1470,6 +1488,7 @@ def oaresample(
     window='hamming',
     overwrite_x=False,
     axis=1,
+    frequency_shift=0,
 ):
     """apply a bandpass filter implemented through STFT overlap-and-add.
 
@@ -1484,20 +1503,39 @@ def oaresample(
         the filtered IQ capture
     """
 
-    nfft = up
-    nfft_out = down
-    size_in = iq.size
+    xp = array_namespace(x)
+
+    nfft = down
+    nfft_out = up
+    size_in = x.size
 
     nfft_out, noverlap, overlap_scale, _ = _ola_filter_parameters(
-        iq.size,
+        x.size,
         window=window,
         nfft_out=nfft_out,
         nfft=nfft,
         extend=True,
     )
 
+    if frequency_shift == 0:
+        # no frequency shift
+        edge_low = edge_high = None
+    elif nfft < nfft_out:
+        raise ValueError('frequency_shift must be 0 unless downsampling')
+    elif isroundmod(frequency_shift, fs / nfft):
+        shift = round(frequency_shift / (fs / nfft))
+        edge_low = nfft // 2 - nfft_out // 2 + shift
+        edge_high = edge_low + nfft_out
+
+        if edge_low < 0:
+            raise ValueError('frequency_shift is too small')
+        if edge_high > nfft:
+            raise ValueError('frequency_shift is too large')
+    else:
+        raise ValueError('frequency_shift must be a multiple of fs/up')
+
     y = stft(
-        iq,
+        x,
         fs=fs,
         window=window,
         nperseg=nfft,
@@ -1510,7 +1548,7 @@ def oaresample(
 
     if nfft_out < nfft:
         # downsample
-        bounds = _find_downsample_copy_range(nfft, nfft_out, None, None)[1]
+        bounds = _find_downsample_copy_range(nfft, nfft_out, edge_low, edge_high)[1]
         y = axis_slice(y, *bounds, axis=axis + 1)
 
     elif nfft_out > nfft:
@@ -1520,11 +1558,11 @@ def oaresample(
 
         y = pad_along_axis(y, [[pad_left, pad_right]], axis=axis + 1)
 
-    del iq
+    del x
 
     # reconstruct into a resampled waveform
-    iq = istft(y, nfft=nfft_out, noverlap=noverlap, axis=axis, overwrite_x=True)
+    x = istft(y, nfft=nfft_out, noverlap=noverlap, axis=axis, overwrite_x=True)
 
-    iq *= iq.size / size_in
+    x *= x.size / size_in
 
-    return iq
+    return x
