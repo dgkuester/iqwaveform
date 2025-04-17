@@ -220,11 +220,15 @@ def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True)
     return len(w) * np.sum(w**2) / np.sum(w) ** 2
 
 
-def broadcast_onto(a: ArrayType, other: ArrayType, axis: int) -> ArrayType:
+def broadcast_onto(a: ArrayType, other: ArrayType, *, axis: int) -> ArrayType:
     """reshape a 1-D array to support broadcasting onto a specified axis of `other`"""
+
+    if a.ndim != 1:
+        raise ValueError('input array a must be 1-D')
+
     xp = array_namespace(a)
 
-    slices = [xp.newaxis] * len(other.shape)
+    slices = [xp.newaxis] * other.ndim
     slices[axis] = slice(None, None)
     return a[tuple(slices)]
 
@@ -361,7 +365,7 @@ def design_cola_resampler(
         passband = (lo_offset - bw / 2, lo_offset + bw / 2)
 
     ola_resample_kws = {
-        'window': window,
+        'window': window or 'hamming',
         'nfft': int(nfft_in),
         'nfft_out': int(nfft_out),
         'frequency_shift': shift,
@@ -1386,11 +1390,14 @@ def time_fftshift(x, scale=None, overwrite_x=False, axis=0):
     else:
         out = xp.empty_like(x)
 
+    if np.ndim(scale) > 1:
+        raise ValueError('scale must be 1-D or scalar')
+
     xview = to_blocks(x, 2, axis=axis)
     outview = to_blocks(x, 2, axis=axis)
-    scale = scale * xp.array([1, -1])
-    scale = broadcast_onto(scale, outview, axis=axis + 1)
-    xp.multiply(xview, scale, out=outview)
+    scale = broadcast_onto(xp.atleast_1d(scale), outview, axis=max(axis - 1, 0))
+    shift = broadcast_onto(xp.array([1, -1]), outview, axis=axis + 1)
+    xp.multiply(xview, scale * shift, out=outview)
     return out
 
 
@@ -1503,8 +1510,6 @@ def oaresample(
         the filtered IQ capture
     """
 
-    xp = array_namespace(x)
-
     nfft = down
     nfft_out = up
     size_in = x.size
@@ -1520,8 +1525,8 @@ def oaresample(
     if frequency_shift == 0:
         # no frequency shift
         edge_low = edge_high = None
-    elif nfft < nfft_out:
-        raise ValueError('frequency_shift must be 0 unless downsampling')
+    elif down < up:
+        raise ValueError('frequency_shift is only supported when downsampling')
     elif isroundmod(frequency_shift, fs / nfft):
         shift = round(frequency_shift / (fs / nfft))
         edge_low = nfft // 2 - nfft_out // 2 + shift
