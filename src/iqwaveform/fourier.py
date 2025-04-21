@@ -220,6 +220,31 @@ def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True)
     return len(w) * np.sum(w**2) / np.sum(w) ** 2
 
 
+@functools.lru_cache()
+def find_dpss_nw_from_enbw(enbw: float, *, nfft: int=4096, atol=1e-6) -> float:
+    """find the time-bandwidth parameter (NW) for the first-order DPSS window with the given
+    equivalent-noise bandwidth (DNBW).
+
+    For typical uses of the DPSS, where enbw is at least 1.1, the result will be slightly smaller
+    than `(enbw)**2`.
+
+    Arguments:
+        enbw: the equivalent noise bandwidth (in FFT bins)
+        nfft: the window size used to estimate ENBW
+
+    """
+    from scipy.optimize import bisect
+
+    if enbw < 1 + 1/nfft:
+        raise ValueError('enbw must be greater than 1')
+
+    def err(x):
+        return equivalent_noise_bandwidth(('dpss', x), nfft) - enbw
+
+    bound_hi = min(enbw**2, nfft//2-1)
+    return bisect(err, 1e-6, bound_hi, xtol=atol)
+
+
 def broadcast_onto(a: ArrayType, other: ArrayType, *, axis: int) -> ArrayType:
     """reshape a 1-D array to support broadcasting onto a specified axis of `other`"""
 
