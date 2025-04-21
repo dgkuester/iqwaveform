@@ -226,7 +226,8 @@ def find_dpss_nw_from_enbw(enbw: float, *, nfft: int = 4096, atol=1e-6) -> float
     given equivalent-noise bandwidth (ENBW).
 
     For typical uses of the DPSS, where enbw is at least 1.1, the result will be slightly
-    smaller than `(enbw)**2`. The given `nfft`
+    smaller than `(enbw)**2`. The estimate is performed for the given `nfft`; when it is
+    larger, the result will tend to converge toward a central value.
 
     Arguments:
         enbw: the equivalent noise bandwidth (in FFT bins)
