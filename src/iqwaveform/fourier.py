@@ -221,27 +221,30 @@ def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True)
 
 
 @functools.lru_cache()
-def find_dpss_nw_from_enbw(enbw: float, *, nfft: int=4096, atol=1e-6) -> float:
-    """find the time-bandwidth parameter (NW) for the first-order DPSS window with the given
-    equivalent-noise bandwidth (DNBW).
+def find_dpss_nw_from_enbw(enbw: float, *, nfft: int = 4096, atol=1e-6) -> float:
+    """find the time-bandwidth parameter (NW) for the first-order DPSS window with the
+    given equivalent-noise bandwidth (ENBW).
 
-    For typical uses of the DPSS, where enbw is at least 1.1, the result will be slightly smaller
-    than `(enbw)**2`.
+    For typical uses of the DPSS, where enbw is at least 1.1, the result will be slightly
+    smaller than `(enbw)**2`. The given `nfft`
 
     Arguments:
         enbw: the equivalent noise bandwidth (in FFT bins)
         nfft: the window size used to estimate ENBW
+        atol: the absolute error tolerance in the estimated NW
 
+    Returns:
+        `NW` argument for `get_window(('dpss', NW), ...)`
     """
     from scipy.optimize import bisect
 
-    if enbw < 1 + 1/nfft:
+    if enbw < 1 + 1 / nfft:
         raise ValueError('enbw must be greater than 1')
 
     def err(x):
         return equivalent_noise_bandwidth(('dpss', x), nfft) - enbw
 
-    bound_hi = min(enbw**2, nfft//2-1)
+    bound_hi = min(enbw**2, nfft // 2 - 1)
     return bisect(err, 1e-6, bound_hi, xtol=atol)
 
 
