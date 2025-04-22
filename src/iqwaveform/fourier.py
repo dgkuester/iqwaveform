@@ -225,28 +225,45 @@ def find_window_param_from_enbw(window_name: str, enbw: float, *, nfft: int = 40
     """find the parameter that satistifes the specified equivalent-noise bandwidth (ENBW)
     for a given single-parameter window.
 
-    For typical uses of the DPSS, where enbw is at least 1.1, the result will be slightly
-    smaller than `(enbw)**2`. The estimate is performed for the given `nfft`; when it is
+    The estimate is performed for the given `nfft`; when it is
     larger, the result will tend to converge toward a central value.
 
+    Typically, where enbw is at least 1.1:
+        * when `window_name == 'dpss'`: the result will be slightly smaller than `(enbw)**2`
+        * when `window_name == 'kaiser'`: the result will be slightly smaller than `pi * (enbw)**2`
+
     Arguments:
-        enbw: the equivalent noise bandwidth (in FFT bins)
+        window_name: one of 'kaiser', 'dpss', or 'chebwin'
+        enbw: the desired equivalent noise bandwidth (in FFT bins)
         nfft: the window size used to estimate ENBW
         atol: the absolute error tolerance in the estimated NW
 
     Returns:
-        `NW` argument for `get_window(('dpss', NW), ...)`
+        result parameter suited for `get_window((window_name, result), ...)`
     """
     from scipy.optimize import bisect
 
     if enbw < 1 + 1 / nfft:
         raise ValueError('enbw must be greater than 1')
 
+    equivalent_noise_bandwidth.cache_clear()
     def err(x):
+        equivalent_noise_bandwidth.cache_clear()
         return equivalent_noise_bandwidth((window_name, x), nfft) - enbw
 
-    bound_hi = min(enbw**2, nfft // 2 - 1)
-    return bisect(err, 1e-6, bound_hi, xtol=atol)
+    if window_name == 'kaiser':
+        a = np.pi * 1e-2
+        b = min(enbw**2, nfft // 2 - 1) * np.pi
+    elif window_name == 'dpss':
+        a = 1e-2
+        b = min(enbw**2, nfft // 2 - 1)
+    elif window_name == 'chebwin':
+        a = 45
+        b = 1000
+    else:
+        raise ValueError('window_name must be one of ("kaiser", "dpss", "chebwin")')
+
+    return bisect(err, a, b, xtol=atol)
 
 
 def broadcast_onto(a: ArrayType, other: ArrayType, *, axis: int) -> ArrayType:
