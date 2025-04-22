@@ -213,7 +213,7 @@ def fftfreq(n, d, *, xp=np, dtype='float64') -> ArrayType:
         return xp.linspace(-fnyq + fnyq / n, fnyq - fnyq / n, n, dtype=dtype)
 
 
-@functools.lru_cache
+@functools.lru_cache()
 def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True):
     """return the equivalent noise bandwidth (ENBW) of a window, in bins"""
     w = get_window(window, N, fftbins=fftbins)
@@ -221,9 +221,9 @@ def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True)
 
 
 @functools.lru_cache()
-def find_dpss_nw_from_enbw(enbw: float, *, nfft: int = 4096, atol=1e-6) -> float:
-    """find the time-bandwidth parameter (NW) for the first-order DPSS window with the
-    given equivalent-noise bandwidth (ENBW).
+def find_window_param_from_enbw(window_name: str, enbw: float, *, nfft: int = 4096, atol=1e-6) -> float:
+    """find the parameter that satistifes the specified equivalent-noise bandwidth (ENBW)
+    for a given single-parameter window.
 
     For typical uses of the DPSS, where enbw is at least 1.1, the result will be slightly
     smaller than `(enbw)**2`. The estimate is performed for the given `nfft`; when it is
@@ -243,7 +243,7 @@ def find_dpss_nw_from_enbw(enbw: float, *, nfft: int = 4096, atol=1e-6) -> float
         raise ValueError('enbw must be greater than 1')
 
     def err(x):
-        return equivalent_noise_bandwidth(('dpss', x), nfft) - enbw
+        return equivalent_noise_bandwidth((window_name, x), nfft) - enbw
 
     bound_hi = min(enbw**2, nfft // 2 - 1)
     return bisect(err, 1e-6, bound_hi, xtol=atol)

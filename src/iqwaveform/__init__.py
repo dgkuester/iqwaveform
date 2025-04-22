@@ -9,7 +9,7 @@ from .fourier import (
     design_cola_resampler,
     equivalent_noise_bandwidth,
     fftfreq,
-    find_dpss_nw_from_enbw,
+    find_window_param_from_enbw,
     get_window,
     iq_to_stft_spectrogram,
     istft,
