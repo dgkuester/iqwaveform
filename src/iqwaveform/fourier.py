@@ -246,9 +246,7 @@ def find_window_param_from_enbw(window_name: str, enbw: float, *, nfft: int = 40
     if enbw < 1 + 1 / nfft:
         raise ValueError('enbw must be greater than 1')
 
-    equivalent_noise_bandwidth.cache_clear()
     def err(x):
-        equivalent_noise_bandwidth.cache_clear()
         return equivalent_noise_bandwidth((window_name, x), nfft) - enbw
 
     if window_name == 'kaiser':
