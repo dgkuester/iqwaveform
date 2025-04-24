@@ -53,8 +53,7 @@ _COLA_WINDOW_SIZE_DIVISOR = {
 }
 
 
-@functools.lru_cache(128)
-def get_window(
+def _get_window_uncached(
     name_or_tuple,
     nwindow: int,
     nzero: int = 0,
@@ -66,11 +65,18 @@ def get_window(
     dtype='float32',
     xp=None,
 ):
+    """build an window function with optional zero-padding or parameter finding.
+
+    Arguments:
+
+    See also:
+        `scipy.signal.get_window`
+    """
+
     register_extra_windows()
 
-    """build an analysis window with an option to zero-pad to total size `nfft + nzeros`"""
     if xp is not None:
-        w = get_window(
+        w = _get_window_uncached(
             name_or_tuple,
             nwindow,
             nzero=nzero,
@@ -86,6 +92,15 @@ def get_window(
             w = xp.array(w)
 
         return w
+
+    if isinstance(name_or_tuple, tuple):
+        # maybe evaluate the window argument needed to realize the specified ENBW
+        window_name, *suffix = name_or_tuple[0].rsplit('_by_enbw', 1)
+
+        if len(suffix) > 0:
+            enbw = name_or_tuple[1]
+            param = find_window_param_from_enbw(window_name, enbw, nfft=nwindow)
+            name_or_tuple = (window_name, param)
 
     ws = signal.windows.get_window(name_or_tuple, nwindow, fftbins=fftbins)
 
@@ -121,6 +136,11 @@ def get_window(
         w = w.astype(dtype_out)
 
     return w
+
+
+get_window = functools.wraps(_get_window_uncached)(
+    functools.lru_cache(1024)(_get_window_uncached)
+)
 
 
 def _truncated_buffer(x: ArrayType, shape, dtype=None):
@@ -213,15 +233,25 @@ def fftfreq(n, d, *, xp=np, dtype='float64') -> ArrayType:
         return xp.linspace(-fnyq + fnyq / n, fnyq - fnyq / n, n, dtype=dtype)
 
 
-@functools.lru_cache()
-def equivalent_noise_bandwidth(window: str | tuple[str, float], N, fftbins=True):
+def _enbw_uncached(window: str | tuple[str, float], N, fftbins=True, cached=True):
     """return the equivalent noise bandwidth (ENBW) of a window, in bins"""
-    w = get_window(window, N, fftbins=fftbins)
+    if cached:
+        w = get_window(window, N, fftbins=fftbins)
+    else:
+        w = _get_window_uncached(window, N, fftbins=fftbins)
     return len(w) * np.sum(w**2) / np.sum(w) ** 2
 
 
+# allow access to the uncached version for find_window_param_from_enbw
+equivalent_noise_bandwidth = functools.wraps(_enbw_uncached)(
+    functools.lru_cache()(_enbw_uncached)
+)
+
+
 @functools.lru_cache()
-def find_window_param_from_enbw(window_name: str, enbw: float, *, nfft: int = 4096, atol=1e-6) -> float:
+def find_window_param_from_enbw(
+    window_name: str, enbw: float, *, nfft: int = 4096, atol=1e-6
+) -> float:
     """find the parameter that satistifes the specified equivalent-noise bandwidth (ENBW)
     for a given single-parameter window.
 
@@ -247,7 +277,7 @@ def find_window_param_from_enbw(window_name: str, enbw: float, *, nfft: int = 40
         raise ValueError('enbw must be greater than 1')
 
     def err(x):
-        return equivalent_noise_bandwidth((window_name, x), nfft) - enbw
+        return _enbw_uncached((window_name, x), nfft, cached=False) - enbw
 
     if window_name == 'kaiser':
         a = np.pi * 1e-2
