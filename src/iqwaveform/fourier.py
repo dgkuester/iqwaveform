@@ -691,7 +691,7 @@ def design_fir_lpf(
     desired = [1, 1, 1, 0, 0, 0]
 
     b = signal.firls(numtaps, bands=bands, desired=desired, fs=sample_rate)
-    b /= xp.sqrt(xp.sum(xp.abs(b)**2))
+    b /= np.sqrt(np.sum(np.abs(b)**2))
 
     return xp.asarray(b.astype(dtype))
 
