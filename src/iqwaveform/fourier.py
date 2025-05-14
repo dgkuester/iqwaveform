@@ -183,7 +183,7 @@ def fft(
                 raise ValueError('set out to a buffer target unless loop axes requires')
             return cp.fft._fft._fftn(x, out=out, *args, **kws)
         else:
-            out = out.reshape(x.shape, copy=False)
+            out = out.reshape(x.shape)
 
         for itup in inds:
             cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
@@ -223,7 +223,7 @@ def ifft(
                 raise ValueError('set out to a buffer target unless loop axes requires')
             return cp.fft._fft._fftn(x, out=out, *args, **kws)
         else:
-            out = out.reshape(x.shape, copy=False)
+            out = out.reshape(x.shape)
 
         for itup in inds:
             cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
