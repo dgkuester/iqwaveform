@@ -165,7 +165,7 @@ def _iter_along_axes(x: ArrayType, axes: typing.Iterable[int] | None) -> typing.
     ax_inds = []
     for i in range(x.ndim):
         if i in axes:
-            ax_inds.append(range(x.shape[i]))
+            ax_inds.append(((n,) for n in range(x.shape[i])))
         else:
             ax_inds.append((empty_slice,))
     
