@@ -153,15 +153,23 @@ def _truncated_buffer(x: ArrayType, shape, dtype=None):
     return x.flatten()[:out_size].reshape(shape)
 
 
-def _iter_along_axes(x: ArrayType, axes: typing.Iterable[int] | None):
+def _iter_along_axes(x: ArrayType, axes: typing.Iterable[int] | None) -> typing.Iterable[tuple[int, ...]]:
+    empty_slice = slice(None, None)
     if axes is None:
-        return (slice(None, None),)
+        return (empty_slice,)
     elif isinstance(axes, numbers.Number):
         axes = (axes,)
 
     axes = [(ax if ax >= 0 else ax + x.ndim) for ax in axes]
-    ax_iters = ((range(x.shape[i]) if i in axes else [None]) for i in range(x.ndim))
-    return itertools.product(*ax_iters)
+
+    ax_inds = []
+    for i in range(x.ndim):
+        if i in axes:
+            ax_inds.append(range(x.shape[i]))
+        else:
+            ax_inds.append((empty_slice,))
+    
+    return itertools.product(*ax_inds)
 
 
 def fft(
