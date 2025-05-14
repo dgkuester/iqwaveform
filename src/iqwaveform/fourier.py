@@ -155,7 +155,7 @@ def _truncated_buffer(x: ArrayType, shape, dtype=None):
 
 def _iterate_on_axes(x: ArrayType, axes: typing.Iterable[int] | None):
     if axes is None:
-        return slice(None, None)
+        return (slice(None, None),)
     elif isinstance(axes, numbers.Number):
         axes = (axes,)
 
