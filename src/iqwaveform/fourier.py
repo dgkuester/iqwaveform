@@ -174,7 +174,7 @@ def fft(
 
         args = (None,), (axis,), None, cp.cuda.cufft.CUFFT_FORWARD
         kws = dict(
-            cp.cuda.cufft.CUFFT_FORWARD, overwrite_x=overwrite_x, plan=plan, order='C'
+            overwrite_x=overwrite_x, plan=plan, order='C'
         )
 
         # TODO: see about upstream question on this
@@ -214,7 +214,7 @@ def ifft(
 
         args = (None,), (axis,), None, cp.cuda.cufft.CUFFT_FORWARD
         kws = dict(
-            cp.cuda.cufft.CUFFT_INVERSE, overwrite_x=overwrite_x, plan=plan, order='C'
+            overwrite_x=overwrite_x, plan=plan, order='C'
         )
 
         # TODO: see about upstream question on this
