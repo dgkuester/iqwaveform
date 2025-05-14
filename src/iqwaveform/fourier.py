@@ -1,5 +1,7 @@
 from __future__ import annotations
 import functools
+import itertools
+import numbers
 import typing
 
 from os import cpu_count
@@ -151,27 +153,43 @@ def _truncated_buffer(x: ArrayType, shape, dtype=None):
     return x.flatten()[:out_size].reshape(shape)
 
 
-def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
+def _iterate_on_axes(x: ArrayType, axes: typing.Iterable[int] | None):
+    if axes is None:
+        return slice(None, None)
+    elif isinstance(axes, numbers.Number):
+        axes = (axes,)
+
+    axes = [(ax if ax >= 0 else ax + x.ndim) for ax in axes]
+    ax_iters = ((range(x.shape[i]) if i in axes else [None]) for i in range(x.ndim))
+    return itertools.product(*ax_iters)
+
+
+def fft(
+    x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None, loop_axes=None
+):
     if is_cupy_array(x):
         import cupy as cp
 
+        inds = _iterate_on_axes(x, loop_axes)
+
+        args = (None,), (axis,), None, cp.cuda.cufft.CUFFT_FORWARD
+        kws = dict(
+            cp.cuda.cufft.CUFFT_FORWARD, overwrite_x=overwrite_x, plan=plan, order='C'
+        )
+
         # TODO: see about upstream question on this
         if out is None:
-            pass
+            if loop_axes is not None:
+                raise ValueError('set out to a buffer target unless loop axes requires')
+            return cp.fft._fft._fftn(x, out=out, *args, **kws)
         else:
-            out = out.reshape(x.shape)
+            out = out.reshape(x.shape, copy=False)
 
-        return cp.fft._fft._fftn(
-            x,
-            (None,),
-            (axis,),
-            None,
-            cp.cuda.cufft.CUFFT_FORWARD,
-            overwrite_x=overwrite_x,
-            plan=plan,
-            out=out,
-            order='C',
-        )
+        for itup in inds:
+            cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
+
+        return out
+
     else:
         if workers is None:
             workers = CPU_COUNT // 2
@@ -180,27 +198,37 @@ def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
         )
 
 
-def ifft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
+def ifft(
+    x,
+    axis=-1,
+    out=None,
+    overwrite_x=False,
+    plan=None,
+    workers=None,
+    loop_axes: typing.Iterable[int] | None = None,
+):
     if is_cupy_array(x):
         import cupy as cp
 
+        inds = _iterate_on_axes(x, loop_axes)
+
+        args = (None,), (axis,), None, cp.cuda.cufft.CUFFT_FORWARD
+        kws = dict(
+            cp.cuda.cufft.CUFFT_INVERSE, overwrite_x=overwrite_x, plan=plan, order='C'
+        )
+
         # TODO: see about upstream question on this
         if out is None:
-            pass
+            if loop_axes is not None:
+                raise ValueError('set out to a buffer target unless loop axes requires')
+            return cp.fft._fft._fftn(x, out=out, *args, **kws)
         else:
-            out = out.reshape(x.shape)
+            out = out.reshape(x.shape, copy=False)
 
-        return cp.fft._fft._fftn(
-            x,
-            (None,),
-            (axis,),
-            None,
-            cp.cuda.cufft.CUFFT_INVERSE,
-            overwrite_x=overwrite_x,
-            plan=plan,
-            out=out,
-            order='C',
-        )
+        for itup in inds:
+            cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
+
+        return out
     else:
         if workers is None:
             workers = CPU_COUNT // 2
@@ -691,7 +719,7 @@ def design_fir_lpf(
     desired = [1, 1, 1, 0, 0, 0]
 
     b = signal.firls(numtaps, bands=bands, desired=desired, fs=sample_rate)
-    b /= np.sqrt(np.sum(np.abs(b)**2))
+    b /= np.sqrt(np.sum(np.abs(b) ** 2))
 
     return xp.asarray(b.astype(dtype))
 
@@ -1482,7 +1510,15 @@ time_ifftshift = time_fftshift
 
 
 def resample(
-    x, num, axis=0, window=None, domain='time', overwrite_x=False, scale=1, shift=0
+    x,
+    num,
+    axis=0,
+    window=None,
+    domain='time',
+    overwrite_x=False,
+    scale=1,
+    shift=0,
+    loop_axes=None,
 ):
     """limited reimplementation of scipy.signal.resample optimized for reduced memory.
 
@@ -1533,7 +1569,7 @@ def resample(
         # the fftshift is needed to enable clean slice-driven downsampling
         x = time_fftshift(x, resample_scale, overwrite_x=overwrite_x, axis=axis)
 
-        y = fft(x, axis=axis, overwrite_x=overwrite_x, out=x)
+        y = fft(x, axis=axis, overwrite_x=overwrite_x, out=x, loop_axes=loop_axes)
     else:  # domain == 'freq'
         if overwrite_x:
             out = x
@@ -1557,7 +1593,7 @@ def resample(
         y = pad_along_axis(y, [[pad_left, pad_right]], axis=axis)
 
     # Inverse transform
-    xout = ifft(y, axis=axis, overwrite_x=True, out=y)
+    xout = ifft(y, axis=axis, overwrite_x=True, out=y, loop_axes=loop_axes)
 
     return time_ifftshift(xout, overwrite_x=True, axis=axis)
 
