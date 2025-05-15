@@ -173,13 +173,15 @@ def _cupy_fftn_helper(
     # TODO: see about upstream question on this
     if out is None:
         if iter_axes is not None:
-            raise ValueError('set out to a buffer target unless loop axes requires')
+            raise ValueError('must pass an output buffer to use iter_axes')
         return cp.fft._fft._fftn(x, out=out, *args, **kws)
     else:
         out = out.reshape(x.shape)
+        if iter_axes is not None:
+            kws['overwrite_x'] = False
 
     for itup in inds:
-        out[itup] = cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
+        cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
 
     return out
 
