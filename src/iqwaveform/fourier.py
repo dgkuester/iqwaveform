@@ -177,11 +177,9 @@ def _cupy_fftn_helper(
         return cp.fft._fft._fftn(x, out=out, *args, **kws)
     else:
         out = out.reshape(x.shape)
-        if iter_axes is not None:
-            kws['overwrite_x'] = False
 
     for itup in inds:
-        cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
+        out[itup] = cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
 
     return out
 
