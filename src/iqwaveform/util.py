@@ -1,13 +1,15 @@
 from __future__ import annotations
 import importlib.util
 import functools
+import itertools
 import math
+from numbers import Number
 import sys
+import typing
+
 import array_api_compat
 from array_api_compat import is_cupy_array
 import numpy as np
-from functools import lru_cache
-from numbers import Number
 
 from contextlib import contextmanager
 from enum import Enum
@@ -53,7 +55,7 @@ def lazy_import(module_name: str):
 _input_domain = []
 
 
-@lru_cache
+@functools.lru_cache
 def find_float_inds(seq: tuple[str | float, ...]) -> list[bool]:
     """return a list to flag whether each element can be converted to float"""
 
@@ -159,7 +161,7 @@ def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
     return xp.pad(a, pre_pad + pad_width, *args, **kws)
 
 
-@lru_cache
+@functools.lru_cache
 def sliding_window_output_shape(array_shape: tuple | int, window_shape: tuple, axis):
     """return the shape of the output of sliding_window_view, for example
     to pre-create an output buffer."""
@@ -487,3 +489,22 @@ def dtype_change_float(dtype, float_basis_dtype) -> np.dtype:
     raise ValueError(
         f'unable to identify output dtype similar to {dtype} matching floating point {float_basis_dtype}'
     )
+
+
+def iter_along_axes(x: type_stubs.ArrayType, axes: typing.Iterable[int] | None) -> typing.Iterable[tuple[int, ...]]:
+    empty_slice = slice(None, None)
+    if axes is None:
+        return (empty_slice,)
+    elif isinstance(axes, Number):
+        axes = (axes,)
+
+    axes = [(ax if ax >= 0 else ax + x.ndim) for ax in axes]
+
+    ax_inds = []
+    for i in range(x.ndim):
+        if i in axes:
+            ax_inds.append(((n,) for n in range(x.shape[i])))
+        else:
+            ax_inds.append((empty_slice,))
+    
+    return itertools.product(*ax_inds)

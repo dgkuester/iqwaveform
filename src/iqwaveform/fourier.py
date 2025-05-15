@@ -8,7 +8,7 @@ from os import cpu_count
 from array_api_compat import is_cupy_array
 from math import ceil
 
-from . import power_analysis
+from . import power_analysis, util
 from .power_analysis import stat_ufunc_from_shorthand
 from .util import (
     array_namespace,
@@ -153,32 +153,13 @@ def _truncated_buffer(x: ArrayType, shape, dtype=None):
     return x.flatten()[:out_size].reshape(shape)
 
 
-def _iter_along_axes(x: ArrayType, axes: typing.Iterable[int] | None) -> typing.Iterable[tuple[int, ...]]:
-    empty_slice = slice(None, None)
-    if axes is None:
-        return (empty_slice,)
-    elif isinstance(axes, numbers.Number):
-        axes = (axes,)
-
-    axes = [(ax if ax >= 0 else ax + x.ndim) for ax in axes]
-
-    ax_inds = []
-    for i in range(x.ndim):
-        if i in axes:
-            ax_inds.append(((n,) for n in range(x.shape[i])))
-        else:
-            ax_inds.append((empty_slice,))
-    
-    return itertools.product(*ax_inds)
-
-
 def fft(
     x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None, iter_axes=None
 ):
     if is_cupy_array(x):
         import cupy as cp
 
-        inds = _iter_along_axes(x, iter_axes)
+        inds = util.iter_along_axes(x, iter_axes)
 
         args = (None,), (axis,), None, cp.cuda.cufft.CUFFT_FORWARD
         kws = dict(
@@ -218,9 +199,9 @@ def ifft(
     if is_cupy_array(x):
         import cupy as cp
 
-        inds = _iter_along_axes(x, iter_axes)
+        inds = util.iter_along_axes(x, iter_axes)
 
-        args = (None,), (axis,), None, cp.cuda.cufft.CUFFT_FORWARD
+        args = (None,), (axis,), None, cp.cuda.cufft.CUFFT_INVERSE
         kws = dict(
             overwrite_x=overwrite_x, plan=plan, order='C'
         )
