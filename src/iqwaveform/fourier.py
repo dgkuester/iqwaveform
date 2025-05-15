@@ -153,7 +153,7 @@ def _truncated_buffer(x: ArrayType, shape, dtype=None):
     return x.flatten()[:out_size].reshape(shape)
 
 
-def _cupy_nfft_helper(
+def _cupy_fftn_helper(
     x,
     axis,
     direction,
@@ -179,7 +179,7 @@ def _cupy_nfft_helper(
         out = out.reshape(x.shape)
 
     for itup in inds:
-        cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
+        out[itup] = cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
 
     return out
 
@@ -190,7 +190,7 @@ def fft(
     if is_cupy_array(x):
         import cupy as cp
 
-        return _cupy_nfft_helper(
+        return _cupy_fftn_helper(
             x,
             axis=axis,
             direction=cp.cuda.cufft.CUFFT_FORWARD,
@@ -220,7 +220,7 @@ def ifft(
     if is_cupy_array(x):
         import cupy as cp
 
-        return _cupy_nfft_helper(
+        return _cupy_fftn_helper(
             x,
             axis=axis,
             direction=cp.cuda.cufft.CUFFT_INVERSE,
