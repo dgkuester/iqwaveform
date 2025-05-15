@@ -491,7 +491,9 @@ def dtype_change_float(dtype, float_basis_dtype) -> np.dtype:
     )
 
 
-def iter_along_axes(x: type_stubs.ArrayType, axes: typing.Iterable[int] | None) -> typing.Iterable[tuple[int, ...]]:
+def iter_along_axes(
+    x: type_stubs.ArrayType, axes: typing.Iterable[int] | None
+) -> typing.Iterable[tuple[int, ...]]:
     empty_slice = slice(None, None)
     if axes is None:
         return (empty_slice,)
@@ -506,5 +508,5 @@ def iter_along_axes(x: type_stubs.ArrayType, axes: typing.Iterable[int] | None) 
             ax_inds.append(((n,) for n in range(x.shape[i])))
         else:
             ax_inds.append((empty_slice,))
-    
+
     return itertools.product(*ax_inds)

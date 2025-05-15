@@ -153,31 +153,52 @@ def _truncated_buffer(x: ArrayType, shape, dtype=None):
     return x.flatten()[:out_size].reshape(shape)
 
 
+def _cupy_nfft_helper(
+    x,
+    axis,
+    direction,
+    out=None,
+    overwrite_x=False,
+    plan=None,
+    iter_axes=None,
+):
+    import cupy as cp
+
+    inds = util.iter_along_axes(x, iter_axes)
+
+    args = (None,), (axis,), None, direction
+
+    kws = dict(overwrite_x=overwrite_x, plan=plan, order='C')
+
+    # TODO: see about upstream question on this
+    if out is None:
+        if iter_axes is not None:
+            raise ValueError('set out to a buffer target unless loop axes requires')
+        return cp.fft._fft._fftn(x, out=out, *args, **kws)
+    else:
+        out = out.reshape(x.shape)
+
+    for itup in inds:
+        cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
+
+    return out
+
+
 def fft(
     x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None, iter_axes=None
 ):
     if is_cupy_array(x):
         import cupy as cp
 
-        inds = util.iter_along_axes(x, iter_axes)
-
-        args = (None,), (axis,), None, cp.cuda.cufft.CUFFT_FORWARD
-        kws = dict(
-            overwrite_x=overwrite_x, plan=plan, order='C'
+        return _cupy_nfft_helper(
+            x,
+            axis=axis,
+            direction=cp.cuda.cufft.CUFFT_FORWARD,
+            out=out,
+            overwrite_x=overwrite_x,
+            plan=plan,
+            iter_axes=iter_axes,
         )
-
-        # TODO: see about upstream question on this
-        if out is None:
-            if iter_axes is not None:
-                raise ValueError('set out to a buffer target unless loop axes requires')
-            return cp.fft._fft._fftn(x, out=out, *args, **kws)
-        else:
-            out = out.reshape(x.shape)
-
-        for itup in inds:
-            cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
-
-        return out
 
     else:
         if workers is None:
@@ -199,25 +220,15 @@ def ifft(
     if is_cupy_array(x):
         import cupy as cp
 
-        inds = util.iter_along_axes(x, iter_axes)
-
-        args = (None,), (axis,), None, cp.cuda.cufft.CUFFT_INVERSE
-        kws = dict(
-            overwrite_x=overwrite_x, plan=plan, order='C'
+        return _cupy_nfft_helper(
+            x,
+            axis=axis,
+            direction=cp.cuda.cufft.CUFFT_INVERSE,
+            out=out,
+            overwrite_x=overwrite_x,
+            plan=plan,
+            iter_axes=iter_axes,
         )
-
-        # TODO: see about upstream question on this
-        if out is None:
-            if iter_axes is not None:
-                raise ValueError('set out to a buffer target unless loop axes requires')
-            return cp.fft._fft._fftn(x, out=out, *args, **kws)
-        else:
-            out = out.reshape(x.shape)
-
-        for itup in inds:
-            cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
-
-        return out
     else:
         if workers is None:
             workers = CPU_COUNT // 2
@@ -1182,7 +1193,7 @@ def spectrogram(
     axis: int = 0,
     truncate: bool = True,
     return_axis_arrays: bool = True,
-    iter_axes=None
+    iter_axes=None,
 ):
     kws = dict(locals())
 
