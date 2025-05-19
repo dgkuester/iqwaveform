@@ -52,6 +52,54 @@ def lazy_import(module_name: str):
     return module
 
 
+def binned_mean(
+    x: type_stubs.ArrayType,
+    count,
+    *,
+    axis=0,
+    truncate=True,
+    reject_extrema=False,
+    fft=True,
+) -> type_stubs.ArrayType:
+    """reduce an array by averaging into bins on the specified axis.
+    
+    Arguments:
+        x: input array
+        count: bin count to average
+        axis: axis along which to implement the binned mean
+        truncate: True to truncate incomplete bins at the edges, or False to raise exception
+        reject_extrema: if True, the min and max samples from each bin will be excluded
+        fft: if True, bins align with fft bins (centered, instead of left side)
+    """
+
+    xp = array_namespace(x)
+
+    if not truncate:
+        pass
+    elif fft:
+        # enforce that index 0 is a center bin
+        center_bin = x.shape[axis] // 2
+        size_left = center_bin - count // 2
+        blocks_left = size_left // count
+        block_count = 2 * blocks_left + 1
+        start = center_bin - (count * block_count) // 2
+        stop = start + count * block_count
+
+        if start > 0 or stop < x.shape[axis]:
+            x = axis_slice(x, start, stop, axis=axis)
+    else:
+        trim = x.shape[axis] % (count)
+        if trim:
+            dimsize = (x.shape[axis] // count) * count
+            x = axis_slice(x, 0, dimsize, axis=axis)
+
+    x = to_blocks(x, count, axis=axis)
+    stat_axis = axis + 1 if axis >= 0 else axis
+    if reject_extrema:
+        x = np.sort(x, axis=stat_axis)
+        x = axis_slice(x, 1, -1, axis=stat_axis)
+    ret = xp.nanmean(x, axis=stat_axis)
+    return ret
 
 
 @functools.wraps(functools.lru_cache)
@@ -64,7 +112,8 @@ def lru_cache[**P, T](maxsize: int|None = 128, typed: bool = False) -> typing.Ca
 _input_domain = []
 
 
-@lru_cache()def find_float_inds(seq: tuple[str | float, ...]) -> list[bool]:
+@lru_cache()
+def find_float_inds(seq: tuple[str | float, ...]) -> list[bool]:
     """return a list to flag whether each element can be converted to float"""
 
     ret = []
@@ -169,7 +218,8 @@ def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
     return xp.pad(a, pre_pad + pad_width, *args, **kws)
 
 
-@lru_cache()def sliding_window_output_shape(array_shape: tuple | int, window_shape: tuple, axis):
+@lru_cache()
+def sliding_window_output_shape(array_shape: tuple | int, window_shape: tuple, axis):
     """return the shape of the output of sliding_window_view, for example
     to pre-create an output buffer."""
     try:

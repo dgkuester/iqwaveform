@@ -277,7 +277,8 @@ equivalent_noise_bandwidth = functools.wraps(_enbw_uncached)(
 )
 
 
-@lru_cache()def find_window_param_from_enbw(
+@lru_cache()
+def find_window_param_from_enbw(
     window_name: str, enbw: float, *, nfft: int = 4096, atol=1e-6, xp=np
 ) -> float:
     """find the parameter that satistifes the specified equivalent-noise bandwidth (ENBW)
@@ -347,7 +348,8 @@ def _get_stft_axes(
     return freqs, times
 
 
-@lru_cache()def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
+@lru_cache()
+def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
     s = np.arange(3, max, 2)
 
     for m in range(3, int(np.sqrt(max) + 1), 2):
@@ -626,7 +628,8 @@ def _unstack_stft_windows(
     return xr  # axis_slice(xr, start=noverlap-extra//2, stop=(-noverlap+extra//2) or None, axis=axis)
 
 
-@lru_cache()def _ola_filter_parameters(
+@lru_cache()
+def _ola_filter_parameters(
     array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
 ) -> tuple:
     if nfft_out is None:
@@ -1159,7 +1162,8 @@ def ola_filter(
     )
 
 
-@lru_cache()def _freq_band_edges(n, d, cutoff_low, cutoff_hi, *, xp=np):
+@lru_cache()
+def _freq_band_edges(n, d, cutoff_low, cutoff_hi, *, xp=np):
     freqs = fftfreq(n, d, xp=xp)
 
     if cutoff_low is None:
