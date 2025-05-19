@@ -11,6 +11,7 @@ from .util import (
     is_cupy_array,
     isroundmod,
     lazy_import,
+    lru_cache,
     to_blocks,
 )
 
@@ -49,7 +50,7 @@ def unit_linear_to_dB(s: str):
     return s
 
 
-@functools.lru_cache
+@lru_cache
 def stat_ufunc_from_shorthand(kind, xp=np, axis=0):
     NAMED_UFUNCS = {
         'min': xp.min,

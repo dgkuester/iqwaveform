@@ -52,10 +52,19 @@ def lazy_import(module_name: str):
     return module
 
 
+
+
+@functools.wraps(functools.lru_cache)
+def lru_cache[**P, T](maxsize: int|None = 128, typed: bool = False) -> typing.Callable[[typing.Callable[P, T]], typing.Callable[P,T]]:
+    # presuming that the API is designed to accept only hashable types, set
+    # the type hint to match the wrapped function
+    return functools.lru_cache(maxsize, typed)
+
+
 _input_domain = []
 
 
-@functools.lru_cache
+@lru_cache
 def find_float_inds(seq: tuple[str | float, ...]) -> list[bool]:
     """return a list to flag whether each element can be converted to float"""
 
@@ -161,7 +170,7 @@ def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
     return xp.pad(a, pre_pad + pad_width, *args, **kws)
 
 
-@functools.lru_cache
+@lru_cache
 def sliding_window_output_shape(array_shape: tuple | int, window_shape: tuple, axis):
     """return the shape of the output of sliding_window_view, for example
     to pre-create an output buffer."""
@@ -465,7 +474,7 @@ def histogram_last_axis(
     return counts[..., :-1], bins
 
 
-@functools.lru_cache()
+@lru_cache()
 def dtype_change_float(dtype, float_basis_dtype) -> np.dtype:
     """return a complex or float dtype similar to `dtype`, but
     with a float backing with size matching `float_basis_dtype`.

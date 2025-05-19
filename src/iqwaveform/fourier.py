@@ -1,7 +1,5 @@
 from __future__ import annotations
 import functools
-import itertools
-import numbers
 import typing
 
 from os import cpu_count
@@ -19,6 +17,7 @@ from .util import (
     find_float_inds,
     get_input_domain,
     lazy_import,
+    lru_cache,
     pad_along_axis,
     sliding_window_view,
     to_blocks,
@@ -278,7 +277,7 @@ equivalent_noise_bandwidth = functools.wraps(_enbw_uncached)(
 )
 
 
-@functools.lru_cache()
+@lru_cache()
 def find_window_param_from_enbw(
     window_name: str, enbw: float, *, nfft: int = 4096, atol=1e-6, xp=np
 ) -> float:
@@ -337,7 +336,7 @@ def broadcast_onto(a: ArrayType, other: ArrayType, *, axis: int) -> ArrayType:
     return a[tuple(slices)]
 
 
-@functools.lru_cache(16)
+@lru_cache(16)
 def _get_stft_axes(
     fs: float, nfft: int, time_size: int, overlap_frac: float = 0, *, xp=np
 ) -> tuple[ArrayType, ArrayType]:
@@ -349,7 +348,7 @@ def _get_stft_axes(
     return freqs, times
 
 
-@functools.lru_cache
+@lru_cache
 def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
     s = np.arange(3, max, 2)
 
@@ -360,7 +359,7 @@ def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
     return s[(s > min)]
 
 
-@functools.lru_cache()
+@lru_cache()
 def design_cola_resampler(
     fs_base: float,
     fs_target: float,
@@ -629,7 +628,7 @@ def _unstack_stft_windows(
     return xr  # axis_slice(xr, start=noverlap-extra//2, stop=(-noverlap+extra//2) or None, axis=axis)
 
 
-@functools.lru_cache
+@lru_cache
 def _ola_filter_parameters(
     array_size: int, *, window, nfft_out: int, nfft: int, extend: bool
 ) -> tuple:
@@ -699,7 +698,7 @@ def zero_stft_by_freq(
     return xstft
 
 
-@functools.lru_cache()
+@lru_cache()
 def design_fir_lpf(
     bandwidth,
     sample_rate,
@@ -724,7 +723,7 @@ def design_fir_lpf(
     return xp.asarray(b.astype(dtype))
 
 
-@functools.lru_cache()
+@lru_cache()
 def _fir_lowpass_fft(
     size: int,
     sample_rate: float,
@@ -793,7 +792,7 @@ def stft_fir_lowpass(
     return xp.multiply(xstft, H, out=out)
 
 
-@functools.lru_cache(100)
+@lru_cache(100)
 def _find_downsample_copy_range(
     nfft_in: int, nfft_out: int, edge_in_start: int, edge_in_end: int
 ):
@@ -828,7 +827,7 @@ def _find_downsample_copy_range(
     return (copy_out_start, copy_out_end), (copy_in_start, copy_in_end), passband_center
 
 
-@functools.lru_cache(16)
+@lru_cache(16)
 def _find_downsampled_freqs(nfft_out, freq_step, xp=np):
     return fftfreq(nfft_out, 1.0 / (freq_step * nfft_out), xp=xp)
 
@@ -1163,7 +1162,7 @@ def ola_filter(
     )
 
 
-@functools.lru_cache
+@lru_cache
 def _freq_band_edges(n, d, cutoff_low, cutoff_hi, *, xp=np):
     freqs = fftfreq(n, d, xp=xp)
 
