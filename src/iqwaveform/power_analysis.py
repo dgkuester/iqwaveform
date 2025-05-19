@@ -50,8 +50,7 @@ def unit_linear_to_dB(s: str):
     return s
 
 
-@lru_cache
-def stat_ufunc_from_shorthand(kind, xp=np, axis=0):
+@lru_cache()def stat_ufunc_from_shorthand(kind, xp=np, axis=0):
     NAMED_UFUNCS = {
         'min': xp.min,
         'max': xp.max,

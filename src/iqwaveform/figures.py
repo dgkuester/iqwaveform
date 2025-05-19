@@ -2,12 +2,11 @@ from __future__ import annotations
 import math
 import numpy as np
 import typing
-from functools import lru_cache
 
 from .power_analysis import powtodB, dBtopow, envtodB, sample_ccdf, iq_to_bin_power
 from .fourier import iq_to_stft_spectrogram
 from . import type_stubs
-from .util import lazy_import
+from .util import lazy_import, lru_cache
 
 if typing.TYPE_CHECKING:
     import matplotlib as mpl
@@ -42,8 +41,7 @@ def is_decade(x, **kwargs):
     return np.isclose(y, np.round(y), **kwargs)
 
 
-@lru_cache
-def _log_tick_range(vlo, vhi, count, subs=(1.0,)):
+@lru_cache()def _log_tick_range(vlo, vhi, count, subs=(1.0,)):
     """use mpl.ticker.LogLocator to generate ticks confined to the specified range.
 
     Compared to np.logspace, this results in the use of round(er) numbers
@@ -54,8 +52,7 @@ def _log_tick_range(vlo, vhi, count, subs=(1.0,)):
     return ticks[(ticks >= vlo) & (ticks < vhi)]
 
 
-@lru_cache
-def _linear_tick_range(vlo, vhi, count, steps=(1.0,)):
+@lru_cache()def _linear_tick_range(vlo, vhi, count, steps=(1.0,)):
     """use mpl.ticker.MaxNLocator to generate ticks in the specified range.
 
     Compared to np.linspace, this results in the use of round(er) numbers
@@ -66,8 +63,7 @@ def _linear_tick_range(vlo, vhi, count, steps=(1.0,)):
     return ticks[(ticks >= vlo) & (ticks < vhi)]
 
 
-@lru_cache
-def _prune_ticks(ticks: tuple, count: int, prefer: tuple = tuple()) -> np.array:
+@lru_cache()def _prune_ticks(ticks: tuple, count: int, prefer: tuple = tuple()) -> np.array:
     """prune a sequence of tick marks to the specified count, attempting to spread
     them out evenly.
 

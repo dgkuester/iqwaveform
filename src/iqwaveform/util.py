@@ -64,8 +64,7 @@ def lru_cache[**P, T](maxsize: int|None = 128, typed: bool = False) -> typing.Ca
 _input_domain = []
 
 
-@lru_cache
-def find_float_inds(seq: tuple[str | float, ...]) -> list[bool]:
+@lru_cache()def find_float_inds(seq: tuple[str | float, ...]) -> list[bool]:
     """return a list to flag whether each element can be converted to float"""
 
     ret = []
@@ -170,8 +169,7 @@ def pad_along_axis(a, pad_width: list, axis=0, *args, **kws):
     return xp.pad(a, pre_pad + pad_width, *args, **kws)
 
 
-@lru_cache
-def sliding_window_output_shape(array_shape: tuple | int, window_shape: tuple, axis):
+@lru_cache()def sliding_window_output_shape(array_shape: tuple | int, window_shape: tuple, axis):
     """return the shape of the output of sliding_window_view, for example
     to pre-create an output buffer."""
     try:
