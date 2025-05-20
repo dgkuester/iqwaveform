@@ -401,8 +401,7 @@ def design_cola_resampler(
         fs_sdr_min = fs_target
 
     if fs_sdr is not None:
-        if fs_sdr < fs_target:
-            raise ValueError('input sample rate is below target rate')
+        pass
     elif fs_base <= fs_target:
         fs_sdr = fs_base
     elif shift and fs_sdr_min > fs_base:
@@ -710,15 +709,14 @@ def design_fir_lpf(
 ):
     edges = [
         0,
-        bandwidth / 2,
-        bandwidth / 2 + transition_bandwidth,
+        bandwidth / 2 - transition_bandwidth/2,
+        bandwidth / 2 + transition_bandwidth/2,
         sample_rate / 2,
     ]
     bands = list(zip(edges[:-1], edges[1:]))
     desired = [1, 1, 1, 0, 0, 0]
 
     b = signal.firls(numtaps, bands=bands, desired=desired, fs=sample_rate)
-    b /= np.sqrt(np.sum(np.abs(b) ** 2))
 
     return xp.asarray(b.astype(dtype))
 
