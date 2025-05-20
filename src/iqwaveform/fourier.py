@@ -359,6 +359,17 @@ def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
     return s[(s > min)]
 
 
+class ResamplerDesign(typing.TypedDict):
+    fs_sdr: float
+    lo_offset: float
+    window: str|tuple[str,float]
+    nfft: int
+    nfft_out: int
+    frequency_shift: typing.Literal['left']|typing.Literal['right']|typing.Literal['none']
+    passband: tuple[float|None, float|None]
+    fs: float
+
+
 @lru_cache()
 def design_cola_resampler(
     fs_base: float,
@@ -371,7 +382,7 @@ def design_cola_resampler(
     avoid_primes=True,
     window=None,
     fs_sdr: typing.Optional[float] = None,
-) -> tuple[float, float, dict]:
+) -> ResamplerDesign:
     """designs sampling and RF center frequency parameters that shift LO leakage outside of the specified bandwidth.
 
     The result includes the integer-divided SDR sample rate to request from the SDR, the LO frequency offset,
@@ -466,16 +477,16 @@ def design_cola_resampler(
         )  # fs_sdr / nfft_in * (nfft_in - nfft_out)
         passband = (lo_offset - bw / 2, lo_offset + bw / 2)
 
-    ola_resample_kws = {
-        'window': window or 'hamming',
-        'nfft': int(nfft_in),
-        'nfft_out': int(nfft_out),
-        'frequency_shift': shift,
-        'passband': passband,
-        'fs': fs_sdr,
-    }
-
-    return fs_sdr, lo_offset, ola_resample_kws
+    return ResamplerDesign(
+        fs_sdr=fs_sdr,
+        lo_offset=lo_offset,
+        window = window or 'hamming',
+        nfft = int(nfft_in),
+        nfft_out = int(nfft_out),
+        frequency_shift=shift,
+        passband=passband,
+        fs=fs_sdr
+    )
 
 
 def design_fir_resampler(
@@ -502,7 +513,7 @@ def design_fir_resampler(
         (SDR sample rate, upfirdn keywords)
     """
 
-    fs, _, cola_params = design_cola_resampler(
+    design = design_cola_resampler(    
         fs_base,
         fs_target,
         bw=bw,
@@ -513,11 +524,11 @@ def design_fir_resampler(
     )
 
     fir_params = {
-        'up': cola_params['nfft_out'],
-        'down': cola_params['nfft'],
+        'up': design['nfft_out'],
+        'down': design['nfft'],
     }
 
-    return fs, fir_params
+    return design.fs, fir_params
 
 
 def _stack_stft_windows(
