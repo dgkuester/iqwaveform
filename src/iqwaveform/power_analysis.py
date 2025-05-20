@@ -16,7 +16,6 @@ from .util import (
 )
 
 import array_api_compat.numpy as np
-import functools
 import re
 import warnings
 from numbers import Number
@@ -268,6 +267,26 @@ def envtodB(
         values *= 20
 
     return _repackage_arraylike(values, x, unit_transform=unit_linear_to_dB)
+
+
+def dBlinmean[T](x_dB: T, axis=None, overwrite_x=False) -> T:
+    """evaluate the mean in linear power space given power in dB.
+    
+    This is equivalent to:
+        powtodB(dBtopow(x).mean(axis))
+
+    Returns:
+        array-like object with same shape as x_dB, reduced by the
+        dimension at the specified axes
+    """
+
+    if overwrite_x:
+        out=x_dB
+    else:
+        out=None
+
+    linmean = dBtopow(x_dB, out=out).mean(axis)
+    return powtodB(linmean, out=linmean)
 
 
 def iq_to_bin_power(

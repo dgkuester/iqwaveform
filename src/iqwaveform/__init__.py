@@ -33,6 +33,7 @@ from .io import waveform_to_frame
 
 from .power_analysis import (
     dBtopow,
+    dBlinmean,
     envtodB,
     envtopow,
     iq_to_bin_power,
