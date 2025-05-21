@@ -6,6 +6,7 @@ import math
 from numbers import Number
 import sys
 import typing
+import typing_extensions
 
 import array_api_compat
 from array_api_compat import is_cupy_array
@@ -27,6 +28,8 @@ __all__ = [
     'float_dtype_like',
 ]
 
+_P = typing_extensions.ParamSpec('_P')
+_R = typing_extensions.TypeVar('_R')
 
 def lazy_import(module_name: str):
     """postponed import of the module with the specified name.
@@ -103,7 +106,7 @@ def binned_mean(
 
 
 @functools.wraps(functools.lru_cache)
-def lru_cache[**P, T](maxsize: int|None = 128, typed: bool = False) -> typing.Callable[[typing.Callable[P, T]], typing.Callable[P,T]]:
+def lru_cache(maxsize: int|None = 128, typed: bool = False) -> typing.Callable[[typing.Callable[_P, _R]], typing.Callable[_P,_R]]:
     # presuming that the API is designed to accept only hashable types, set
     # the type hint to match the wrapped function
     return functools.lru_cache(maxsize, typed)

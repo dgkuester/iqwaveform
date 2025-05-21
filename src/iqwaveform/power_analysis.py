@@ -22,6 +22,7 @@ from numbers import Number
 from functools import partial
 from typing import Union, Any, Optional
 from types import ModuleType
+import typing_extensions
 from . import type_stubs
 from .type_stubs import ArrayType, ArrayLike
 
@@ -32,6 +33,8 @@ xr = lazy_import('xarray')
 
 warnings.filterwarnings('ignore', message='.*divide by zero.*')
 warnings.filterwarnings('ignore', message='.*invalid value encountered.*')
+
+_T = typing_extensions.TypeVar('_T')
 
 
 _DB_UNIT_MAPPING = {'dBm': 'mW', 'dBW': 'W', 'dB': 'unitless'}
@@ -269,7 +272,7 @@ def envtodB(
     return _repackage_arraylike(values, x, unit_transform=unit_linear_to_dB)
 
 
-def dBlinmean[T](x_dB: T, axis=None, overwrite_x=False) -> T:
+def dBlinmean(x_dB: _T, axis=None, overwrite_x=False) -> _T:
     """evaluate the mean in linear power space given power in dB.
     
     This is equivalent to:
