@@ -1,13 +1,20 @@
 from __future__ import annotations
+from datetime import datetime
+from math import ceil
+from numbers import Number
+import typing
+
 from .util import lazy_import, lru_cache, array_namespace, isroundmod, pad_along_axis
 from .type_stubs import ArrayType
-import numpy as np
-from datetime import datetime
-from numbers import Number
-import methodtools
-import array_api_compat
 
-signal = lazy_import('scipy.signal')
+import array_api_compat
+import numpy as np
+import methodtools
+
+if typing.TYPE_CHECKING:
+    from scipy import signal
+else:
+    signal = lazy_import('scipy.signal')
 
 
 def correlate_along_axis(a, b, axis=0):
@@ -115,6 +122,102 @@ def corr_at_indices(inds, x, nfft, norm=True, out=None):
     _corr_at_indices(flat_inds, x, int(nfft), int(ncp), bool(norm), out)
 
     return out
+
+
+class SyncParams(typing.NamedTuple):
+    cp_samples: int
+    frame_size: int
+    slot_count: int
+    corr_size: int
+    frames_per_sync: int
+    symbol_indexes: list[int]
+
+
+@lru_cache()
+def pss_params(
+    *,
+    sample_rate: float = 2 * 7.68e6,
+    subcarrier_spacing: float,
+    discovery_periodicity: float = 20e-3,
+    shared_spectrum: bool = False,
+) -> SyncParams:
+    if not isroundmod(subcarrier_spacing, 15e3):
+        raise ValueError('subcarrier_spacing must be multiple of 15000')
+
+    if isroundmod(sample_rate, 128 * subcarrier_spacing):
+        frame_size = round(10e-3 * sample_rate)
+    else:
+        raise ValueError(
+            f'sample_rate must be a multiple of {128 * subcarrier_spacing}'
+        )
+
+    # if duration is None:
+    #     duration = 2 * slot_duration
+    # elif not iqwaveform.util.isroundmod(duration, slot_duration / 2):
+    #     raise ValueError(
+    #         f'duration must be a multiple of 1/2 slot duration, {slot_duration / 2}'
+    #     )
+
+    # The following cases are defined in 3GPP TS 138 213: Section 4.1
+    if np.isclose(subcarrier_spacing, 15e3):
+        # Case A
+        offsets = [2, 8]
+        mult = 14
+        if shared_spectrum:
+            nrange = range(5)
+        else:
+            # for center frequencies < 3 GHz (or 1.88 GHz in unpaired operation)
+            # the upper 2 can be ignored
+            nrange = range(4)
+    # TODO: Implement Case B
+    # elif np.isclose(subcarrier_spacing, 30e3):
+    #     # Case B
+    #     offsets = [2,8]
+    #     if shared_spectrum:
+    #         n = np.arange(10)
+    #     else:
+    #         # for center frequencies < 3 GHz, the upper 2 can be ignored
+    #         n = np.arange(4)
+    elif np.isclose(subcarrier_spacing, 30e3):
+        # For now, all 30 kHz SCS is assumed to be "Case C"
+        offsets = [2, 8]
+        mult = 14
+        if shared_spectrum:
+            nrange = range(10)
+        else:
+            # for center frequencies < 3 GHz (or 1.88 GHz in unpaired
+            # operation) the upper 2 can be ignored
+            nrange = range(4)
+    else:
+        raise ValueError(
+            'only 15 kHz and 30 kHz SCS (Case A, C) are currently supported (Case A,B,C)'
+        )
+
+    symbol_indexes = []
+    for n in nrange:
+        for offset in offsets:
+            symbol_indexes.append(offset + mult * n)
+
+    slot_count = ceil(symbol_indexes[-1] / 14)
+    slot_duration = 10e-3 / (10 * subcarrier_spacing / 15e3)
+    duration = slot_count * slot_duration
+    corr_size = round(duration * sample_rate)
+
+    if isroundmod(discovery_periodicity, 10e-3):
+        frames_per_sync = round(discovery_periodicity / 10e-3)
+    else:
+        raise ValueError('discovery_periodicity must be a multiple of 10e-3')
+
+    cp_samples = round(9 / 128 * sample_rate / subcarrier_spacing)
+
+    return SyncParams(
+        cp_samples=cp_samples,
+        frame_size=frame_size,
+        slot_count=slot_count,
+        corr_size=corr_size,
+        frames_per_sync=frames_per_sync,
+        symbol_indexes=symbol_indexes
+    )
 
 
 @lru_cache()
