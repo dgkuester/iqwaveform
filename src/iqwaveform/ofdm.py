@@ -131,6 +131,7 @@ class SyncParams(typing.NamedTuple):
     corr_size: int
     frames_per_sync: int
     symbol_indexes: list[int]
+    duration: float
 
 
 @lru_cache()
@@ -216,7 +217,8 @@ def pss_params(
         slot_count=slot_count,
         corr_size=corr_size,
         frames_per_sync=frames_per_sync,
-        symbol_indexes=symbol_indexes
+        symbol_indexes=symbol_indexes,
+        duration=duration
     )
 
 
