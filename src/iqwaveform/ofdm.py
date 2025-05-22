@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .util import lazy_import, array_namespace, isroundmod
+from .util import lazy_import, lru_cache, array_namespace, isroundmod, pad_along_axis
 from .type_stubs import ArrayType
 import numpy as np
 from datetime import datetime
@@ -115,6 +115,111 @@ def corr_at_indices(inds, x, nfft, norm=True, out=None):
     _corr_at_indices(flat_inds, x, int(nfft), int(ncp), bool(norm), out)
 
     return out
+
+
+@lru_cache()
+def _pss_m_sequence(N_id2: int) -> list[int]:
+    """compute the M-sequence used as the 5G-NR primary synchronization sequence.
+
+    These express frequency-domain values of the active subcarriers, spaced at the
+    subcarrier spacing.
+
+    Args:
+        N_id2: one of (0,1,2), expressing the sector portion of the cell ID
+    """
+    x = [0, 1, 1, 0, 1, 1, 1]
+
+    for i in range(7, 127):
+        x.append((x[i - 3] + x[i - 7]) % 2)
+
+    m = [(n + 43 * N_id2) % 127 for n in range(127)]
+
+    pss = [(1 - 2 * x[_m]) for _m in m]
+
+    return pss
+
+
+@lru_cache()
+def pss_5g_nr(
+    sample_rate: float,
+    subcarrier_spacing: float,
+    center_frequency=0,
+    pad_cp=True,
+    *,
+    xp=np,
+    dtype='complex64',
+):
+    """compute the PSS correlation sequences at the given sample rate for each N_id2.
+
+    The sequence can be convolved with an IQ waveform of the same sample rate
+    along the last axis to compute a synchronization correlation sequence. The
+    result would be normalized to the IQ input power.
+
+    Args:
+        sample_rate: the desired output sample rate (in S/s), a multiple of subcarrier_spacing and at least (127*subcarrier_spacing)
+        subcarrier_spacing: the subcarrier spacing (in Hz), a multiple of 15e3
+
+    Returns:
+        xp.ndarray with dimensions (N_id2 index, PSS sample index)
+    """
+
+    # number of occupied subcarriers in the PSS
+    SC_COUNT = 127
+
+    if not isroundmod(subcarrier_spacing, 15e3):
+        raise ValueError('subcarrier_spacing must be a multiple of 15000')
+
+    min_sample_rate = SC_COUNT * subcarrier_spacing
+    if sample_rate < min_sample_rate:
+        raise ValueError(f'sample_rate must be at least {min_sample_rate} S/s')
+
+    if isroundmod(sample_rate, subcarrier_spacing):
+        size_out = round(sample_rate / subcarrier_spacing)
+    else:
+        raise ValueError('sample_rate must be a multiple of subcarrier spacing')
+
+    if center_frequency == 0:
+        frequency_offset = 0
+    elif isroundmod(center_frequency, subcarrier_spacing):
+        # check frequency bounds later via pad_*
+        frequency_offset = round(center_frequency / subcarrier_spacing)
+    else:
+        raise ValueError(
+            'center_frequency must be a whole multiple of subcarrier_spacing'
+        )
+
+    if size_out == SC_COUNT and frequency_offset == 0:
+        pad_lo = 0
+        pad_hi = 0
+    else:
+        pad_lo = size_out // 2 - 120 + 56 + frequency_offset
+        pad_hi = size_out - SC_COUNT - pad_lo
+
+    if pad_lo < 0 or pad_hi < 0:
+        raise ValueError(
+            'center_frequency shift pushes M-sequence outside of Nyquist sample rate'
+        )
+
+    from scipy import signal
+
+    norm = np.float32(np.sqrt(SC_COUNT))
+    m_seqs = np.array([_pss_m_sequence(i) for i in range(3)], dtype=dtype)
+    m_seqs *= signal.get_window(('dpss', 0.9), m_seqs.shape[1])[np.newaxis]
+    norm *= np.sqrt(np.mean(np.abs(m_seqs) ** 2))
+
+    pss_freq = pad_along_axis(m_seqs / norm, [(pad_lo, pad_hi)], axis=1)
+    pss_time = np.fft.ifft(np.fft.fftshift(pss_freq, axes=1), axis=1)
+
+    # prepend the cyclic prefix
+    if pad_cp:
+        cp_size = round(9 * sample_rate / subcarrier_spacing / 128)
+        # pss_time = np.concatenate([pss_time[:, -cp_size:], pss_time], axis=1)
+        # pss_time = iqwaveform.util.pad_along_axis(pss_time, [[cp_size, 0]], axis=1)
+        pss_time = np.concatenate(
+            [np.zeros_like(pss_time[:, -cp_size:]), pss_time], axis=1
+        )
+
+    return xp.array(pss_time)
 
 
 class PhyOFDM:
