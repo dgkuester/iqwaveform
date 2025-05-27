@@ -31,6 +31,7 @@ __all__ = [
 _P = typing_extensions.ParamSpec('_P')
 _R = typing_extensions.TypeVar('_R')
 
+
 def lazy_import(module_name: str):
     """postponed import of the module with the specified name.
 
@@ -65,7 +66,7 @@ def binned_mean(
     fft=True,
 ) -> type_stubs.ArrayType:
     """reduce an array by averaging into bins on the specified axis.
-    
+
     Arguments:
         x: input array
         count: bin count to average
@@ -106,7 +107,9 @@ def binned_mean(
 
 
 @functools.wraps(functools.lru_cache)
-def lru_cache(maxsize: int|None = 128, typed: bool = False) -> typing.Callable[[typing.Callable[_P, _R]], typing.Callable[_P,_R]]:
+def lru_cache(
+    maxsize: int | None = 128, typed: bool = False
+) -> typing.Callable[[typing.Callable[_P, _R]], typing.Callable[_P, _R]]:
     # presuming that the API is designed to accept only hashable types, set
     # the type hint to match the wrapped function
     return functools.lru_cache(maxsize, typed)

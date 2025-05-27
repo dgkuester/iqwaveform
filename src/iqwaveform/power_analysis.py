@@ -274,7 +274,7 @@ def envtodB(
 
 def dBlinmean(x_dB: _T, axis=None, overwrite_x=False) -> _T:
     """evaluate the mean in linear power space given power in dB.
-    
+
     This is equivalent to:
         powtodB(dBtopow(x).mean(axis))
 
@@ -284,9 +284,9 @@ def dBlinmean(x_dB: _T, axis=None, overwrite_x=False) -> _T:
     """
 
     if overwrite_x:
-        out=x_dB
+        out = x_dB
     else:
-        out=None
+        out = None
 
     linmean = dBtopow(x_dB, out=out).mean(axis)
     return powtodB(linmean, out=linmean)

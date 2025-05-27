@@ -362,11 +362,13 @@ def _prime_fft_sizes(min=2, max=OLA_MAX_FFT_SIZE):
 class ResamplerDesign(typing.TypedDict):
     fs_sdr: float
     lo_offset: float
-    window: str|tuple[str,float]
+    window: str | tuple[str, float]
     nfft: int
     nfft_out: int
-    frequency_shift: typing.Literal['left']|typing.Literal['right']|typing.Literal['none']
-    passband: tuple[float|None, float|None]
+    frequency_shift: (
+        typing.Literal['left'] | typing.Literal['right'] | typing.Literal['none']
+    )
+    passband: tuple[float | None, float | None]
     fs: float
 
 
@@ -480,12 +482,12 @@ def design_cola_resampler(
     return ResamplerDesign(
         fs_sdr=fs_sdr,
         lo_offset=lo_offset,
-        window = window or 'hamming',
-        nfft = int(nfft_in),
-        nfft_out = int(nfft_out),
+        window=window or 'hamming',
+        nfft=int(nfft_in),
+        nfft_out=int(nfft_out),
         frequency_shift=shift,
         passband=passband,
-        fs=fs_sdr
+        fs=fs_sdr,
     )
 
 
@@ -513,7 +515,7 @@ def design_fir_resampler(
         (SDR sample rate, upfirdn keywords)
     """
 
-    design = design_cola_resampler(    
+    design = design_cola_resampler(
         fs_base,
         fs_target,
         bw=bw,
@@ -720,8 +722,8 @@ def design_fir_lpf(
 ):
     edges = [
         0,
-        bandwidth / 2 - transition_bandwidth/2,
-        bandwidth / 2 + transition_bandwidth/2,
+        bandwidth / 2 - transition_bandwidth / 2,
+        bandwidth / 2 + transition_bandwidth / 2,
         sample_rate / 2,
     ]
     bands = list(zip(edges[:-1], edges[1:]))
