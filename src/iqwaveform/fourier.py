@@ -1617,8 +1617,11 @@ def oaresample(
     overwrite_x=False,
     axis=1,
     frequency_shift=0,
+    filter_bandwidth=None,
+    transition_bandwidth=250e3,
+    scale: float = 1.0
 ):
-    """apply a bandpass filter implemented through STFT overlap-and-add.
+    """apply resampler implemented through STFT overlap-and-add.
 
     Args:
         iq: the input waveform, as a pinned array
@@ -1686,9 +1689,19 @@ def oaresample(
 
     del x
 
+    if filter_bandwidth is not None and np.isfinite(filter_bandwidth):
+        y = stft_fir_lowpass(
+            y,
+            sample_rate=fs * up / down,
+            bandwidth=filter_bandwidth,
+            transition_bandwidth=transition_bandwidth,
+            axis=axis,
+            out=y
+        )
+
     # reconstruct into a resampled waveform
     x = istft(y, nfft=nfft_out, noverlap=noverlap, axis=axis, overwrite_x=True)
 
-    x *= x.size / size_in
+    x *= x.size / size_in * scale
 
     return x
