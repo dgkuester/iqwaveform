@@ -39,6 +39,8 @@ else:
     scipy = lazy_import('scipy')
     signal = lazy_import('scipy.signal')
 
+
+MAX_CUPY_FFT_SAMPLES = 1 << 20
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 128 * 1024
 INF = float('inf')
@@ -163,22 +165,23 @@ def _cupy_fftn_helper(
 ):
     import cupy as cp
 
-    inds = util.iter_along_axes(x, iter_axes)
-
     args = (None,), (axis,), None, direction
 
     kws = dict(overwrite_x=overwrite_x, plan=plan, order='C')
 
     # TODO: see about upstream question on this
     if out is None:
-        if iter_axes is not None:
-            raise ValueError('must pass an output buffer to use iter_axes')
+        # if iter_axes is not None:
+        #     raise ValueError('must pass an output buffer to use iter_axes')
         return cp.fft._fft._fftn(x, out=out, *args, **kws)
     else:
         out = out.reshape(x.shape)
 
-    for itup in inds:
-        out[itup] = cp.fft._fft._fftn(x[itup], out=out[itup], *args, **kws)
+    x_views = util.grouped_views_along_axis(x, MAX_CUPY_FFT_SAMPLES, axis=axis)
+    out_views = util.grouped_views_along_axis(out, MAX_CUPY_FFT_SAMPLES, axis=axis)
+
+    for x_view, out_view in zip(x_views, out_views):
+        out_view[:] = cp.fft._fft._fftn(x_view, out=out_view, *args, **kws)
 
     return out
 

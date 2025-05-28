@@ -573,3 +573,25 @@ def iter_along_axes(
             ax_inds.append((empty_slice,))
 
     return itertools.product(*ax_inds)
+
+
+def grouped_views_along_axis(x, target_size, axis=0):
+    xp = array_namespace(x)
+
+    if axis < 0:
+        axis = x.ndim + axis
+
+    if axis == 0:
+        split_axis = 1
+        op_axis = 0
+        x = x.reshape((x.shape[0], -1))
+    elif axis == x.ndim - 1:
+        split_axis = 0
+        op_axis = 1
+        x = x.reshape((-1, x.shape[-1]))
+    else:
+        raise ValueError('must operate on first or last axis of input')
+
+    group_count = max(target_size // x.shape[op_axis], 1)
+
+    return xp.array_split(x, group_count, axis=split_axis)
