@@ -575,27 +575,35 @@ def iter_along_axes(
     return itertools.product(*ax_inds)
 
 
-def grouped_views_along_axis(x, target_size, axis=0):
-    xp = array_namespace(x)
-
+def grouped_views_along_axis(x, max_size, axis=0):
     if axis < 0:
         axis = x.ndim + axis
 
-    if axis == 0:
-        split_axis = 1
-        op_axis = 0
-        x = x.reshape((x.shape[0], -1))
-    elif axis == x.ndim - 1:
-        split_axis = 0
-        op_axis = 1
-        x = x.reshape((-1, x.shape[-1]))
-    else:
-        raise ValueError('must operate on first or last axis of input')
-    
+    size_resid = max_size // x.shape[axis]
 
-    if x.size < target_size:
-        return [x], op_axis
+    ax_steps = []
+    for iax, n in enumerate(x.shape):
+        if size_resid <= 1:
+            break
+        if iax == axis:
+            ax_steps.append((slice(None, None),))
+            continue
+        elif n <= size_resid:
+            ax_steps.append(((i,) for i in range(n)))
+        else:
+            splits = list(range(0, n, size_resid))
+            if splits[-1] != n-1:
+                splits.append(n)
+            new = (slice(a,b) for a, b in zip(splits[:-1], splits[1:]))
+            ax_steps.append(new)
+        size_resid = size_resid // n
 
-    group_count = max(target_size // x.shape[op_axis], 1)
+    slices = itertools.product(*ax_steps)
 
-    return xp.array_split(x, group_count, axis=split_axis), op_axis
+    empty = True
+    for slice_ in slices:
+        empty = False
+        yield x[slice_]
+
+    if empty:
+        yield x
