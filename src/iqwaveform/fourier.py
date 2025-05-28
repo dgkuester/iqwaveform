@@ -166,6 +166,7 @@ def _cupy_fftn_helper(
     import cupy as cp
 
     kws = dict(overwrite_x=overwrite_x, plan=plan, order='C')
+    args = (None,), (axis,), None, direction
 
     # TODO: see about upstream question on this
     if out is None:
@@ -176,10 +177,8 @@ def _cupy_fftn_helper(
     else:
         out = out.reshape(x.shape)
 
-    x_views, op_axis = util.grouped_views_along_axis(x, MAX_CUPY_FFT_SAMPLES, axis=axis)
-    out_views, _ = util.grouped_views_along_axis(out, MAX_CUPY_FFT_SAMPLES, axis=axis)
-
-    args = (None,), (op_axis,), None, direction
+    x_views = util.grouped_views_along_axis(x, MAX_CUPY_FFT_SAMPLES, axis=axis)
+    out_views = util.grouped_views_along_axis(out, MAX_CUPY_FFT_SAMPLES, axis=axis)
 
     for x_view, out_view in zip(x_views, out_views):
         out_view[:] = cp.fft._fft._fftn(x_view, out=out_view, *args, **kws)
