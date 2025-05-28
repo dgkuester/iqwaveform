@@ -594,4 +594,4 @@ def grouped_views_along_axis(x, target_size, axis=0):
 
     group_count = max(target_size // x.shape[op_axis], 1)
 
-    return xp.array_split(x, group_count, axis=split_axis)
+    return xp.array_split(x, group_count, axis=split_axis), op_axis
