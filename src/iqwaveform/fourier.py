@@ -39,11 +39,13 @@ else:
     scipy = lazy_import('scipy')
     signal = lazy_import('scipy.signal')
 
-
-MAX_CUPY_FFT_SAMPLES = 1 << 20
 CPU_COUNT = cpu_count()
 OLA_MAX_FFT_SIZE = 128 * 1024
 INF = float('inf')
+
+# this tunes a tradeoff between CPU and memory consumption
+# as of cupy 12
+MAX_CUPY_FFT_SAMPLES = 1 << 20
 
 
 # required divisors
