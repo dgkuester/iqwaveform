@@ -163,7 +163,6 @@ def _cupy_fftn_helper(
     out=None,
     overwrite_x=False,
     plan=None,
-    iter_axes=None,
 ):
     import cupy as cp
 
@@ -172,8 +171,6 @@ def _cupy_fftn_helper(
 
     # TODO: see about upstream question on this
     if out is None:
-        # if iter_axes is not None:
-        #     raise ValueError('must pass an output buffer to use iter_axes')
         args = (None,), (axis,), None, direction
         return cp.fft._fft._fftn(x, out=out, *args, **kws)
     else:
@@ -189,7 +186,7 @@ def _cupy_fftn_helper(
 
 
 def fft(
-    x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None, iter_axes=None
+    x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None
 ):
     if is_cupy_array(x):
         import cupy as cp
@@ -201,7 +198,6 @@ def fft(
             out=out,
             overwrite_x=overwrite_x,
             plan=plan,
-            iter_axes=iter_axes,
         )
 
     else:
@@ -219,7 +215,6 @@ def ifft(
     overwrite_x=False,
     plan=None,
     workers=None,
-    iter_axes: typing.Iterable[int] | None = None,
 ):
     if is_cupy_array(x):
         import cupy as cp
@@ -231,7 +226,6 @@ def ifft(
             out=out,
             overwrite_x=overwrite_x,
             plan=plan,
-            iter_axes=iter_axes,
         )
     else:
         if workers is None:
@@ -933,7 +927,6 @@ def stft(
     norm: str | None = None,
     overwrite_x=False,
     return_axis_arrays=True,
-    iter_axes=None,
     out=None,
 ) -> tuple[ArrayType, ArrayType, ArrayType]:
     """Implements a stripped-down subset of scipy.fft.stft in order to avoid
@@ -1038,7 +1031,7 @@ def stft(
     del x
 
     # no fftshift needed since it was baked into the window
-    y = fft(xstack, axis=axis + 1, overwrite_x=True, out=xstack, iter_axes=iter_axes)
+    y = fft(xstack, axis=axis + 1, overwrite_x=True, out=xstack)
 
     if not return_axis_arrays:
         return y
@@ -1208,7 +1201,6 @@ def spectrogram(
     axis: int = 0,
     truncate: bool = True,
     return_axis_arrays: bool = True,
-    iter_axes=None,
 ):
     kws = dict(locals())
 
@@ -1535,7 +1527,6 @@ def resample(
     overwrite_x=False,
     scale=1,
     shift=0,
-    iter_axes=None,
 ):
     """limited reimplementation of scipy.signal.resample optimized for reduced memory.
 
@@ -1586,7 +1577,7 @@ def resample(
         # the fftshift is needed to enable clean slice-driven downsampling
         x = time_fftshift(x, resample_scale, overwrite_x=overwrite_x, axis=axis)
 
-        y = fft(x, axis=axis, overwrite_x=overwrite_x, out=x, iter_axes=iter_axes)
+        y = fft(x, axis=axis, overwrite_x=overwrite_x, out=x)
     else:  # domain == 'freq'
         if overwrite_x:
             out = x
@@ -1610,7 +1601,7 @@ def resample(
         y = pad_along_axis(y, [[pad_left, pad_right]], axis=axis)
 
     # Inverse transform
-    xout = ifft(y, axis=axis, overwrite_x=True, out=y, iter_axes=iter_axes)
+    xout = ifft(y, axis=axis, overwrite_x=True, out=y)
 
     return time_ifftshift(xout, overwrite_x=True, axis=axis)
 

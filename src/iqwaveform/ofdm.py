@@ -244,7 +244,7 @@ def _generate_5g_nr_sync_sequence(
     seq_freq = pad_along_axis(m_seqs / norm, [(pad_lo, pad_hi)], axis=1)
 
     seq_freq = xp.fft.fftshift(seq_freq, axes=1)
-    seq_time = fourier.ifft(seq_freq, axis=1, iter_axes=0, out=seq_freq)
+    seq_time = fourier.ifft(seq_freq, axis=1, out=seq_freq)
 
     # prepend the cyclic prefix
     if pad_cp:
