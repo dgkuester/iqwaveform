@@ -52,6 +52,24 @@ def unit_linear_to_dB(s: str):
     return s
 
 
+def unit_dB_to_wave(s: str):
+    for db_unit, lin_unit in _DB_UNIT_MAPPING.items():
+        s, _ = re.subn('^' + db_unit, '√' + lin_unit, s, count=1)
+    return s
+
+
+def unit_wave_to_dB(s: str):
+    for db_unit, lin_unit in _DB_UNIT_MAPPING.items():
+        s, _ = re.subn('^√' + lin_unit, db_unit, s, count=1)
+    return s
+
+
+def unit_wave_to_linear(s: str):
+    for db_unit, lin_unit in _DB_UNIT_MAPPING.items():
+        s, _ = re.subn('^√' + lin_unit, lin_unit, s, count=1)
+    return s
+
+
 @lru_cache()
 def stat_ufunc_from_shorthand(kind, xp=np, axis=0):
     NAMED_UFUNCS = {
@@ -228,7 +246,7 @@ def envtopow(x: Union[ArrayLike, Number], out=None) -> Any:
         values = xp.abs(x, out=out)
         values *= values
 
-    return _repackage_arraylike(values, x)
+    return _repackage_arraylike(values, x, unit_transform=unit_wave_to_linear)
 
 
 def envtodB(
@@ -269,7 +287,7 @@ def envtodB(
         values = xp.log10(values, out=out)
         values *= 20
 
-    return _repackage_arraylike(values, x, unit_transform=unit_linear_to_dB)
+    return _repackage_arraylike(values, x, unit_transform=unit_wave_to_dB)
 
 
 def dBlinmean(x_dB: _T, axis=None, overwrite_x=False) -> _T:
