@@ -591,6 +591,10 @@ def grouped_views_along_axis(x, target_size, axis=0):
         x = x.reshape((-1, x.shape[-1]))
     else:
         raise ValueError('must operate on first or last axis of input')
+    
+
+    if x.size < target_size:
+        return [x], op_axis
 
     group_count = max(target_size // x.shape[op_axis], 1)
 

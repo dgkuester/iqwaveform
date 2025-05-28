@@ -171,6 +171,7 @@ def _cupy_fftn_helper(
     if out is None:
         # if iter_axes is not None:
         #     raise ValueError('must pass an output buffer to use iter_axes')
+        args = (None,), (axis,), None, direction
         return cp.fft._fft._fftn(x, out=out, *args, **kws)
     else:
         out = out.reshape(x.shape)
