@@ -579,6 +579,10 @@ def grouped_views_along_axis(x, max_size, axis=0):
     if axis < 0:
         axis = x.ndim + axis
 
+    if x.size <= max_size:
+        yield x
+        return
+
     size_resid = max_size // x.shape[axis]
 
     ax_steps = []
@@ -594,7 +598,7 @@ def grouped_views_along_axis(x, max_size, axis=0):
             splits = list(range(0, n, size_resid))
             if splits[-1] != n-1:
                 splits.append(n)
-            new = (slice(a,b) for a, b in zip(splits[:-1], splits[1:]))
+            new = [slice(a,b) for a, b in zip(splits[:-1], splits[1:])]
             ax_steps.append(new)
         size_resid = size_resid // n
 
@@ -602,6 +606,8 @@ def grouped_views_along_axis(x, max_size, axis=0):
 
     empty = True
     for slice_ in slices:
+        if empty:
+            print(slice_)
         empty = False
         yield x[slice_]
 
