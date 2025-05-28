@@ -238,7 +238,7 @@ def _generate_5g_nr_sync_sequence(
 
     norm = xp.sqrt(xp.float32(SC_COUNT))
     m_seqs = xp.array([seq_func(i) for i in range(max_id + 1)], dtype=dtype)
-    m_seqs *= fourier.get_window(('dpss', 0.9), m_seqs.shape[1])[xp.newaxis]
+    m_seqs *= fourier.get_window(('dpss', 0.9), m_seqs.shape[1], xp=xp)[xp.newaxis]
     norm *= xp.sqrt(xp.mean(xp.abs(m_seqs) ** 2))
 
     seq_freq = pad_along_axis(m_seqs / norm, [(pad_lo, pad_hi)], axis=1)
