@@ -185,9 +185,7 @@ def _cupy_fftn_helper(
     return out
 
 
-def fft(
-    x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None
-):
+def fft(x, axis=-1, out=None, overwrite_x=False, plan=None, workers=None):
     if is_cupy_array(x):
         import cupy as cp
 
@@ -1619,7 +1617,7 @@ def oaresample(
     frequency_shift=0,
     filter_bandwidth=None,
     transition_bandwidth=250e3,
-    scale: float = 1.0
+    scale: float = 1.0,
 ):
     """apply resampler implemented through STFT overlap-and-add.
 
@@ -1696,7 +1694,7 @@ def oaresample(
             bandwidth=filter_bandwidth,
             transition_bandwidth=transition_bandwidth,
             axis=axis,
-            out=y
+            out=y,
         )
 
     # reconstruct into a resampled waveform
