@@ -1557,16 +1557,16 @@ def resample(
     if shift == 0:
         # no frequency shift
         edge_low = edge_high = None
-    elif num >= x.shape[axis]:
-        raise ValueError('frequency_shift must be 0 unless downsampling')
+    elif nfft_out > nfft_in:
+        raise ValueError('shift is only supported when downsampling')
     else:
-        edge_low = x.shape[axis] // 2 - num // 2 + shift
-        edge_high = edge_low + num
+        edge_low = nfft_in // 2 - nfft_out // 2 + shift
+        edge_high = edge_low + nfft_out
 
         if edge_low < 0:
-            raise ValueError('frequency_shift is too small')
-        if edge_high > x.shape[axis]:
-            raise ValueError('frequency_shift is too large')
+            raise ValueError('shift is too small')
+        if edge_high > nfft_in:
+            raise ValueError('shift is too large')
 
     resample_scale = float(nfft_out) / float(nfft_in) * scale
 
@@ -1574,8 +1574,7 @@ def resample(
         # apply fftshift in the time domain, where we can avoid a copy.
         # the fftshift is needed to enable clean slice-driven downsampling
         x = time_fftshift(x, resample_scale, overwrite_x=overwrite_x, axis=axis)
-
-        y = fft(x, axis=axis, overwrite_x=overwrite_x, out=x)
+        y = fft(x, axis=axis, overwrite_x=True, out=x)
     else:  # domain == 'freq'
         if overwrite_x:
             out = x
