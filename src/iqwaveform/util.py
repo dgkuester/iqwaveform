@@ -581,35 +581,29 @@ def ceildiv(a: int, b: int) -> int:
 
 
 @lru_cache()
-def _group_slices_by_axis(shape: tuple[int, ...], max_size: int, axis: int):
+def grouped_slices_along_axis(shape: tuple[int, ...], max_size: int, axis: int):
     if axis < 0:
         axis = len(shape) + axis
 
     # tracks the size of all axes > iax
     size_rest = math.prod(shape)
 
-    ax_steps = []
+    slices_per_ax = []
     for iax, n in enumerate(shape):
         if iax == axis or size_rest < max_size:
-            ax_steps.append((slice(None, None),))
+            slices_per_ax.append((slice(None, None),))
             continue
 
         want_count = max(ceildiv(size_rest, max_size), 1)
         count = min(want_count, n)
         step = n // count
 
-        if step == 1:
-            ax_steps.append([(i,) for i in range(n)])
-        else:
-            splits = list(range(0, n, step))
-            if splits[-1] != n - 1:
-                splits.append(n)
-            new = [slice(a, b) for a, b in zip(splits[:-1], splits[1:])]
-            ax_steps.append(new)
+        new = (slice(i, min(n, i+step)) for i in range(0, n, step))
+        slices_per_ax.append(tuple(new))
 
         size_rest = size_rest // count
 
-    return ax_steps
+    return slices_per_ax
 
 
 def grouped_views_along_axis(
@@ -619,7 +613,7 @@ def grouped_views_along_axis(
         yield x
         return
 
-    ax_steps = _group_slices_by_axis(x.shape, max_size, axis)
+    ax_steps = grouped_slices_along_axis(x.shape, max_size, axis)
 
     slices = itertools.product(*ax_steps)
 
