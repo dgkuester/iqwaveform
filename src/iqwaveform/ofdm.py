@@ -236,14 +236,14 @@ def _generate_5g_nr_sync_sequence(
             'center_frequency shift pushes M-sequence outside of Nyquist sample rate'
         )
 
-    norm = np.sqrt(np.float32(SC_COUNT))
-    m_seqs = np.array([seq_func(i) for i in range(max_id + 1)], dtype=dtype)
-    m_seqs *= fourier.get_window(('dpss', 0.9), m_seqs.shape[1], xp=np)[np.newaxis]
-    norm *= np.sqrt(np.mean(np.abs(m_seqs) ** 2))
+    norm = xp.sqrt(xp.float32(SC_COUNT))
+    m_seqs = xp.array([seq_func(i) for i in range(max_id + 1)], dtype=dtype)
+    m_seqs *= fourier.get_window(('dpss', 0.9), m_seqs.shape[1], xp=xp)[xp.newaxis]
+    norm *= xp.sqrt(xp.mean(xp.abs(m_seqs) ** 2))
 
     seq_freq = pad_along_axis(m_seqs / norm, [(pad_lo, pad_hi)], axis=1)
 
-    seq_freq = np.fft.fftshift(seq_freq, axes=1)
+    seq_freq = xp.fft.fftshift(seq_freq, axes=1)
     seq_time = fourier.ifft(seq_freq, axis=1, out=seq_freq)
 
     # prepend the cyclic prefix
@@ -251,8 +251,8 @@ def _generate_5g_nr_sync_sequence(
         cp_size = round(9 * sample_rate / subcarrier_spacing / 128)
         # seq_time = xp.concatenate([seq_time[:, -cp_size:], seq_time], axis=1)
         # seq_time = iqwaveform.util.pad_along_axis(seq_time, [[cp_size, 0]], axis=1)
-        seq_time = np.concatenate(
-            [np.zeros_like(seq_time[:, -cp_size:]), seq_time], axis=1
+        seq_time = xp.concatenate(
+            [xp.zeros_like(seq_time[:, -cp_size:]), seq_time], axis=1
         )
 
     return xp.array(seq_time)
