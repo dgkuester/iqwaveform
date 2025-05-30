@@ -1574,7 +1574,7 @@ def resample(
         # apply fftshift in the time domain, where we can avoid a copy.
         # the fftshift is needed to enable clean slice-driven downsampling
         x = time_fftshift(x, resample_scale, overwrite_x=overwrite_x, axis=axis)
-        y = fft(x, axis=axis, overwrite_x=True, out=x)
+        y = fft(x, axis=axis, overwrite_x=overwrite_x, out=x)
     else:  # domain == 'freq'
         if overwrite_x:
             out = x
