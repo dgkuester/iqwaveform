@@ -1506,7 +1506,7 @@ def time_fftshift(x, scale=None, overwrite_x=False, axis=0):
         raise ValueError('scale must be 1-D or scalar')
 
     xview = to_blocks(x, 2, axis=axis)
-    outview = to_blocks(x, 2, axis=axis)
+    outview = to_blocks(out, 2, axis=axis)
     scale = broadcast_onto(xp.atleast_1d(scale), outview, axis=max(axis - 1, 0))
     shift = broadcast_onto(xp.array([1, -1]), outview, axis=axis + 1)
     xp.multiply(xview, scale * shift, out=outview)
