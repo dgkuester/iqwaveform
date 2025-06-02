@@ -45,7 +45,7 @@ INF = float('inf')
 
 # this tunes a tradeoff between CPU and memory consumption
 # as of cupy 12
-MAX_CUPY_FFT_SAMPLES = 1 << 20
+MAX_CUPY_FFT_SAMPLES = 1 << 22
 
 
 # required divisors
