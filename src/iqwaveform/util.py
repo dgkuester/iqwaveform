@@ -598,7 +598,7 @@ def grouped_slices_along_axis(shape: tuple[int, ...], max_size: int, axis: int):
         count = min(want_count, n)
         step = n // count
 
-        new = (slice(i, min(n, i+step)) for i in range(0, n, step))
+        new = (slice(i, min(n, i + step)) for i in range(0, n, step))
         slices_per_ax.append(tuple(new))
 
         size_rest = size_rest // count

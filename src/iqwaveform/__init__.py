@@ -21,14 +21,6 @@ from .fourier import (
     to_blocks,
 )
 
-from .figures import (
-    pcolormesh_df,
-    plot_power_histogram_heatmap,
-    plot_power_ccdf,
-    plot_spectrogram_heatmap_from_iq,
-    plot_spectrogram_heatmap,
-)
-
 from .io import waveform_to_frame
 
 from .power_analysis import (

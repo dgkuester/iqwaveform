@@ -1478,8 +1478,12 @@ def upfirdn(h, x, up=1, down=1, axis=-1, mode='constant', cval=0, overwrite_x=Fa
     return y
 
 
-@functools.wraps(signal.oaconvolve)
 def oaconvolve(x1, x2, mode='full', axes=-1):
+    """convolve x1 and x2, and return the result.
+
+    See also:
+        `scipy.signal.oaconvolve`
+    """
     if is_cupy_array(x1):
         from cupyx.scipy.signal import oaconvolve as func
     else:
