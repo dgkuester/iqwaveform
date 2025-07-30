@@ -318,6 +318,26 @@ def dBlinmean(x_dB: _T, axis=None, overwrite_x=False) -> _T:
     return powtodB(linmean, out=linmean)
 
 
+def dBlinsum(x_dB: _T, axis=None, overwrite_x=False) -> _T:
+    """evaluate the sum in linear power space given power in dB.
+
+    This is equivalent to:
+        powtodB(dBtopow(x).sum(axis))
+
+    Returns:
+        array-like object with same shape as x_dB, reduced by the
+        dimension at the specified axes
+    """
+
+    if overwrite_x:
+        out = x_dB
+    else:
+        out = None
+
+    linmean = dBtopow(x_dB, out=out).sum(axis)
+    return powtodB(linmean, out=linmean)
+
+
 def iq_to_bin_power(
     iq: ArrayType,
     Ts: float,
