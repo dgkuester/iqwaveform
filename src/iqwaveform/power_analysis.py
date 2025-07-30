@@ -101,8 +101,8 @@ def stat_ufunc_from_shorthand(kind, xp=np, axis=0):
     return ufunc
 
 
-def _interpret_arraylike(
-    x: Union[ArrayLike, Number], out: Optional[ArrayLike] = None
+def _arraylike_with_buffer(
+    x: Union[ArrayLike, Number], out: Optional[ArrayLike] = None, min_dtype: Any=None
 ) -> tuple[ArrayType, ArrayType, ModuleType]:
     """interpret the array-like input and output buffer arguments.
 
@@ -125,7 +125,11 @@ def _interpret_arraylike(
             raise TypeError(f'unsupported input type {type(x)}')
 
     if out is None:
-        out = xp.zeros(xp.shape(x), dtype=float_dtype_like(values))
+        out_dtype = float_dtype_like(values, min_dtype=min_dtype)
+        out = xp.zeros(xp.shape(x), dtype=out_dtype)
+    elif isinstance(x, Number):
+        # for a scalar, skip buffer allocation entirely
+        out = None
     elif hasattr(out, 'values'):
         # pandas, xarray objects
         out = out.values
@@ -168,7 +172,7 @@ def powtodB(
 
     eps_str = '' if eps == 0 else '+eps'
 
-    values, out, xp = _interpret_arraylike(x, out)
+    values, out, xp = _arraylike_with_buffer(x, out)
 
     if xp is np:
         if abs:
@@ -205,7 +209,11 @@ def powtodB(
 def dBtopow(x: Union[ArrayLike, Number], out=None) -> Any:
     """compute `10**(x/10)` with speed optimizations"""
 
-    values, out, xp = _interpret_arraylike(x, out)
+    dtype = getattr(x, 'dtype', np.float32())
+    if dtype.itemsize < 4:
+        dtype = np.float32()
+
+    values, out, xp = _arraylike_with_buffer(x, out, min_dtype='float32')
 
     if xp is np:
         expr = '10**(values/10.)'
@@ -226,7 +234,7 @@ def dBtopow(x: Union[ArrayLike, Number], out=None) -> Any:
 def envtopow(x: Union[ArrayLike, Number], out=None) -> Any:
     """Computes abs(x)**2 with speed optimizations"""
 
-    values, out, xp = _interpret_arraylike(x, out)
+    values, out, xp = _arraylike_with_buffer(x, out)
 
     if xp is np:
         # numpy, pandas
@@ -256,7 +264,7 @@ def envtodB(
 
     eps_str = '' if eps == 0 else '+eps'
 
-    values, out, xp = _interpret_arraylike(x, out)
+    values, out, xp = _arraylike_with_buffer(x, out)
 
     if xp is np:
         if abs:

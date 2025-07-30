@@ -362,8 +362,14 @@ def sliding_window_view(x, window_shape, axis=None, *, subok=False, writeable=Fa
     return xp.lib.stride_tricks.as_strided(x, strides=out_strides, shape=out_shape)
 
 
-def float_dtype_like(x: type_stubs.ArrayType):
+def float_dtype_like(x: type_stubs.ArrayType, min_dtype: Any|None = None):
     """returns a floating-point dtype corresponding to x.
+
+    `x` may be complex, in which case the returned data type corresponds to
+    that of the `x.real` or `x.imag`.
+
+    Args:
+        min_dtype: dtype with the minimum acceptable float size, or None for no minimum
 
     Returns:
     * If x.dtype is float16/float32/float64: x.dtype.
@@ -377,10 +383,18 @@ def float_dtype_like(x: type_stubs.ArrayType):
         xp = array_namespace(x)
 
     try:
-        ret = np.finfo(xp.asarray(x).dtype).dtype
+        dtype = np.finfo(xp.asarray(x).dtype).dtype
     except ValueError:
-        ret = np.float32
-    return ret
+        dtype = np.dtype('float32')
+
+    if min_dtype is None:
+        pass
+    else: 
+        min_dtype = np.dtype(min_dtype)
+        if min_dtype.itemsize > dtype.itemsize:
+            dtype = min_dtype
+    
+    return dtype
 
 
 def to_blocks(
