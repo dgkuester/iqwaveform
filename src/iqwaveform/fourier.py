@@ -45,7 +45,7 @@ INF = float('inf')
 
 # this tunes a tradeoff between CPU and memory consumption
 # as of cupy 12
-MAX_CUPY_FFT_SAMPLES = 1 << 22
+MAX_CUPY_FFT_SAMPLES = 2**22
 
 
 # required divisors
@@ -56,6 +56,15 @@ _COLA_WINDOW_SIZE_DIVISOR = {
     'blackman': 3,
     'blackmanharris': 5,
 }
+
+
+def set_max_cupy_fft_chunk(count: int):
+    global MAX_CUPY_FFT_SAMPLES
+    MAX_CUPY_FFT_SAMPLES = count
+
+
+def get_max_cupy_fft_chunk():
+    return MAX_CUPY_FFT_SAMPLES
 
 
 def _get_window_uncached(
@@ -1200,6 +1209,11 @@ def spectrogram(
     truncate: bool = True,
     return_axis_arrays: bool = True,
 ):
+    """evaluate the power spectrogram of x with the given arguments.
+    
+    The output is scaled such that the noise bandwidth is equal to the
+    frequency resolution.
+    """
     kws = dict(locals())
 
     ret = stft(norm='power', **kws)
