@@ -45,7 +45,7 @@ INF = float('inf')
 
 # this tunes a tradeoff between CPU and memory consumption
 # as of cupy 12
-MAX_CUPY_FFT_SAMPLES = 2**22
+MAX_CUPY_FFT_SAMPLES = None
 
 
 # required divisors
@@ -58,7 +58,7 @@ _COLA_WINDOW_SIZE_DIVISOR = {
 }
 
 
-def set_max_cupy_fft_chunk(count: int):
+def set_max_cupy_fft_chunk(count: int|None):
     global MAX_CUPY_FFT_SAMPLES
     MAX_CUPY_FFT_SAMPLES = count
 
@@ -184,6 +184,9 @@ def _cupy_fftn_helper(
         return cp.fft._fft._fftn(x, out=out, *args, **kws)
     else:
         out = out.reshape(x.shape)
+
+    if MAX_CUPY_FFT_SAMPLES is None:
+        return cp.fft._fft._fftn(x, out=out, *args, **kws)
 
     x_views = util.grouped_views_along_axis(x, MAX_CUPY_FFT_SAMPLES, axis=axis)
     out_views = util.grouped_views_along_axis(out, MAX_CUPY_FFT_SAMPLES, axis=axis)
